@@ -723,3 +723,38 @@ func TestResolveRejectsTorrentWithOtherHash(t *testing.T) {
 		t.Fatalf("err = %v, want hash mismatch", err)
 	}
 }
+
+func TestResolveAutoFilePicksLargestAudio(t *testing.T) {
+	files := `[{"id":0,"name":"cover.jpg","size":900000000},{"id":1,"name":"a/ch1.mp3","size":10},{"id":2,"name":"a/ch2.MP3","size":30},{"id":3,"name":"a/ch3.mp3","size":20}]`
+	var got string
+	_, c := newFake(t, map[string]route{
+		"GET /v1/api/torrents/mylist": okData(`[` + itemJSON(7, hashA, "cached", true, true, 1, files) + `]`),
+		"GET /v1/api/torrents/requestdl": func(w http.ResponseWriter, r *http.Request) {
+			got = r.URL.Query().Get("file_id")
+			okData(`"https://cdn/x"`)(w, r)
+		},
+	})
+	res, err := c.Resolve(context.Background(), testKey, debrid.ResolveRequest{InfoHash: hashA, FileIndex: debrid.AutoFile})
+	if err != nil || res.URL == "" || got != "2" {
+		t.Fatalf("res=%+v err=%v file_id=%q (want 2, never the 900 MB cover)", res, err, got)
+	}
+}
+
+func TestResolveAutoFileWithoutAudioIsNotFound(t *testing.T) {
+	_, c := newFake(t, map[string]route{
+		"GET /v1/api/torrents/mylist": okData(`[` + itemJSON(7, hashA, "cached", true, true, 1, `[{"id":0,"name":"readme.txt","size":5}]`) + `]`),
+	})
+	_, err := c.Resolve(context.Background(), testKey, debrid.ResolveRequest{InfoHash: hashA, FileIndex: debrid.AutoFile})
+	if !errors.Is(err, debrid.ErrNotFound) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRedactEncodedKey(t *testing.T) {
+	key := "ab+c/d=e&f"
+	for _, in := range []string{key, url.QueryEscape(key), url.PathEscape(key)} {
+		if out := redact(key, "GET /x?token="+in+" failed"); strings.Contains(out, in) || !strings.Contains(out, "***") {
+			t.Errorf("not redacted: %q", out)
+		}
+	}
+}

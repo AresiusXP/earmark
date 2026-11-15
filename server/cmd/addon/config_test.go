@@ -1,0 +1,53 @@
+package main
+
+import (
+	"log/slog"
+	"strings"
+	"testing"
+)
+
+func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+func TestLoadConfig(t *testing.T) {
+	good := map[string]string{
+		"PUBLIC_URL": "https://audiobooks.example/", "DATABASE_URL": "postgres://x",
+		"CONFIG_SECRET": strings.Repeat("s", 32), "INSTANCE_PASSWORD": "pw",
+	}
+	c, err := loadConfig(env(good))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Port != 8080 || c.AdminPort != 9090 || c.PublicURL != "https://audiobooks.example" || c.LogLevel != slog.LevelInfo {
+		t.Fatalf("%+v", c)
+	}
+
+	with := func(k, v string) map[string]string {
+		m := map[string]string{}
+		for kk, vv := range good {
+			m[kk] = vv
+		}
+		m[k] = v
+		return m
+	}
+	for name, m := range map[string]map[string]string{
+		"missing db":    with("DATABASE_URL", ""),
+		"short secret":  with("CONFIG_SECRET", "short"),
+		"bad url":       with("PUBLIC_URL", "audiobooks.example"),
+		"url with path": with("PUBLIC_URL", "https://x.example/abk"),
+		"bad port":      with("PORT", "99999"),
+		"same ports":    with("ADMIN_PORT", "8080"),
+		"bad level":     with("LOG_LEVEL", "loud"),
+	} {
+		if _, err := loadConfig(env(m)); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+	open := with("INSTANCE_PASSWORD", "")
+	open["ALLOW_OPEN_CONFIG"] = "true"
+	if c, err := loadConfig(env(open)); err != nil || !c.AllowOpenConfig {
+		t.Errorf("explicit open instance: %+v %v", c, err)
+	}
+	if c, err := loadConfig(env(with("ADMIN_PORT", "0"))); err != nil || c.AdminPort != 0 {
+		t.Errorf("admin off: %+v %v", c, err)
+	}
+}

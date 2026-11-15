@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Audiobooks for Stremio - configure</title>
+<style nonce="{{NONCE}}">
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #14162b; color: #e8e8f2; }
+  main { max-width: 34rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  p.lead { margin: 0 0 1.5rem; color: #a8a8c0; }
+  fieldset { border: 1px solid #3a3d63; border-radius: .5rem; margin: 0 0 1rem; padding: .75rem 1rem 1rem; }
+  legend { padding: 0 .4rem; color: #a8a8c0; }
+  label { display: block; margin: .6rem 0 .15rem; }
+  label.inline { display: flex; align-items: center; gap: .5rem; margin: .3rem 0; }
+  input[type=password], input[type=text], input[type=number], select {
+    width: 100%; padding: .5rem; border-radius: .35rem; border: 1px solid #3a3d63;
+    background: #1d2040; color: inherit; font: inherit;
+  }
+  button { padding: .6rem 1.1rem; border: 0; border-radius: .4rem; background: #7b5bd6; color: #fff; font: inherit; cursor: pointer; }
+  button.secondary { background: #3a3d63; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .error { color: #ff8a8a; margin: .75rem 0 0; min-height: 1.5rem; }
+  .field-error { color: #ff8a8a; font-size: .9rem; margin: .2rem 0 0; }
+  .hint { color: #a8a8c0; font-size: .9rem; margin: .3rem 0 0; }
+  #result { border: 1px solid #4a8f5f; border-radius: .5rem; padding: 1rem; margin-top: 1.5rem; }
+  #result a.install { display: inline-block; margin: .5rem .5rem .5rem 0; padding: .6rem 1.1rem; border-radius: .4rem; background: #4a8f5f; color: #fff; text-decoration: none; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Audiobooks for Stremio</h1>
+  <p class="lead">Your debrid keys are sealed into the install link. They are never shown again.</p>
+
+  <form id="form" autocomplete="off">
+    <fieldset>
+      <legend>Debrid services</legend>
+      <div id="providers"></div>
+      <p class="hint">Fill in at least one. Leave a field blank to keep the key you already set.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Audible</legend>
+      <label for="region">Region</label>
+      <select id="region">
+        <option value="us">United States (us)</option>
+        <option value="uk">United Kingdom (uk)</option>
+        <option value="de">Germany (de)</option>
+        <option value="fr">France (fr)</option>
+        <option value="it">Italy (it)</option>
+        <option value="es">Spain (es)</option>
+        <option value="ca">Canada (ca)</option>
+        <option value="au">Australia (au)</option>
+        <option value="in">India (in)</option>
+      </select>
+      <label>Languages</label>
+      <label class="inline"><input type="checkbox" name="lang" value="en" checked> English</label>
+      <label class="inline"><input type="checkbox" name="lang" value="nl"> Nederlands</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Releases</legend>
+      <label for="format">Preferred format</label>
+      <select id="format">
+        <option value="">M4B first (default)</option>
+        <option value="m4b">M4B</option>
+        <option value="mp3">MP3</option>
+      </select>
+      <label class="inline"><input type="checkbox" id="uncached"> Show releases that are not cached</label>
+      <label for="maxr">Releases per book (1-20)</label>
+      <input type="number" id="maxr" min="1" max="20" value="5">
+    </fieldset>
+
+    <fieldset id="pwbox" hidden>
+      <legend>Instance</legend>
+      <label for="pw">Instance password</label>
+      <input type="password" id="pw" autocomplete="off">
+    </fieldset>
+
+    <button type="submit" id="submit">Create install link</button>
+    <p class="error" id="error" role="alert"></p>
+  </form>
+
+  <section id="result" hidden>
+    <strong>Ready.</strong>
+    <p class="hint">Install it in Stremio, or paste the manifest URL under Addons.</p>
+    <a class="install" id="install" href="#">Install in Stremio</a>
+    <label for="manifest">Manifest URL</label>
+    <input type="text" id="manifest" readonly>
+    <p><button type="button" class="secondary" id="copy">Copy URL</button> <span id="copied" class="hint"></span></p>
+  </section>
+</main>
+
+<script type="application/json" id="boot">{{BOOT}}</script>
+<script nonce="{{NONCE}}">
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var boot = JSON.parse($('boot').textContent);
+  var current = boot.current || '';
+  var inputs = {};
+
+  function renderProviders() {
+    var box = $('providers');
+    box.textContent = '';
+    inputs = {};
+    boot.providers.forEach(function (p) {
+      var wrap = document.createElement('div');
+      var label = document.createElement('label');
+      label.textContent = p.label + ' API key';
+      var input = document.createElement('input');
+      input.type = 'password';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.id = 'key-' + p.name;
+      label.htmlFor = input.id;
+      input.placeholder = p.hasKey ? 'key set - leave blank to keep' : 'paste your API key';
+      var err = document.createElement('p');
+      err.className = 'field-error';
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      wrap.appendChild(err);
+      box.appendChild(wrap);
+      inputs[p.name] = { input: input, err: err };
+    });
+  }
+
+  function prefill() {
+    var c = boot.config;
+    if (!c) { return; }
+    var sel = $('region');
+    if (!Array.prototype.some.call(sel.options, function (o) { return o.value === c.region; })) {
+      var o = document.createElement('option');
+      o.value = c.region;
+      o.textContent = c.region;
+      sel.appendChild(o);
+    }
+    sel.value = c.region;
+    Array.prototype.forEach.call(document.getElementsByName('lang'), function (cb) {
+      cb.checked = (c.languages || []).indexOf(cb.value) >= 0;
+    });
+    $('format').value = c.preferFormat || '';
+    $('uncached').checked = !!c.showUncached;
+    $('maxr').value = c.maxReleases || 5;
+  }
+
+  function setError(msg) { $('error').textContent = msg || ''; }
+
+  function clearFieldErrors() {
+    Object.keys(inputs).forEach(function (k) { inputs[k].err.textContent = ''; });
+  }
+
+  function collect() {
+    var keys = {};
+    Object.keys(inputs).forEach(function (k) {
+      var v = inputs[k].input.value.trim();
+      if (v) { keys[k] = v; }
+    });
+    var langs = [];
+    Array.prototype.forEach.call(document.getElementsByName('lang'), function (cb) {
+      if (cb.checked) { langs.push(cb.value); }
+    });
+    return {
+      password: $('pw').value,
+      current: current,
+      keys: keys,
+      region: $('region').value,
+      languages: langs,
+      preferFormat: $('format').value,
+      showUncached: $('uncached').checked,
+      maxReleases: parseInt($('maxr').value, 10) || 5
+    };
+  }
+
+  function showResult(r) {
+    $('install').href = r.installUrl;
+    $('manifest').value = r.manifestUrl;
+    $('result').hidden = false;
+    current = r.token;
+    boot.providers.forEach(function (p) {
+      if (inputs[p.name] && inputs[p.name].input.value.trim()) {
+        p.hasKey = true;
+        inputs[p.name].input.value = '';
+      }
+    });
+    renderProviders();
+  }
+
+  $('form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    setError('');
+    clearFieldErrors();
+    $('result').hidden = true;
+    var btn = $('submit');
+    btn.disabled = true;
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collect())
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (j) { return { status: res.status, body: j }; });
+    }).then(function (r) {
+      btn.disabled = false;
+      if (r.status === 200) { showResult(r.body); return; }
+      var errs = r.body.errors || {};
+      Object.keys(errs).forEach(function (k) {
+        if (inputs[k]) { inputs[k].err.textContent = errs[k]; }
+      });
+      setError(r.body.error || ('Request failed (' + r.status + ')'));
+    }).catch(function () {
+      btn.disabled = false;
+      setError('Could not reach the server.');
+    });
+  });
+
+  $('copy').addEventListener('click', function () {
+    var field = $('manifest');
+    var done = function () { $('copied').textContent = 'Copied'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(field.value).then(done, function () { field.select(); });
+    } else {
+      field.select();
+      try { document.execCommand('copy'); done(); } catch (e) { /* select only */ }
+    }
+  });
+
+  if (boot.passwordRequired) { $('pwbox').hidden = false; }
+  renderProviders();
+  prefill();
+})();
+</script>
+</body>
+</html>

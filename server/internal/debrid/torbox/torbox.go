@@ -203,14 +203,41 @@ func (c *Client) Resolve(ctx context.Context, key string, req debrid.ResolveRequ
 	if !it.ready() {
 		return debrid.ResolveResult{Pending: true, Progress: it.percent()}, nil
 	}
-	if len(it.Files) > 0 && !hasFile(it.Files, req.FileIndex) {
-		return debrid.ResolveResult{}, fmt.Errorf("torbox: file %d not in torrent: %w", req.FileIndex, debrid.ErrNotFound)
+	fileIndex := req.FileIndex
+	if fileIndex == debrid.AutoFile {
+		idx, ok := largestAudioFile(it.Files)
+		if !ok {
+			return debrid.ResolveResult{}, fmt.Errorf("torbox: no audio file in torrent: %w", debrid.ErrNotFound)
+		}
+		fileIndex = idx
+	} else if len(it.Files) > 0 && !hasFile(it.Files, fileIndex) {
+		return debrid.ResolveResult{}, fmt.Errorf("torbox: file %d not in torrent: %w", fileIndex, debrid.ErrNotFound)
 	}
-	link, err := c.requestDL(ctx, key, it.ID, req.FileIndex)
+	link, err := c.requestDL(ctx, key, it.ID, fileIndex)
 	if err != nil {
 		return debrid.ResolveResult{}, err
 	}
 	return debrid.ResolveResult{URL: link}, nil
+}
+
+// largestAudioFile returns the id of the largest audio file (ids default to the position).
+func largestAudioFile(files []apiFile) (int, bool) {
+	best, bestSize, found := 0, int64(-1), false
+	for i, f := range files {
+		id := int64(i)
+		if f.ID != nil {
+			id = *f.ID
+		}
+		name := f.Name
+		if name == "" {
+			name = f.Short
+		}
+		if !model.IsAudioPath(name) || f.Size <= bestSize {
+			continue
+		}
+		best, bestSize, found = int(id), f.Size, true
+	}
+	return best, found
 }
 
 func hasFile(files []apiFile, idx int) bool {
@@ -435,11 +462,16 @@ func (c *Client) errorf(key, format string, args ...any) error {
 	return &safeError{msg: redact(key, "torbox: "+fmt.Sprintf(format, args...))}
 }
 
+// redact removes the key from s, also in the percent-encoded forms an upstream may echo
+// back when it reflects the request URL.
 func redact(key, s string) string {
 	if key == "" {
 		return s
 	}
-	return strings.ReplaceAll(s, key, "***")
+	for _, k := range []string{key, url.QueryEscape(key), url.PathEscape(key)} {
+		s = strings.ReplaceAll(s, k, "***")
+	}
+	return s
 }
 
 func truncate(s string, n int) string {

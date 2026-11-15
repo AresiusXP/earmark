@@ -20,11 +20,14 @@ type Cached struct {
 	Files []model.File // may be empty when the provider does not report files
 }
 
+// AutoFile asks the provider to pick the file itself: the largest audio file of the torrent.
+const AutoFile = -1
+
 // ResolveRequest asks for a streamable URL of one file of one torrent.
 type ResolveRequest struct {
 	InfoHash  string
 	Magnet    string
-	FileIndex int // File.Index as returned by CheckCached / Files
+	FileIndex int // File.Index as returned by CheckCached / Files, or AutoFile
 }
 
 // ResolveResult is either a ready URL or a "still downloading" state.
