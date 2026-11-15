@@ -1,0 +1,88 @@
+nameOverride: ""
+fullnameOverride: ""
+
+# The GHCR package of a private repository is private: pull with this Secret.
+imagePullSecrets: []
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/aresiusxp/stremio-audiobooks
+  # Empty = .Chart.AppVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+
+logLevel: info
+# Empty = https://<ingress.host> (http:// when ingress.tls.enabled=false).
+publicUrl: ""
+
+# Existing Secret, not created by this chart:
+#   kubectl create secret generic audiobooks-secrets -n audiobooks \
+#     --from-literal=database-url='postgres://user:pass@host:5432/audiobooks?sslmode=disable' \
+#     --from-literal=config-secret="$(openssl rand -base64 48)" \
+#     --from-literal=instance-password='<required: protects creating install links>'
+# Rotating config-secret invalidates every installed addon URL.
+secrets:
+  existingSecret: audiobooks-secrets
+  keys:
+    databaseUrl: database-url
+    configSecret: config-secret
+    instancePassword: instance-password
+
+# Run without INSTANCE_PASSWORD: anyone could then create install links and make the server call
+# debrid APIs with their own key. Keep false for a private instance.
+allowOpenConfig: false
+
+extraEnv: []
+
+service:
+  type: ClusterIP
+  port: 8080
+  adminPort: 9090
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+ingress:
+  enabled: true
+  className: traefik
+  host: audiobooks.aresius.xyz
+  annotations:
+    kubernetes.io/tls-acme: "true"
+    cert-manager.io/cluster-issuer: letsencrypt
+    external-dns.aresius.xyz: pihole
+    ingress.kubernetes.io/force-hsts: "true"
+  labels:
+    external-dns.aresius.xyz: pihole
+  tls:
+    enabled: true
+    secretName: audiobooks.aresius.xyz-tls
+
+# Prometheus Operator ServiceMonitor (scrapes /metrics on the admin port).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels:
+    release: kube-prometheus-stack

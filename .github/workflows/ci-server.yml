@@ -1,0 +1,69 @@
+name: CI — Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/ci-server.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/ci-server.yml"
+
+concurrency:
+  group: ci-server-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+
+    # Postgres for the store's integration tests (TEST_DATABASE_URL below).
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: abk
+          POSTGRES_PASSWORD: abk
+          POSTGRES_DB: abk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U abk -d abk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        env:
+          TEST_DATABASE_URL: postgres://abk:abk@localhost:5432/abk?sslmode=disable
+        run: go test -race ./...
+
+      - name: go build
+        run: go build ./...

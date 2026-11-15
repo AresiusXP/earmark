@@ -40,6 +40,23 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   keyword `verhaal`. Dutch coverage is thin: Open Library fallback matters for nl.
 * `num_results` max 50, `page` 0-based. Knaben: `seeders` field, uppercase hex hash.
 
+## Implementation notes (Phase 1)
+
+* Layers: `httpapi` (Stremio protocol) -> `service` (`API`, see `service/contract.go`) ->
+  `store` (Postgres), `metadata`, `sources`, `debrid/*`. `cmd/addon` wires them from env:
+  `DATABASE_URL`, `CONFIG_SECRET` (>=32 bytes, rotating it invalidates every install URL),
+  `PUBLIC_URL`, `INSTANCE_PASSWORD` (required unless `ALLOW_OPEN_CONFIG=true`), `PORT`,
+  `ADMIN_PORT` (metrics, never exposed by the Ingress), `LOG_LEVEL`.
+* Video id = `abk:<ASIN>:<infohash>:<fileIndex>`; season = rank of the release at page time.
+  File index `-1` (AutoFile) = "provider picks the largest audio file" and is never guessed.
+* `/resolve` answers 302 to the provider's signed CDN link (the API key never reaches the player);
+  while the torrent is not ready, or the key is rejected, it serves ~10 s of silent MP3.
+  `HEAD /resolve` has no side effects (it never adds a torrent).
+* Manifest says `audiobook`; the sealed config in the URL is AES-GCM (`userconfig`).
+* Known limits: Knaben alone finds few releases per book (more sources: Phase 3); file lists are
+  stored per hash, not per provider (revisit with Real-Debrid); a stream's "not cached" label
+  also shows when the cache state is simply unknown.
+
 ## Open
 
 * Prowlarr in the cluster: decided in Phase 3.
