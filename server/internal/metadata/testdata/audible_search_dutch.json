@@ -1,0 +1,499 @@
+{
+ "product_filters": [],
+ "products": [
+  {
+   "asin": "8726421682",
+   "asset_details": [],
+   "authors": [
+    {
+     "name": "Hans Christian Andersen"
+    }
+   ],
+   "available_codecs": [
+    {
+     "enhanced_codec": "LC_64_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_64"
+    },
+    {
+     "enhanced_codec": "format4",
+     "format": "Format4",
+     "is_kindle_enhanced": false,
+     "name": "format4"
+    },
+    {
+     "enhanced_codec": "LC_128_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_128"
+    },
+    {
+     "enhanced_codec": "mp444128",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "mp4_44_128"
+    },
+    {
+     "enhanced_codec": "mp44464",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "mp4_44_64"
+    },
+    {
+     "enhanced_codec": "aax",
+     "format": "Enhanced",
+     "is_kindle_enhanced": false,
+     "name": "aax"
+    }
+   ],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_listenable": true,
+   "is_purchasability_suppressed": false,
+   "is_vvab": false,
+   "issue_date": "2020-05-06",
+   "language": "dutch",
+   "merchandising_summary": "Herontdek de favoriete sprookjes van uw jeugd of stel een nieuwe lezer voor aan de magische wereld van een van de grootste verhalenvertellers, Hans Christian Andersen. Bijna twee eeuwen na publicatie blijven de sprookjes van Andersen ons bij als verhalen van goed en kwaad, liefde en verlies, en...",
+   "narrators": [
+    {
+     "name": "Karin Douma"
+    }
+   ],
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/512HszHZFwL._SL500_.jpg"
+   },
+   "publication_datetime": "2020-05-06T00:00:00Z",
+   "publisher_name": "Saga Egmont",
+   "publisher_summary": "<p>Herontdek de favoriete sprookjes van uw jeugd of stel een nieuwe lezer voor aan de magische wereld van een van de grootste verhalenvertellers, Hans Christian Andersen. Bijna twee eeuwen na publicatie blijven de sprookjes van Andersen ons bij als verhalen van goed en kwaad, liefde en verlies, en loyaliteit ondanks grote ontberingen. Ze zijn gemakkelijk toegankelijk voor kinderen, maar bevatten ook deugdzame lessen voor volwassen lezers, met thema’s die leeftijd en nationaliteit overstijgen. De sprookjes van Andersen zijn vertaald naar meer dan 125 talen en zijn cultureel ingebed in ons collectief bewustzijn. In deze bundel vindt u een ruime selectie aan zowel bekende als minder bekende verhalen. Geniet en laat u meevoeren naar een magische wereld... </p> <p>Hans Christian Andersen (1805-1875) was een Deense schrijver, dichter en kunstenaar. Hij is beroemd om zijn kinderliteratuur, waaronder de geliefde sprookjes \"De nieuwe kleeren van den keizer\", \"De kleine zeemeermin\", \"De nachtegaal\", \"De standvastige tinnen soldaat\", \"De sneeuwkoningin\", \"Het lelijke jonge eendje\" en \"Het lucifersmeisje\". Zijn boeken zijn vertaald naar elke levende taal, en er is tegenwoordig geen kind of volwassene die niet bekend is met zijn speelse personages. Zijn sprookjes zijn talloze malen bewerkt voor het toneel en het witte doek, met name door Disney in de animatiefilms \"De kleine zeemeermin\" in 1989 en \"Frozen\", wat losjes gebaseerd is op \"De sneeuwkoningin\", in 2013.</p> <p>Dankzij Andersens bijdrage aan kinderliteratuur wordt zijn verjaardag, 2 april, gevierd als Internationale Kinderboekendag.</p>",
+   "release_date": "2020-05-06",
+   "runtime_length_min": 309,
+   "sku": "BK_LIND_019174",
+   "sku_lite": "BK_LIND_019174",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/512HszHZFwL._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C512HszHZFwL.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/512HszHZFwL._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/512HszHZFwL._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C512HszHZFwL.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBSprookjes,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBHans%20Christian%20Andersen,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C512HszHZFwL.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZASprookjes,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Hans%20Christian%20And...,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/512HszHZFwL._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C512HszHZFwL.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255.jpg"
+   },
+   "title": "Sprookjes"
+  },
+  {
+   "asin": "B0H5HL6NW3",
+   "asset_details": [],
+   "authors": [
+    {
+     "name": "Toos Blokland"
+    }
+   ],
+   "available_codecs": [
+    {
+     "enhanced_codec": "LC_64_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_64"
+    },
+    {
+     "enhanced_codec": "LC_32_22050_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_22_32"
+    },
+    {
+     "enhanced_codec": "LC_64_22050_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_22_64"
+    },
+    {
+     "enhanced_codec": "LC_128_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_128"
+    },
+    {
+     "enhanced_codec": "aax",
+     "format": "Enhanced",
+     "is_kindle_enhanced": false,
+     "name": "aax"
+    }
+   ],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_listenable": true,
+   "is_purchasability_suppressed": false,
+   "is_vvab": false,
+   "issue_date": "2026-06-16",
+   "language": "dutch",
+   "merchandising_summary": "<p>Na een Oscar te hebben gewonnen, verdiept Willeke van Ammelrooy zich in de Japanse interneringskampen door een dagboek van Toos Blokland, met aangrijpende, poëtische verhalen van die tijd.</p>",
+   "narrators": [
+    {
+     "name": "Miranda Jansen"
+    }
+   ],
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL500_.jpg"
+   },
+   "publication_datetime": "2026-06-16T23:13:00Z",
+   "publisher_name": "Bookora",
+   "publisher_summary": "<p>Na een Oscar te hebben gewonnen, verdiept Willeke van Ammelrooy zich in de Japanse interneringskampen door een dagboek van Toos Blokland, met aangrijpende, poëtische verhalen van die tijd.</p> <p><b>Please note: This audiobook is in Dutch.</b></p>",
+   "release_date": "2026-06-16",
+   "runtime_length_min": 529,
+   "sku": "BK_BKRA_001188",
+   "sku_lite": "BK_BKRA_001188",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C51iMWa5DaQL.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C51iMWa5DaQL.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBVrouwenleed,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBToos%20Blokland,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C51iMWa5DaQL.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZAVrouwenleed,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Toos%20Blokland,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C51iMWa5DaQL.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255.jpg"
+   },
+   "subtitle": "Dagboek van een jonge vrouw in Nederlands-Indië",
+   "title": "Vrouwenleed"
+  },
+  {
+   "asin": "B0B49RS8H7",
+   "asset_details": [],
+   "authors": [
+    {
+     "name": "Robin van der Markt"
+    }
+   ],
+   "content_delivery_type": "PodcastParent",
+   "content_type": "Podcast",
+   "continuity": "episodic",
+   "episode_count": 93,
+   "format_type": "original_recording",
+   "generic_keyword": "649a4abb-32b4-474b-ad0d-f17b70d32242",
+   "has_children": true,
+   "is_adult_product": false,
+   "is_listenable": false,
+   "is_purchasability_suppressed": true,
+   "is_vvab": false,
+   "issue_date": "2022-06-16",
+   "language": "dutch",
+   "merchandising_summary": "Podcast voor iedereen die beter Nederlands wil leren luisteren! Afleveringen over allerlei onderwerpen in helder en duidelijk gesproken Nederlands. ...",
+   "music_id": "649a4abb-32b4-474b-ad0d-f17b70d32242",
+   "new_episode_added_date": "2026-11-01T08:12:12.00012Z",
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL500_.jpg"
+   },
+   "publication_datetime": "2022-06-16T09:36:08Z",
+   "publisher_summary": "Podcast voor iedereen die beter Nederlands wil leren luisteren! Afleveringen over allerlei onderwerpen in helder en duidelijk gesproken Nederlands. Iedere aflevering heeft een transcriptie om mee te lezen. Leer met deze podcast 'Een Beetje Nederlands'. [en] Learn Dutch with the 'Een Beetje Nederlands' podcast! Episodes in clear and easy Dutch, about a wide range of subjects. Each episode comes with a free transcript to read along with. Learn a little Dutch with 'Een Beetje Nederlands'! https://www.eenbeetjenederlands.nl",
+   "release_date": "2022-06-16",
+   "sku": "PD_8001_481221",
+   "sku_lite": "PD_8001_481221",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C41Ct-1Wf7oL.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255_PJAdblSocialShare-PodcastIcon-Small,TopLeft,1094,50.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C41Ct-1Wf7oL.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBEen%20Beetje%20Nederlands,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBRobin%20van%20der%20Markt,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C41Ct-1Wf7oL.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZAEen%20Beetje%20Nede...,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Robin%20van%20der%20Markt,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C41Ct-1Wf7oL.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255_PJAdblSocialShare-PodcastIcon-Small,TopLeft,929,45.jpg"
+   },
+   "thesaurus_subject_keywords": [
+    "podcast_language_learning",
+    "podcast_education",
+    "podcast_show"
+   ],
+   "title": "Een Beetje Nederlands"
+  },
+  {
+   "asin": "B01I28NFEE",
+   "asset_details": [
+    {
+     "attributes": {},
+     "name": "audio-discovery"
+    }
+   ],
+   "authors": [
+    {
+     "asin": "B00BIJOMOC",
+     "name": "Mark Manson"
+    }
+   ],
+   "available_codecs": [
+    {
+     "enhanced_codec": "LC_64_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_64"
+    },
+    {
+     "enhanced_codec": "LC_32_22050_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_22_32"
+    },
+    {
+     "enhanced_codec": "LC_128_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_128"
+    },
+    {
+     "enhanced_codec": "LC_64_22050_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_22_64"
+    },
+    {
+     "enhanced_codec": "aax",
+     "format": "Enhanced",
+     "is_kindle_enhanced": false,
+     "name": "aax"
+    }
+   ],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_listenable": true,
+   "is_purchasability_suppressed": false,
+   "is_vvab": false,
+   "issue_date": "2016-09-13",
+   "language": "english",
+   "merchandising_summary": "#1 New York Times Bestseller More than 10 million Copies Sold In this generation-defining self-help guide, a superstar blogger cuts through the crap to show us how to stop trying to be \"\"positive\"\" all the time so that we can truly become better, happier people. For decades, we’ve been...",
+   "narrators": [
+    {
+     "name": "Roger Wayne"
+    }
+   ],
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/51MT0MbpD7L._SL500_.jpg"
+   },
+   "publication_datetime": "2016-09-13T07:00:00Z",
+   "publisher_name": "Harper",
+   "publisher_summary": "<p><strong>#1 <em>New York Times</em> Bestseller </strong>• <strong>More than 10 million Copies Sold</strong></p><p><strong>In this generation-defining self-help guide, a superstar blogger cuts through the crap to show us how to stop trying to be \"\"positive\"\" all the time so that we can truly become better, happier people.</strong></p><p>For decades, we’ve been told that positive thinking is the key to a happy, rich life. \"\"F**k positivity,\"\" Mark Manson says. \"\"Let’s be honest, shit is f**ked and we have to live with it.\"\" In his wildly popular Internet blog, Manson doesn’t sugarcoat or equivocate. He tells it like it is—a dose of raw, refreshing, honest truth that is sorely lacking today. <em>The Subtle Art of Not Giving a F**k</em> is his antidote to the coddling, let’s-all-feel-good mindset that has infected modern society and spoiled a generation, rewarding them with gold medals just for showing up.</p><p>Manson makes the argument, backed both by academic research and well-timed poop jokes, that improving our lives hinges not on our ability to turn lemons into lemonade, but on learning to stomach lemons better. Human beings are flawed and limited—\"\"not everybody can be extraordinary, there are winners and losers in society, and some of it is not fair or your fault.\"\" Manson advises us to get to know our limitations and accept them. Once we embrace our fears, faults, and uncertainties, once we stop running and avoiding and start confronting painful truths, we can begin to find the courage, perseverance, honesty, responsibility, curiosity, and forgiveness we seek.</p><p>There are only so many things we can give a f**k about so we need to figure out which ones really matter, Manson makes clear. While money is nice, caring about what you do with your life is better, because true wealth is about experience. A much-needed grab-you-by-the-shoulders-and-look-you-in-the-eye moment of real-talk, filled with entertaining stories and profane, ruthless humor, <em>The Subtle Art of Not Giving a F*ck</em> is a refreshing slap for a generation to help them lead contented, grounded lives.</p>",
+   "release_date": "2016-09-13",
+   "runtime_length_min": 317,
+   "sku": "BK_HARP_005490",
+   "sku_lite": "BK_HARP_005490",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/51MT0MbpD7L._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C51MT0MbpD7L.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/51MT0MbpD7L._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/51MT0MbpD7L._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C51MT0MbpD7L.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBThe%20Subtle%20Art%20of%20Not%20G...,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBMark%20Manson,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C51MT0MbpD7L.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZAThe%20Subtle%20Art%20...,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Mark%20Manson,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/51MT0MbpD7L._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C51MT0MbpD7L.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255.jpg"
+   },
+   "subtitle": "A Counterintuitive Approach to Living a Good Life",
+   "title": "The Subtle Art of Not Giving a F*ck"
+  },
+  {
+   "asin": "B0B49RS8H7",
+   "asset_details": [],
+   "authors": [
+    {
+     "name": "Robin van der Markt"
+    }
+   ],
+   "content_delivery_type": "PodcastParent",
+   "content_type": "Podcast",
+   "continuity": "episodic",
+   "episode_count": 93,
+   "format_type": "original_recording",
+   "generic_keyword": "649a4abb-32b4-474b-ad0d-f17b70d32242",
+   "has_children": true,
+   "is_adult_product": false,
+   "is_listenable": false,
+   "is_purchasability_suppressed": true,
+   "is_vvab": false,
+   "issue_date": "2022-06-16",
+   "language": "dutch",
+   "merchandising_summary": "Podcast voor iedereen die beter Nederlands wil leren luisteren! Afleveringen over allerlei onderwerpen in helder en duidelijk gesproken Nederlands. ...",
+   "music_id": "649a4abb-32b4-474b-ad0d-f17b70d32242",
+   "new_episode_added_date": "2026-11-01T08:12:12.00012Z",
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL500_.jpg"
+   },
+   "publication_datetime": "2022-06-16T09:36:08Z",
+   "publisher_summary": "Podcast voor iedereen die beter Nederlands wil leren luisteren! Afleveringen over allerlei onderwerpen in helder en duidelijk gesproken Nederlands. Iedere aflevering heeft een transcriptie om mee te lezen. Leer met deze podcast 'Een Beetje Nederlands'. [en] Learn Dutch with the 'Een Beetje Nederlands' podcast! Episodes in clear and easy Dutch, about a wide range of subjects. Each episode comes with a free transcript to read along with. Learn a little Dutch with 'Een Beetje Nederlands'! https://www.eenbeetjenederlands.nl",
+   "release_date": "2022-06-16",
+   "sku": "PD_8001_481221",
+   "sku_lite": "PD_8001_481221",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C41Ct-1Wf7oL.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255_PJAdblSocialShare-PodcastIcon-Small,TopLeft,1094,50.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C41Ct-1Wf7oL.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBEen%20Beetje%20Nederlands,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBRobin%20van%20der%20Markt,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C41Ct-1Wf7oL.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZAEen%20Beetje%20Nede...,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Robin%20van%20der%20Markt,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/41Ct-1Wf7oL._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C41Ct-1Wf7oL.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255_PJAdblSocialShare-PodcastIcon-Small,TopLeft,929,45.jpg"
+   },
+   "thesaurus_subject_keywords": [
+    "podcast_language_learning",
+    "podcast_education",
+    "podcast_show"
+   ],
+   "title": "Een Beetje Nederlands"
+  },
+  {
+   "asin": "B0H5HL6NW3",
+   "asset_details": [],
+   "authors": [
+    {
+     "name": "Toos Blokland"
+    }
+   ],
+   "available_codecs": [
+    {
+     "enhanced_codec": "LC_64_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_64"
+    },
+    {
+     "enhanced_codec": "LC_32_22050_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_22_32"
+    },
+    {
+     "enhanced_codec": "LC_64_22050_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_22_64"
+    },
+    {
+     "enhanced_codec": "LC_128_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_128"
+    },
+    {
+     "enhanced_codec": "aax",
+     "format": "Enhanced",
+     "is_kindle_enhanced": false,
+     "name": "aax"
+    }
+   ],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_listenable": true,
+   "is_purchasability_suppressed": false,
+   "is_vvab": false,
+   "issue_date": "2026-06-16",
+   "language": "dutch",
+   "merchandising_summary": "<p>Na een Oscar te hebben gewonnen, verdiept Willeke van Ammelrooy zich in de Japanse interneringskampen door een dagboek van Toos Blokland, met aangrijpende, poëtische verhalen van die tijd.</p>",
+   "narrators": [
+    {
+     "name": "Miranda Jansen"
+    }
+   ],
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL500_.jpg"
+   },
+   "publication_datetime": "2026-06-16T23:13:00Z",
+   "publisher_name": "Bookora",
+   "publisher_summary": "<p>Na een Oscar te hebben gewonnen, verdiept Willeke van Ammelrooy zich in de Japanse interneringskampen door een dagboek van Toos Blokland, met aangrijpende, poëtische verhalen van die tijd.</p> <p><b>Please note: This audiobook is in Dutch.</b></p>",
+   "release_date": "2026-06-16",
+   "runtime_length_min": 529,
+   "sku": "BK_BKRA_001188",
+   "sku_lite": "BK_BKRA_001188",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C51iMWa5DaQL.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C51iMWa5DaQL.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBVrouwenleed,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBToos%20Blokland,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C51iMWa5DaQL.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZAVrouwenleed,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Toos%20Blokland,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/51iMWa5DaQL._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C51iMWa5DaQL.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255.jpg"
+   },
+   "subtitle": "Dagboek van een jonge vrouw in Nederlands-Indië",
+   "title": "Vrouwenleed"
+  },
+  {
+   "asin": "B0NOAUTH01",
+   "asset_details": [],
+   "authors": [],
+   "available_codecs": [
+    {
+     "enhanced_codec": "LC_64_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_64"
+    },
+    {
+     "enhanced_codec": "format4",
+     "format": "Format4",
+     "is_kindle_enhanced": false,
+     "name": "format4"
+    },
+    {
+     "enhanced_codec": "LC_128_44100_stereo",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "aax_44_128"
+    },
+    {
+     "enhanced_codec": "mp444128",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "mp4_44_128"
+    },
+    {
+     "enhanced_codec": "mp44464",
+     "format": "Enhanced",
+     "is_kindle_enhanced": true,
+     "name": "mp4_44_64"
+    },
+    {
+     "enhanced_codec": "aax",
+     "format": "Enhanced",
+     "is_kindle_enhanced": false,
+     "name": "aax"
+    }
+   ],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_listenable": true,
+   "is_purchasability_suppressed": false,
+   "is_vvab": false,
+   "issue_date": "2020-05-06",
+   "language": "dutch",
+   "merchandising_summary": "Herontdek de favoriete sprookjes van uw jeugd of stel een nieuwe lezer voor aan de magische wereld van een van de grootste verhalenvertellers, Hans Christian Andersen. Bijna twee eeuwen na publicatie blijven de sprookjes van Andersen ons bij als verhalen van goed en kwaad, liefde en verlies, en...",
+   "narrators": [
+    {
+     "name": "Karin Douma"
+    }
+   ],
+   "product_images": {
+    "500": "https://m.media-amazon.com/images/I/512HszHZFwL._SL500_.jpg"
+   },
+   "publication_datetime": "2020-05-06T00:00:00Z",
+   "publisher_name": "Saga Egmont",
+   "publisher_summary": "<p>Herontdek de favoriete sprookjes van uw jeugd of stel een nieuwe lezer voor aan de magische wereld van een van de grootste verhalenvertellers, Hans Christian Andersen. Bijna twee eeuwen na publicatie blijven de sprookjes van Andersen ons bij als verhalen van goed en kwaad, liefde en verlies, en loyaliteit ondanks grote ontberingen. Ze zijn gemakkelijk toegankelijk voor kinderen, maar bevatten ook deugdzame lessen voor volwassen lezers, met thema’s die leeftijd en nationaliteit overstijgen. De sprookjes van Andersen zijn vertaald naar meer dan 125 talen en zijn cultureel ingebed in ons collectief bewustzijn. In deze bundel vindt u een ruime selectie aan zowel bekende als minder bekende verhalen. Geniet en laat u meevoeren naar een magische wereld... </p> <p>Hans Christian Andersen (1805-1875) was een Deense schrijver, dichter en kunstenaar. Hij is beroemd om zijn kinderliteratuur, waaronder de geliefde sprookjes \"De nieuwe kleeren van den keizer\", \"De kleine zeemeermin\", \"De nachtegaal\", \"De standvastige tinnen soldaat\", \"De sneeuwkoningin\", \"Het lelijke jonge eendje\" en \"Het lucifersmeisje\". Zijn boeken zijn vertaald naar elke levende taal, en er is tegenwoordig geen kind of volwassene die niet bekend is met zijn speelse personages. Zijn sprookjes zijn talloze malen bewerkt voor het toneel en het witte doek, met name door Disney in de animatiefilms \"De kleine zeemeermin\" in 1989 en \"Frozen\", wat losjes gebaseerd is op \"De sneeuwkoningin\", in 2013.</p> <p>Dankzij Andersens bijdrage aan kinderliteratuur wordt zijn verjaardag, 2 april, gevierd als Internationale Kinderboekendag.</p>",
+   "release_date": "2020-05-06",
+   "runtime_length_min": 309,
+   "sku": "BK_LIND_019174",
+   "sku_lite": "BK_LIND_019174",
+   "social_media_images": {
+    "facebook": "https://m.media-amazon.com/images/I/512HszHZFwL._SL10_UR1600,800_CR200,50,1200,630_CLa%7C1200,630%7C512HszHZFwL.jpg%7C0,0,1200,630+82,82,465,465_PJAdblSocialShare-Gradientoverlay-largeasin-0to70,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Large,TopLeft,600,270_OU01_ZBLISTENING%20ON,617,216,52,500,AudibleSansMd,30,255,255,255.jpg",
+    "ig_bg": "https://m.media-amazon.com/images/I/512HszHZFwL._SL200_BL80_UR1080,2160.jpg",
+    "ig_static_with_bg": "https://m.media-amazon.com/images/I/512HszHZFwL._SL200_BL80_UR1080,2160_CLa%7C1080,2160%7C512HszHZFwL.jpg%7C0,0,1080,2160+288,614,500,500_PJAdblSocialShare-Gradientoverlay-Radial,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Small,TopLeft,290,461_ZBLISTENING%20ON,290,410,52,500,AudibleSansMd,34,255,255,255_ZBSprookjes,290,1183,52,500,AudibleSansSm,32,255,255,255_ZBHans%20Christian%20Andersen,290,1247,52,500,AudibleSansRg,28,255,255,255.jpg",
+    "ig_sticker": "https://m.media-amazon.com/images/I/71UyRin7-TL._CLa%7C614,913%7C512HszHZFwL.jpg%7C0,0,614,913+70,79,471,473_FMpng_PJAudible-logo-dk,BottomLeft,70,-100_ZASprookjes,70,560,65,500,AudibleSansSm,42,54,54,54_ZAby%20Hans%20Christian%20And...,70,640,52,517,AudibleSansRg,32,0,0,0.png",
+    "twitter": "https://m.media-amazon.com/images/I/512HszHZFwL._SL10_UR1600,800_CR200,50,1024,512_CLa%7C1024,512%7C512HszHZFwL.jpg%7C0,0,1024,512+67,67,376,376_PJAdblSocialShare-Gradientoverlay-twitter-largeasin-0to60,TopLeft,0,0_PJAdblSocialShare-AudibleLogo-Medium,TopLeft,490,223_OU01_ZBLISTENING%20ON,483,152,55,450,AudibleSansMd,32,255,255,255.jpg"
+   },
+   "title": ""
+  }
+ ],
+ "total_results": 50,
+ "response_groups": [
+  "product_desc",
+  "always-returned",
+  "product_extended_attrs",
+  "contributors",
+  "series",
+  "media",
+  "product_attrs"
+ ]
+}

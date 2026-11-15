@@ -1,0 +1,121 @@
+{
+ "hits": [
+  {
+   "bytes": 100,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": "2020-01-01T00:00:00+00:00",
+   "hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "magnetUrl": "magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&dn=Same",
+   "seeders": 3,
+   "title": "Same hash, low seeders"
+  },
+  {
+   "bytes": 200,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": "2021-02-03T04:05:06+00:00",
+   "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "magnetUrl": null,
+   "seeders": 30,
+   "title": "Same hash, high seeders"
+  },
+  {
+   "bytes": 300,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": null,
+   "hash": null,
+   "magnetUrl": "magnet:?xt=urn:btih:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB&dn=Magnet+Only&tr=udp%3A%2F%2Fexample.org%3A80",
+   "seeders": 5,
+   "title": "Hash only in magnet"
+  },
+  {
+   "bytes": null,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": null,
+   "hash": null,
+   "magnetUrl": "magnet:?xt=urn:btih:AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH&dn=B32",
+   "seeders": 7,
+   "title": "Base32 btih in magnet"
+  },
+  {
+   "bytes": null,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": null,
+   "hash": null,
+   "magnetUrl": null,
+   "seeders": 99,
+   "title": "No hash at all"
+  },
+  {
+   "bytes": null,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": null,
+   "hash": "not-a-hash",
+   "magnetUrl": null,
+   "seeders": 50,
+   "title": "Bad hash and no magnet"
+  },
+  {
+   "bytes": null,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": "garbage",
+   "hash": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+   "magnetUrl": null,
+   "seeders": null,
+   "title": "Null seeders and bytes"
+  },
+  {
+   "bytes": null,
+   "cachedOrigin": "The Pirate Bay",
+   "category": "Audio / Audiobook",
+   "categoryId": [
+    1003000,
+    1000000
+   ],
+   "date": null,
+   "hash": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+   "magnetUrl": null,
+   "seeders": 2,
+   "title": ""
+  }
+ ],
+ "max_score": null,
+ "total": {
+  "relation": "eq",
+  "value": 8
+ }
+}
