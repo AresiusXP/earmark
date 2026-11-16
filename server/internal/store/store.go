@@ -188,20 +188,20 @@ func (p *Postgres) UpsertReleases(ctx context.Context, rs []model.Release) error
 // SetMatches replaces the book's release links in one transaction. Matches whose hash is not
 // a stored release are silently skipped (call UpsertReleases first); an invalid hash is an
 // error and a book that is not stored yields service.ErrNotFound (when ms has any entry that
-// references an existing release). Duplicate hashes keep the highest score.
+// references an existing release). Duplicate hashes keep the highest score (and its Collection flag).
 func (p *Postgres) SetMatches(ctx context.Context, asin string, ms []service.Match) error {
-	best := make(map[string]float64, len(ms))
+	best := make(map[string]service.Match, len(ms))
 	order := make([]string, 0, len(ms))
 	for _, m := range ms {
 		h, err := normHash(m.InfoHash)
 		if err != nil {
 			return err
 		}
-		if s, ok := best[h]; !ok {
-			best[h] = m.Score
+		if cur, ok := best[h]; !ok {
+			best[h] = m
 			order = append(order, h)
-		} else if m.Score > s {
-			best[h] = m.Score
+		} else if m.Score > cur.Score {
+			best[h] = m
 		}
 	}
 	err := p.inTx(ctx, "set matches", func(tx pgx.Tx) error {
@@ -213,9 +213,9 @@ func (p *Postgres) SetMatches(ctx context.Context, asin string, ms []service.Mat
 		}
 		batch := &pgx.Batch{}
 		for _, h := range order {
-			batch.Queue(`INSERT INTO book_releases (asin, info_hash, score)
-				SELECT $1::text, r.info_hash, $3::double precision
-				FROM releases r WHERE r.info_hash = $2::text`, asin, h, best[h])
+			batch.Queue(`INSERT INTO book_releases (asin, info_hash, score, collection)
+				SELECT $1::text, r.info_hash, $3::double precision, $4::boolean
+				FROM releases r WHERE r.info_hash = $2::text`, asin, h, best[h].Score, best[h].Collection)
 		}
 		return execBatch(ctx, tx, batch)
 	})
@@ -227,7 +227,7 @@ func (p *Postgres) SetMatches(ctx context.Context, asin string, ms []service.Mat
 
 func (p *Postgres) Candidates(ctx context.Context, asin string) ([]service.Candidate, error) {
 	rows, err := p.pool.Query(ctx, `SELECT r.info_hash, r.title, r.source, r.magnet, r.size,
-		r.seeders, r.published_at, r.parsed, br.score
+		r.seeders, r.published_at, r.parsed, br.score, br.collection
 		FROM book_releases br JOIN releases r ON r.info_hash = br.info_hash
 		WHERE br.asin = $1
 		ORDER BY br.score DESC, r.seeders DESC, r.info_hash`, asin)
@@ -244,7 +244,7 @@ func (p *Postgres) Candidates(ctx context.Context, asin string) ([]service.Candi
 		)
 		if err := rows.Scan(&c.Release.InfoHash, &c.Release.Title, &c.Release.Source,
 			&c.Release.Magnet, &c.Release.Size, &c.Release.Seeders, &published, &parsed,
-			&c.Score); err != nil {
+			&c.Score, &c.Collection); err != nil {
 			return nil, fmt.Errorf("store: candidates: %w", err)
 		}
 		if published != nil {

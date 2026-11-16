@@ -21,6 +21,8 @@ const (
 	minTitleSim  = 0.75 // hard gate on title F1 (coverage of the book title x precision of the release title)
 	gateCap      = 0.49
 	collectCap   = 0.20
+	packCap      = 0.72 // multi-book pack of the book's series: just above Threshold, below real single releases
+	minSeriesCov = 0.80 // token coverage of the series name in a pack title
 	weightTitle  = 0.60
 	weightAuthor = 0.25
 	mb           = 1 << 20
@@ -28,9 +30,12 @@ const (
 
 // Result is the outcome of scoring one release against one book.
 type Result struct {
-	Score   float64 // 0..1
-	Match   bool
-	Reasons []string
+	Score float64 // 0..1
+	Match bool
+	// Collection: Match is true for a multi-book pack that mentions the book's series. It matches
+	// only provisionally: the caller must check the pack's files (see FilterFiles).
+	Collection bool
+	Reasons    []string
 }
 
 var stopwords = map[string]bool{
@@ -44,6 +49,9 @@ var noiseTokens = map[string]bool{
 	"audiobook": true, "audiobooks": true, "audio": true, "book": true, "books": true,
 	"unabridged": true, "abridged": true, "novel": true, "series": true, "edition": true,
 	"mp3": true, "m4b": true, "m4a": true, "flac": true, "ogg": true,
+	// connecting words around narrators/authors ("The Hobbit audiobook with Rob Inglis")
+	"with": true, "by": true, "read": true, "reading": true, "narrated": true, "narrator": true,
+	"performed": true, "cd": true, "cds": true, "disc": true, "discs": true, "unabr": true,
 }
 
 var accentFold = map[rune]string{
@@ -59,12 +67,18 @@ var accentFold = map[rune]string{
 }
 
 var (
-	reBookParens   = regexp.MustCompile(`[(\[][^)\]]*[)\]]`)
-	reBookSuffix   = regexp.MustCompile(`(?i)[,:\-–]?\s*\b(?:book|volume|vol\.?|part)\s*\d+\s*$`)
-	reBookUnabr    = regexp.MustCompile(`(?i)\bunabridged\b`)
-	reCollections  = regexp.MustCompile(`(?i)\bbox\s?-?sets?\b|\bboxed\s+set\b|\bcollections?\b|\banthology\b|\bomnibus\b|\bcompendium\b|\bbundel\b|\bverzameling\b|\bpack\b|\b(?:tri|du|tetra|penta|hexa|quadri)logy\b|\btrilogie\b|\bcomplete\b.{0,30}\b(?:series|serie|saga|collection|audiobooks?|books|set|works|cycle)\b|\bseries\s*\(?\s*complete\b|\balle\s+delen\b|\b(?:all|alle)\s+\d+\b|\b\d+\s+(?:books|boeken|audiobooks|delen)\b|\b(?:books?|boeken|deel|delen|vol(?:umes?)?)\s*\d+\s*(?:-|–|to|tot|t/m|through|&)\s*\d+`)
-	reNumberRange  = regexp.MustCompile(`(?i)(?:^|[^\d-])(\d{1,2})\s*(?:-|–|to|tot|t/m|through)\s*(\d{1,2})(?:[^\d]|$)`)
-	reSeriesWord   = regexp.MustCompile(`(?i)\bseries\b`)
+	reBookParens  = regexp.MustCompile(`[(\[][^)\]]*[)\]]`)
+	reBookSuffix  = regexp.MustCompile(`(?i)[,:\-–]?\s*\b(?:book|volume|vol\.?|part)\s*\d+\s*$`)
+	reBookUnabr   = regexp.MustCompile(`(?i)\bunabridged\b`)
+	reCollections = regexp.MustCompile(`(?i)\bbox\s?-?sets?\b|\bboxed\s+set\b|\bcollections?\b|\banthology\b|\bomnibus\b|\bcompendium\b|\bbundel\b|\bverzameling\b|\bpack\b|\b(?:tri|du|tetra|penta|hexa|quadri)logy\b|\btrilogie\b|\bcomplete\b.{0,30}\b(?:series|serie|saga|collection|audiobooks?|books|set|works|cycle)\b|\bseries\s*\(?\s*complete\b|\balle\s+delen\b|\b(?:all|alle)\s+\d+\b|\b\d+\s+(?:books|boeken|audiobooks|delen)\b|\b(?:books?|boeken|deel|delen|vol(?:umes?)?)\s*\d+\s*(?:-|–|to|tot|t/m|through|&)\s*\d+`)
+	reNumberRange = regexp.MustCompile(`(?i)(?:^|[^\d-])(\d{1,2})\s*(?:-|–|to|tot|t/m|through)\s*(\d{1,2})(?:[^\d]|$)`)
+	reSeriesWord  = regexp.MustCompile(`(?i)\bseries\b`)
+	// A dramatisation / radio play is a different work from the book read aloud.
+	reDrama = regexp.MustCompile(`(?i)\bradio\s+(?:drama|play|dramati[sz]ation)\b|\bdramati[sz](?:ation|ed)\b|\bhoorspel\b|\bhörspiel\b`)
+	// "Abr" / "Abridged" but not "Unabridged".
+	reAbridged = regexp.MustCompile(`(?i)(?:^|[^a-z])abr(?:idged)?(?:[^a-z]|$)`)
+	// Scene/uploader tags such as "JD07", "x3m2" (letters and digits mixed, short).
+	reGroupTag     = regexp.MustCompile(`^(?:[a-z]+\d+[a-z0-9]*|\d+[a-z]+[a-z0-9]*)$`)
 	reSurnameNoise = regexp.MustCompile(`^(?:jr|sr|ii|iii|phd|dr|md)$`)
 )
 
@@ -268,6 +282,19 @@ func Score(book model.Book, rel model.Release) Result {
 			}
 		}
 	}
+	// Author forms the release may use: collapsed initials ("J.R.R." -> "jrr") and possessives.
+	for _, a := range append(append([]string{}, book.Authors...), p.Authors...) {
+		var initials strings.Builder
+		for _, t := range tokens(a) {
+			if len(t) == 1 {
+				initials.WriteString(t)
+			}
+			ignore[t+"s"] = true
+		}
+		if initials.Len() > 1 {
+			ignore[initials.String()] = true
+		}
+	}
 	for _, pos := range []string{book.SeriesPosition, p.SeriesPosition} {
 		if pos != "" {
 			ignore[strings.TrimSpace(pos)] = true
@@ -281,7 +308,7 @@ func Score(book model.Book, rel model.Release) Result {
 			switch {
 			case contains(bAll, t):
 				good++
-			case ignore[t] || noiseTokens[t]:
+			case ignore[t] || noiseTokens[t] || reGroupTag.MatchString(t):
 			default:
 				bad++
 			}
@@ -306,19 +333,9 @@ func Score(book model.Book, rel model.Release) Result {
 	for _, a := range p.Authors {
 		parsedAuthorTokens = append(parsedAuthorTokens, tokens(a)...)
 	}
-	matched := 0
-	for _, a := range book.Authors {
-		s := surname(a)
-		if s == "" || !contains(have, s) {
-			continue
-		}
-		// A surname that is also a word of the book title ("The King" by Stephen King) is no
-		// proof of the author on its own: it must be in the parsed authors or appear again.
-		if contains(bAll, s) && !contains(parsedAuthorTokens, s) && count(raw, s) < 2 {
-			continue
-		}
-		matched++
-	}
+	matched := authorsMatched(book, have, raw, parsedAuthorTokens, bAll)
+	sTokens := seriesTokens(book.Series)
+	matchedPack := authorsMatched(book, have, raw, parsedAuthorTokens, append(append([]string{}, bAll...), sTokens...))
 	authorScore := 0.0
 	if matched > 0 {
 		authorScore = 0.6 + 0.4*float64(matched)/float64(len(book.Authors))
@@ -327,7 +344,34 @@ func Score(book model.Book, rel model.Release) Result {
 		why("no book author found in release name")
 	}
 
-	score := weightTitle*titleSim + weightAuthor*authorScore
+	bookIsCollection := looksLikeCollection(book.Title + " " + book.Subtitle)
+	relIsCollection := !bookIsCollection && (looksLikeCollection(rel.Title) ||
+		(reSeriesWord.MatchString(rel.Title) && p.SeriesPosition == ""))
+	// A pack of the book's own series by the book's author may contain the book even though the
+	// book title is nowhere in its name; the caller verifies that against the pack's files.
+	seriesCov := coverage(sTokens, raw)
+	pack := relIsCollection && len(sTokens) > 0 && seriesCov >= minSeriesCov && matchedPack > 0
+
+	var score float64
+	capTo := 1.0 // a hard gate lowers it below 1 and rejects the release
+	if pack {
+		score = weightTitle*seriesCov + weightAuthor*(0.6+0.4*float64(matchedPack)/float64(len(book.Authors)))
+		why("multi-book pack of the series %q (series coverage %.2f, author match %d/%d): provisional, score capped at %.2f",
+			book.Series, seriesCov, matchedPack, len(book.Authors), packCap)
+	} else {
+		score = weightTitle*titleSim + weightAuthor*authorScore
+		if titleSim < minTitleSim {
+			capTo = gateCap
+			why("title gate failed (< %.2f)", minTitleSim)
+		}
+		if matched == 0 {
+			capTo = gateCap
+		}
+		if relIsCollection {
+			capTo = math.Min(capTo, collectCap)
+			why("release looks like a collection / box set")
+		}
+	}
 
 	for _, n := range book.Narrators {
 		if s := surname(n); s != "" && (contains(tokens(p.Narrator), s) || contains(raw, s)) {
@@ -347,41 +391,90 @@ func Score(book model.Book, rel model.Release) Result {
 		}
 	}
 
-	d, reason := sizeDelta(book, rel)
-	if reason != "" {
-		score += d
-		why("%s (%+.2f)", reason, d)
-	}
-
-	if book.SeriesPosition != "" && p.SeriesPosition != "" && sameSeries(book.Series, p.Series, raw) {
-		if posEqual(book.SeriesPosition, p.SeriesPosition) {
-			score += 0.05
-			why("series position %s matches (+0.05)", p.SeriesPosition)
-		} else {
-			score -= 0.40
-			why("different book of the same series: release #%s, book #%s (-0.40)", p.SeriesPosition, book.SeriesPosition)
+	switch {
+	case pack:
+		// A pack is expected to be large; only a sample-sized one is suspicious.
+		if rel.Size > 0 && rel.Size < 5*mb {
+			score -= 0.35
+			why("tiny release, looks like a sample (-0.35)")
+		}
+	default:
+		d, reason := sizeDelta(book, rel)
+		if reason != "" {
+			score += d
+			why("%s (%+.2f)", reason, d)
+		}
+		if book.SeriesPosition != "" && p.SeriesPosition != "" && sameSeries(book.Series, p.Series, raw) {
+			if posEqual(book.SeriesPosition, p.SeriesPosition) {
+				score += 0.05
+				why("series position %s matches (+0.05)", p.SeriesPosition)
+			} else {
+				score -= 0.40
+				why("different book of the same series: release #%s, book #%s (-0.40)", p.SeriesPosition, book.SeriesPosition)
+			}
 		}
 	}
 
-	capTo := 1.0
-	if titleSim < minTitleSim {
-		capTo = gateCap
-		why("title gate failed (< %.2f)", minTitleSim)
-	}
-	if matched == 0 {
-		capTo = gateCap
-	}
-	bookIsCollection := looksLikeCollection(book.Title + " " + book.Subtitle)
-	relIsCollection := looksLikeCollection(rel.Title) ||
-		(reSeriesWord.MatchString(rel.Title) && p.SeriesPosition == "")
-	if relIsCollection && !bookIsCollection {
+	if reDrama.MatchString(rel.Title) && !bookIsDrama(book) {
 		capTo = math.Min(capTo, collectCap)
-		why("release looks like a collection / box set")
+		why("release is a dramatisation / radio play, not the book")
+	}
+	if p.Unabridged != nil && !*p.Unabridged || (p.Unabridged == nil && reAbridged.MatchString(rel.Title)) {
+		score -= 0.30
+		why("abridged release (-0.30)")
 	}
 
+	matchOK := capTo >= 1
+	if pack {
+		capTo = math.Min(capTo, packCap)
+	}
 	res.Score = math.Max(0, math.Min(math.Min(score, capTo), 1))
-	res.Match = capTo >= 1 && res.Score+1e-9 >= Threshold
+	res.Match = matchOK && res.Score+1e-9 >= Threshold
+	res.Collection = pack && res.Match
 	return res
+}
+
+// authorsMatched counts the book authors whose surname is in the release (raw name tokens or
+// parsed authors). A surname that is also a word of protect ("The King" by Stephen King) is no
+// proof of the author on its own: it must be in the parsed authors or appear again.
+func authorsMatched(book model.Book, have, raw, parsedAuthorTokens, protect []string) int {
+	matched := 0
+	for _, a := range book.Authors {
+		s := surname(a)
+		if s == "" || !contains(have, s) {
+			continue
+		}
+		if contains(protect, s) && !contains(parsedAuthorTokens, s) && count(raw, s) < 2 {
+			continue
+		}
+		matched++
+	}
+	return matched
+}
+
+// seriesTokens are the content words of a series name; "series" and friends carry nothing.
+func seriesTokens(series string) []string {
+	var out []string
+	for _, t := range contentTokens(series) {
+		if !noiseTokens[t] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// bookIsDrama reports whether the book itself is a full-cast dramatisation.
+func bookIsDrama(b model.Book) bool {
+	if reDrama.MatchString(b.Title + " " + b.Subtitle) {
+		return true
+	}
+	for _, n := range b.Narrators {
+		l := strings.ToLower(n)
+		if strings.Contains(l, "full cast") || strings.Contains(l, "ensemble") || l == "cast" {
+			return true
+		}
+	}
+	return false
 }
 
 // sizeDelta compares the release size with what the book runtime implies. 10 h of audio is about

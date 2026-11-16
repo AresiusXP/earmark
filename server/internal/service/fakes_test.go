@@ -133,7 +133,7 @@ func (s *fakeStore) Candidates(_ context.Context, asin string) ([]Candidate, err
 	var out []Candidate
 	for _, m := range s.matches[asin] {
 		if r, ok := s.releases[m.InfoHash]; ok {
-			out = append(out, Candidate{Release: r, Score: m.Score})
+			out = append(out, Candidate{Release: r, Score: m.Score, Collection: m.Collection})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })

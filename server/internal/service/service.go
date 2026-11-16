@@ -25,6 +25,9 @@ const (
 	DefaultMetadataTTL     = 10 * time.Minute
 	DefaultMetadataEntries = 256
 	DefaultPrepareTimeout  = 40 * time.Second
+	DefaultSearchTimeout   = 20 * time.Second
+	DefaultPersistTimeout  = 10 * time.Second
+	DefaultFailureCooldown = 5 * time.Minute
 	DefaultCheckTimeout    = 15 * time.Second
 	DefaultValidateTimeout = 10 * time.Second
 
@@ -57,6 +60,9 @@ type Deps struct {
 	MetadataEntries int           // bound of that cache (default 256)
 
 	PrepareTimeout  time.Duration // detached book refresh + release search (default 40s)
+	FailureCooldown time.Duration // no new source search for a book whose sources all failed (default 5min)
+	SearchTimeout   time.Duration // all sources, all queries of one release search (default 20s, capped by what remains of PrepareTimeout)
+	PersistTimeout  time.Duration // storing search results, on a fresh context (default 10s)
 	CheckTimeout    time.Duration // one provider CheckCached call (default 15s)
 	ValidateTimeout time.Duration // one provider Validate call (default 10s)
 }
@@ -67,6 +73,9 @@ type Service struct {
 	log     *slog.Logger
 	catalog *bookCache
 	flights flightGroup[model.Book]
+
+	failMu     sync.Mutex
+	searchFail map[string]time.Time // asin -> when every source last failed
 }
 
 var _ API = (*Service)(nil)
@@ -90,6 +99,9 @@ func New(deps Deps) *Service {
 	def(&deps.AvailabilityTTL, DefaultAvailabilityTTL)
 	def(&deps.MetadataTTL, DefaultMetadataTTL)
 	def(&deps.PrepareTimeout, DefaultPrepareTimeout)
+	def(&deps.SearchTimeout, DefaultSearchTimeout)
+	def(&deps.PersistTimeout, DefaultPersistTimeout)
+	def(&deps.FailureCooldown, DefaultFailureCooldown)
 	def(&deps.CheckTimeout, DefaultCheckTimeout)
 	def(&deps.ValidateTimeout, DefaultValidateTimeout)
 	if deps.MetadataEntries <= 0 {
@@ -186,4 +198,39 @@ func redact(err error, key string) error {
 		return err
 	}
 	return &redactedError{msg: msg, err: err}
+}
+
+// inSearchCooldown reports whether every source recently failed for the book.
+func (s *Service) inSearchCooldown(asin string) bool {
+	s.failMu.Lock()
+	defer s.failMu.Unlock()
+	at, ok := s.searchFail[asin]
+	if !ok {
+		return false
+	}
+	if s.now().Sub(at) >= s.d.FailureCooldown {
+		delete(s.searchFail, asin)
+		return false
+	}
+	return true
+}
+
+func (s *Service) noteSearchFailure(asin string) {
+	s.failMu.Lock()
+	defer s.failMu.Unlock()
+	if s.searchFail == nil {
+		s.searchFail = map[string]time.Time{}
+	}
+	if len(s.searchFail) >= 1024 { // bounded: drop expired entries, then everything
+		now := s.now()
+		for k, at := range s.searchFail {
+			if now.Sub(at) >= s.d.FailureCooldown {
+				delete(s.searchFail, k)
+			}
+		}
+		if len(s.searchFail) >= 1024 {
+			clear(s.searchFail)
+		}
+	}
+	s.searchFail[asin] = s.now()
 }

@@ -263,6 +263,9 @@ func (c *Client) findInList(ctx context.Context, key, hash string, bypassCache b
 			q.Set("bypass_cache", "true")
 		}
 		env, err := c.do(ctx, key, http.MethodGet, "/api/torrents/mylist?"+q.Encode(), nil, nil)
+		if isItemNotFound(err) {
+			break // an empty library answers 404 ITEM_NOT_FOUND ("No torrents found for this user")
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -282,9 +285,18 @@ func (c *Client) findInList(ctx context.Context, key, hash string, bypassCache b
 	return nil, nil
 }
 
+// isItemNotFound reports TorBox's "ITEM_NOT_FOUND" answer of the library listing.
+func isItemNotFound(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.code == "ITEM_NOT_FOUND"
+}
+
 func (c *Client) getByID(ctx context.Context, key string, id int64) (*item, error) {
 	q := url.Values{"id": {strconv.FormatInt(id, 10)}, "bypass_cache": {"true"}}
 	env, err := c.do(ctx, key, http.MethodGet, "/api/torrents/mylist?"+q.Encode(), nil, nil)
+	if isItemNotFound(err) {
+		return nil, nil // not visible (yet): callers report Pending
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -116,15 +116,9 @@ func TestScore(t *testing.T) {
 		{"dutch hobbit vs english book", hobbitEN, "De Hobbit - J.R.R. Tolkien luisterboek audioboek", 0, false, ""},
 
 		// --- negatives: collections ---
-		{"complete series", mistborn1, "Brandon Sanderson - The Final Empire - Mistborn Complete Series [MP3]", 0, false, "collection"},
-		{"books range", mistborn1, "Brandon Sanderson - Mistborn Series [Books 1-4] - The Final Empire", 0, false, "collection"},
 		{"box set", martian, "Andy Weir - The Martian + Artemis Box Set [M4B]", 0, false, "collection"},
 		{"collection word", carrie, "Stephen King Collection - Carrie, It, Misery", 0, false, "collection"},
-		{"numeric range", reacherPersonal, "Lee Child: Jack Reacher 01-24 - Personal (read by Jeff Harding) + Shorts", 0, false, "collection"},
-		{"dutch range", hpNL1, "J.K. Rowling - Harry Potter en de Steen der Wijzen deel 1 tot 7 [NL]", 0, false, "collection"},
-		{"all N books", hpEN1, "J.K. Rowling - Harry Potter and the Philosopher's Stone - All 7 Books [MP3]", 0, false, "collection"},
 		{"anthology", carrie, "Stephen King - Carrie - Anthology [MP3]", 0, false, "collection"},
-		{"series word without number", mistborn1, "Brandon Sanderson - The Final Empire - Mistborn Series", 0, false, "collection"},
 
 		// --- negatives: size ---
 		{"tiny sample", phm, "Andy Weir - Project Hail Mary [M4B]", 3, false, "sample"},
@@ -246,5 +240,31 @@ func TestSurnameInTitleIsNotAuthorProof(t *testing.T) {
 	real := model.Release{Title: "Stephen King - The King", Parsed: parse.Title("Stephen King - The King")}
 	if r := Score(book, real); !r.Match {
 		t.Fatalf("real release did not match: %+v", r)
+	}
+}
+
+// Regression: real Knaben releases for "The Hobbit" were mis-scored (dotted scene names and
+// "with <narrator>" rejected; radio dramas and abridged readings accepted).
+func TestHobbitRegression(t *testing.T) {
+	book := model.Book{Title: "The Hobbit", Authors: []string{"J.R.R. Tolkien"}, Narrators: []string{"Rob Inglis"}, Language: "en", RuntimeMin: 660}
+	for _, tc := range []struct {
+		raw  string
+		want bool
+	}{
+		{"The.Hobbit.J.R.R.Tolkien.Audiobook.MP3-JD07", true},
+		{"JRR Tolkien's The Hobbit Audiobook with Rob Inglis", true},
+		{"J.R.R. Tolkien_The Hobbit_.m4b (unabridged)", true},
+		{"J.R.R. Tolkien - The Hobbit - NPR Radio Drama [flac]", false},
+		{"The Hobbit By J. R. R. Tolkien - BBC Radio 4 Dramatisation", false},
+		{"THE HOBBIT - JRR Tolkien. Read Nicol Williamson-Abr-{FerraBit}", false},
+	} {
+		if got := Score(book, rel(tc.raw, 700)); got.Match != tc.want {
+			t.Errorf("%q: match=%v want %v (%.2f %v)", tc.raw, got.Match, tc.want, got.Score, got.Reasons)
+		}
+	}
+	drama := book
+	drama.Narrators = []string{"Full Cast"}
+	if r := Score(drama, rel("J.R.R. Tolkien - The Hobbit - BBC Radio Drama", 300)); !r.Match {
+		t.Errorf("a full-cast book must accept a dramatisation: %+v", r)
 	}
 }

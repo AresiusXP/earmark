@@ -61,6 +61,9 @@ type ReleaseView struct {
 	Season  int // 1-based, rank at the time of the call
 	Release model.Release
 	Score   float64
+	// Collection: the torrent is a multi-book pack (e.g. a whole series). Files holds only the
+	// files that belong to THIS book (never empty for a shown collection).
+	Collection bool
 	// Cached[provider] is true when that provider has it cached; absent = unknown.
 	Cached map[string]bool
 	// Files are the audio files in natural (chapter) order; empty when unknown. When empty
@@ -88,8 +91,9 @@ type Stream struct {
 
 // Candidate is a release matched to a book.
 type Candidate struct {
-	Release model.Release
-	Score   float64
+	Release    model.Release
+	Score      float64
+	Collection bool // multi-book pack that mentions the book's series; verify with its files
 }
 
 // BookRecord is a stored book with the time its metadata was fetched.
@@ -137,6 +141,7 @@ type Store interface {
 
 // Match links a release to a book with a score.
 type Match struct {
-	InfoHash string
-	Score    float64
+	InfoHash   string
+	Score      float64
+	Collection bool
 }

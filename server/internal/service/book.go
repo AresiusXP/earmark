@@ -57,6 +57,21 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 		items[i].Cached = cached[items[i].Release.InfoHash]
 	}
 	items = filterReleases(items, langs, providers, cfg.ShowUncached)
+	items, packFiles := s.filterPacks(ctx, book, items)
+	// A release whose file list is known but holds no audio (typically one big .zip/.rar: the
+	// provider cannot play archives) is never shown. Unknown file lists stay.
+	var singles []string
+	for _, it := range items {
+		if !it.Collection {
+			singles = append(singles, it.Release.InfoHash)
+		}
+	}
+	files, err := s.d.Store.Files(ctx, singles)
+	if err != nil {
+		s.log.Warn("load files failed", "asin", asin, "err", err)
+		files = nil
+	}
+	items = dropUnplayable(items, files)
 	items = rankReleases(items, langs, cfg.PreferFormat)
 	limit := cfg.MaxReleases
 	if limit <= 0 {
@@ -66,22 +81,74 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 		items = items[:limit]
 	}
 
-	files, err := s.d.Store.Files(ctx, hashesOf(items))
-	if err != nil {
-		s.log.Warn("load files failed", "asin", asin, "err", err)
-		files = nil
-	}
 	page := &BookPage{Book: book, Releases: make([]ReleaseView, len(items))}
 	for i, it := range items {
-		page.Releases[i] = ReleaseView{
-			Season:  i + 1,
-			Release: it.Release,
-			Score:   it.Score,
-			Cached:  copyCached(it.Cached),
-			Files:   audioFiles(files[it.Release.InfoHash], maxFilesPerRelease),
+		v := ReleaseView{
+			Season:     i + 1,
+			Release:    it.Release,
+			Score:      it.Score,
+			Collection: it.Collection,
+			Cached:     copyCached(it.Cached),
 		}
+		if it.Collection {
+			v.Files = packFiles[it.Release.InfoHash]
+		} else {
+			v.Files = audioFiles(files[it.Release.InfoHash], maxFilesPerRelease)
+		}
+		page.Releases[i] = v
 	}
 	return page, nil
+}
+
+// dropUnplayable removes non-pack releases whose stored file list is non-empty but contains no
+// audio file (e.g. a single .zip of FLACs).
+func dropUnplayable(items []scored, files map[string][]model.File) []scored {
+	out := items[:0:0]
+	for _, it := range items {
+		if fs := files[it.Release.InfoHash]; !it.Collection && len(fs) > 0 && len(audioFiles(fs, 1)) == 0 {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// filterPacks verifies the multi-book packs among items: a pack stays only when its files are
+// known and some of them belong to this book. It returns the surviving items and, per pack,
+// the book's own audio files (natural order, capped). A pack whose files are unknown (never
+// seen cached) cannot be shown: playing "the largest file" would pick another book.
+func (s *Service) filterPacks(ctx context.Context, book model.Book, items []scored) ([]scored, map[string][]model.File) {
+	var hashes []string
+	for _, it := range items {
+		if it.Collection {
+			hashes = append(hashes, it.Release.InfoHash)
+		}
+	}
+	if len(hashes) == 0 {
+		return items, nil
+	}
+	stored, err := s.d.Store.Files(ctx, hashes)
+	if err != nil {
+		s.log.Warn("load files failed", "asin", book.ASIN, "err", err)
+		stored = nil
+	}
+	own := make(map[string][]model.File, len(hashes))
+	out := make([]scored, 0, len(items))
+	for _, it := range items {
+		if !it.Collection {
+			out = append(out, it)
+			continue
+		}
+		h := it.Release.InfoHash
+		fs := audioFiles(match.FilterFiles(book, stored[h]), maxFilesPerRelease)
+		if len(fs) == 0 {
+			s.log.Debug("pack dropped: no known file belongs to the book", "asin", book.ASIN, "hash", h, "files", len(stored[h]))
+			continue
+		}
+		own[h] = fs
+		out = append(out, it)
+	}
+	return out, own
 }
 
 func hashesOf(items []scored) []string {
@@ -166,6 +233,9 @@ func (s *Service) ensureReleases(ctx context.Context, book model.Book) {
 			return
 		}
 	}
+	if s.inSearchCooldown(book.ASIN) {
+		return
+	}
 	s.searchReleases(ctx, book)
 }
 
@@ -177,18 +247,61 @@ func (s *Service) searchReleases(ctx context.Context, book model.Book) {
 	if q.Title == "" {
 		return
 	}
+	queries := []sources.Query{q}
+	// Books of a series are often shared in one pack named after the series, which a search for
+	// the book's own title would never find.
+	if series := searchTitle(book.Series); series != "" && !strings.EqualFold(series, q.Title) {
+		queries = append(queries, sources.Query{Title: series, Author: q.Author})
+	}
 	nSources := 0
 	for _, src := range s.d.Sources {
 		if src != nil {
 			nSources++
 		}
 	}
-	rels, errs := sources.MultiSearch(ctx, s.d.Sources, q)
-	for _, err := range errs {
-		s.log.Warn("source search failed", "asin", book.ASIN, "err", err)
+	// The queries run concurrently under one sub-deadline of their own (never longer than what
+	// remains of ctx), so a slow source cannot eat the time the storing below needs.
+	sctx, cancel := context.WithTimeout(ctx, s.d.SearchTimeout)
+	defer cancel()
+	type round struct {
+		rels []model.Release
+		errs []error
 	}
-	if nSources > 0 && len(errs) >= nSources {
+	rounds := make([]round, len(queries))
+	var wg sync.WaitGroup
+	for i, qq := range queries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rounds[i].rels, rounds[i].errs = sources.MultiSearch(sctx, s.d.Sources, qq)
+		}()
+	}
+	wg.Wait()
+
+	var batches [][]model.Release
+	allFailed := nSources > 0
+	for _, r := range rounds {
+		for _, err := range r.errs {
+			s.log.Warn("source search failed", "asin", book.ASIN, "err", err)
+		}
+		if len(r.errs) < nSources {
+			allFailed = false
+		}
+		batches = append(batches, r.rels)
+	}
+	if allFailed {
+		s.noteSearchFailure(book.ASIN)
 		return // every source failed: leave the book unsearched so the next visit retries
+	}
+	var rels []model.Release
+	if len(batches) == 1 {
+		rels = batches[0]
+	} else {
+		var all []model.Release
+		for _, b := range batches {
+			all = append(all, b...)
+		}
+		rels = sources.DedupeByHash(all)
 	}
 
 	var accepted []model.Release
@@ -204,20 +317,25 @@ func (s *Service) searchReleases(ctx context.Context, book model.Book) {
 		}
 		accepted = append(accepted, rel)
 		if res := match.Score(book, rel); res.Match {
-			matches = append(matches, Match{InfoHash: rel.InfoHash, Score: res.Score})
+			matches = append(matches, Match{InfoHash: rel.InfoHash, Score: res.Score, Collection: res.Collection})
 		}
 	}
+	// Storing must not depend on the budget the search just spent: a detached, fresh deadline.
+	// A book left without candidates (e.g. the only slow source timed out) is retried after
+	// EmptyReleaseTTL, see ensureReleases.
+	pctx, pcancel := context.WithTimeout(context.WithoutCancel(ctx), s.d.PersistTimeout)
+	defer pcancel()
 	if len(accepted) > 0 {
-		if err := s.d.Store.UpsertReleases(ctx, accepted); err != nil {
+		if err := s.d.Store.UpsertReleases(pctx, accepted); err != nil {
 			s.log.Warn("store releases failed", "asin", book.ASIN, "err", err)
 			return
 		}
 	}
-	if err := s.d.Store.SetMatches(ctx, book.ASIN, matches); err != nil {
+	if err := s.d.Store.SetMatches(pctx, book.ASIN, matches); err != nil {
 		s.log.Warn("store matches failed", "asin", book.ASIN, "err", err)
 		return
 	}
-	if err := s.d.Store.MarkReleasesSearched(ctx, book.ASIN, s.now()); err != nil {
+	if err := s.d.Store.MarkReleasesSearched(pctx, book.ASIN, s.now()); err != nil {
 		s.log.Warn("mark searched failed", "asin", book.ASIN, "err", err)
 	}
 }

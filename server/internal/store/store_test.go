@@ -106,6 +106,43 @@ func count(t *testing.T, s *Postgres, query string, args ...any) int {
 	return n
 }
 
+// Links stored before migration 0002 must survive it as plain (non-collection) matches.
+func TestMigrationAddsCollectionColumn(t *testing.T) {
+	url := newSchemaURL(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	ms, err := loadMigrations()
+	if err != nil || len(ms) < 2 {
+		t.Fatalf("migrations: %v %v", ms, err)
+	}
+	h := hash(0x42)
+	for _, q := range []string{
+		ms[0].sql,
+		`CREATE TABLE schema_migrations (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`,
+		`INSERT INTO schema_migrations (version, name) VALUES (1, '` + ms[0].name + `')`,
+		`INSERT INTO books (asin) VALUES ('B1')`,
+		`INSERT INTO releases (info_hash) VALUES ('` + h + `')`,
+		`INSERT INTO book_releases (asin, info_hash, score) VALUES ('B1', '` + h + `', 0.8)`,
+	} {
+		if _, err := conn.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatalf("Open on a version-1 database: %v", err)
+	}
+	defer s.Close()
+	cands, err := s.Candidates(ctx, "B1")
+	if err != nil || len(cands) != 1 || cands[0].Score != 0.8 || cands[0].Collection {
+		t.Errorf("candidates after migration = %+v, %v", cands, err)
+	}
+}
+
 func TestMigrationsIdempotent(t *testing.T) {
 	url := newSchemaURL(t)
 	ctx := context.Background()
@@ -226,6 +263,7 @@ func TestReleasesAndCandidates(t *testing.T) {
 
 	// Order: score desc, then seeders desc.
 	ms := []service.Match{{InfoHash: a, Score: 0.9}, {InfoHash: b, Score: 0.9}, {InfoHash: c, Score: 0.95}}
+	ms[1].Collection = true
 	if err := s.SetMatches(ctx, "B000", ms); err != nil {
 		t.Fatal(err)
 	}
@@ -238,6 +276,9 @@ func TestReleasesAndCandidates(t *testing.T) {
 	}
 	if cands[0].Score != 0.95 {
 		t.Errorf("score = %v, want exactly 0.95", cands[0].Score)
+	}
+	if cands[0].Collection || !cands[1].Collection || cands[2].Collection {
+		t.Errorf("collection flags = %v %v %v, want false true false", cands[0].Collection, cands[1].Collection, cands[2].Collection)
 	}
 	if !reflect.DeepEqual(cands[1].Release, rs[1]) {
 		t.Errorf("release round trip:\n got %+v\nwant %+v", cands[1].Release, rs[1])
@@ -351,8 +392,16 @@ func TestSetMatchesReplace(t *testing.T) {
 		{InfoHash: a, Score: 0.2}, {InfoHash: a, Score: 0.8}, {InfoHash: unknown, Score: 1},
 	}))
 	cands, _ := s.Candidates(ctx, "B1")
-	if len(cands) != 1 || cands[0].Release.InfoHash != a || cands[0].Score != 0.8 {
+	if len(cands) != 1 || cands[0].Release.InfoHash != a || cands[0].Score != 0.8 || cands[0].Collection {
 		t.Errorf("B1 = %+v", cands)
+	}
+
+	// A duplicate keeps the flag of its best-scoring entry.
+	must(s.SetMatches(ctx, "B1", []service.Match{
+		{InfoHash: a, Score: 0.9, Collection: true}, {InfoHash: a, Score: 0.7, Collection: false},
+	}))
+	if cands, _ := s.Candidates(ctx, "B1"); len(cands) != 1 || cands[0].Score != 0.9 || !cands[0].Collection {
+		t.Errorf("duplicate flag: %+v", cands)
 	}
 	if other, _ := s.Candidates(ctx, "B2"); len(other) != 1 || other[0].Score != 0.1 {
 		t.Errorf("B2 touched: %+v", other)

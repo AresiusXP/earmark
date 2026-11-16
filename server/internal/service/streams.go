@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/match"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
@@ -26,14 +27,19 @@ func (s *Service) Streams(ctx context.Context, cfg userconfig.Config, ref VideoR
 		return nil, fmt.Errorf("service: load candidates: %w", err)
 	}
 	var rel *model.Release
+	collection := false
 	for i := range cands {
 		if cands[i].Release.InfoHash == ref.InfoHash {
 			rel = &cands[i].Release
+			collection = cands[i].Collection
 			break
 		}
 	}
 	if rel == nil {
 		return nil, ErrNotFound
+	}
+	if collection && ref.FileIndex == AutoFile {
+		return nil, ErrNotFound // a pack has no "largest file": only this book's files are playable
 	}
 
 	var file *model.File
@@ -42,11 +48,25 @@ func (s *Service) Streams(ctx context.Context, cfg userconfig.Config, ref VideoR
 		if err != nil {
 			s.log.Warn("load files failed", "err", err)
 		}
-		for _, f := range files[ref.InfoHash] {
+		known := files[ref.InfoHash]
+		if collection {
+			rec, err := s.d.Store.GetBook(ctx, ref.ASIN)
+			if err != nil {
+				return nil, fmt.Errorf("service: load book: %w", err)
+			}
+			if rec == nil {
+				return nil, ErrNotFound
+			}
+			known = match.FilterFiles(rec.Book, known)
+		}
+		for _, f := range known {
 			if f.Index == ref.FileIndex {
 				file = &f
 				break
 			}
+		}
+		if collection && file == nil {
+			return nil, ErrNotFound
 		}
 	}
 
@@ -80,7 +100,13 @@ func (s *Service) Resolve(ctx context.Context, cfg userconfig.Config, provider, 
 	if fileIndex == AutoFile {
 		// Unknown files stay AutoFile: the provider picks the largest audio file once it can
 		// inspect the torrent. Never guess an index (it could be a cover or a sample).
-		if f, ok := s.autoFile(ctx, p, key, infoHash); ok {
+		f, ok, pack := s.autoFile(ctx, p, key, infoHash)
+		if pack {
+			// The largest file of a multi-book pack is some other book. Callers must pick one
+			// of the book's own files (Book lists only those for a pack).
+			return debrid.ResolveResult{}, fmt.Errorf("service: torrent holds several books, a file must be chosen: %w", ErrNotFound)
+		}
+		if ok {
 			fileIndex = f.Index
 		}
 	}
@@ -103,14 +129,18 @@ func (s *Service) Resolve(ctx context.Context, cfg userconfig.Config, provider, 
 }
 
 // autoFile finds the largest stored audio file of a torrent; when no files are stored it asks
-// the provider's cache check once to learn (and store) them.
-func (s *Service) autoFile(ctx context.Context, p debrid.Provider, key, hash string) (model.File, bool) {
+// the provider's cache check once to learn (and store) them. pack is true when the files look
+// like several books of a series: then there is no sensible "largest file" to pick.
+func (s *Service) autoFile(ctx context.Context, p debrid.Provider, key, hash string) (f model.File, ok bool, pack bool) {
 	files, err := s.d.Store.Files(ctx, []string{hash})
 	if err != nil {
 		s.log.Warn("load files failed", "err", err)
 	}
+	if match.IsPack(files[hash]) {
+		return model.File{}, false, true
+	}
 	if f, ok := largestAudio(files[hash]); ok {
-		return f, true
+		return f, true, false
 	}
 
 	var res map[string]debrid.Cached
@@ -123,20 +153,24 @@ func (s *Service) autoFile(ctx context.Context, p debrid.Provider, key, hash str
 	})
 	if err != nil {
 		s.log.Warn("cache check failed", "provider", p.Name(), "err", redact(err, key))
-		return model.File{}, false
+		return model.File{}, false, false
 	}
 	if res == nil {
-		return model.File{}, false
+		return model.File{}, false, false
 	}
 	c, cached := res[hash]
 	if err := s.d.Store.SetAvailability(ctx, p.Name(), []Availability{{InfoHash: hash, Cached: cached, CheckedAt: s.now()}}); err != nil {
 		s.log.Warn("store availability failed", "provider", p.Name(), "err", err)
 	}
 	if !cached || len(c.Files) == 0 {
-		return model.File{}, false
+		return model.File{}, false, false
 	}
 	if err := s.d.Store.SaveFiles(ctx, hash, c.Files); err != nil {
 		s.log.Warn("store files failed", "err", err)
 	}
-	return largestAudio(c.Files)
+	if match.IsPack(c.Files) {
+		return model.File{}, false, true
+	}
+	f, ok = largestAudio(c.Files)
+	return f, ok, false
 }

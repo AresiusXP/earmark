@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -319,12 +320,19 @@ func TestBookAllSourcesFail(t *testing.T) {
 	if !e.store.searched[testASIN].IsZero() || e.store.setMatchesCalls != 0 {
 		t.Fatal("a total failure must not mark the book searched or touch matches")
 	}
+	// Within the cooldown a polling client must not restart the whole fan-out.
+	e.mustBook(cfgFor(nil))
+	if e.src.calls() != 1 {
+		t.Fatalf("must not retry inside the cooldown, src calls = %d", e.src.calls())
+	}
+	e.clock.Advance(DefaultFailureCooldown + time.Second)
 	e.mustBook(cfgFor(nil))
 	if e.src.calls() != 2 {
-		t.Fatalf("must retry on the next visit, src calls = %d", e.src.calls())
+		t.Fatalf("must retry after the cooldown, src calls = %d", e.src.calls())
 	}
 
 	e.src.setErr(nil)
+	e.clock.Advance(DefaultFailureCooldown + time.Second)
 	e.mustBook(cfgFor(nil))
 	if e.src.calls() != 3 || e.store.searched[testASIN].IsZero() {
 		t.Fatalf("recovered search: calls=%d searched=%v", e.src.calls(), e.store.searched[testASIN])
@@ -1082,5 +1090,56 @@ func TestProviders(t *testing.T) {
 	e := newEnv(t)
 	if got := e.svc.Providers(); !eq(got, []string{"realdebrid", "torbox"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// A cached torrent that only holds an archive (e.g. one big .zip of FLACs) cannot be streamed:
+// it must not be listed, while a release with unknown files must stay.
+func TestBookDropsReleasesWithoutAudioFiles(t *testing.T) {
+	e := newEnv(t)
+	e.seedFresh(duneRel(1, "flac"), duneRel(2, "m4b"), duneRel(3, "mp3"))
+	e.tb.cached[h(1)] = debrid.Cached{Files: []model.File{{Index: 0, Path: "Dune [flac]/Dune [flac].zip", Size: 700}}}
+	e.tb.cached[h(2)] = debrid.Cached{} // cached, files unknown: stays
+	e.tb.cached[h(3)] = debrid.Cached{Files: []model.File{{Index: 4, Path: "Dune/01.mp3", Size: 9}, {Index: 5, Path: "Dune/cover.jpg", Size: 1}}}
+	p := e.mustBook(cfgFor(nil, "torbox"))
+	var got []string
+	for _, r := range p.Releases {
+		got = append(got, r.Release.InfoHash)
+	}
+	if len(p.Releases) != 2 {
+		t.Fatalf("releases = %v, want the zip-only one dropped", got)
+	}
+	for _, r := range p.Releases {
+		if r.Release.InfoHash == h(1) {
+			t.Fatal("zip-only release is still listed")
+		}
+	}
+}
+
+// Series books are searched under the series name too, because the pack that holds them is
+// named after the series, not after the book.
+func TestBookSearchesTheSeriesNameToo(t *testing.T) {
+	e := newEnv(t)
+	b := dune()
+	b.Series, b.SeriesPosition = "Dune Chronicles", "1"
+	e.meta.books[testASIN] = b
+	e.mustBook(cfgFor(nil))
+	var titles []string
+	for _, q := range e.src.queries {
+		titles = append(titles, q.Title)
+	}
+	sort.Strings(titles) // the two queries run concurrently
+	if !eq(titles, []string{"Dune", "Dune Chronicles"}) {
+		t.Fatalf("queries = %v", titles)
+	}
+
+	// A series named like the book does not double the work.
+	e2 := newEnv(t)
+	b2 := dune()
+	b2.Series = "Dune"
+	e2.meta.books[testASIN] = b2
+	e2.mustBook(cfgFor(nil))
+	if e2.src.calls() != 1 {
+		t.Fatalf("calls = %d", e2.src.calls())
 	}
 }

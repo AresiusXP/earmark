@@ -758,3 +758,15 @@ func TestRedactEncodedKey(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveEmptyLibraryAnswersItemNotFound(t *testing.T) {
+	// TorBox answers 404 ITEM_NOT_FOUND for the listing of an account without torrents.
+	_, c := newFake(t, map[string]route{
+		"GET /v1/api/torrents/mylist":         reply(404, `{"success":false,"error":"ITEM_NOT_FOUND","detail":"No torrents found for this user."}`),
+		"POST /v1/api/torrents/createtorrent": okData(`{"torrent_id":9}`),
+	})
+	res, err := c.Resolve(context.Background(), testKey, debrid.ResolveRequest{InfoHash: hashA})
+	if err != nil || !res.Pending {
+		t.Fatalf("res=%+v err=%v, want Pending (torrent added, not visible yet)", res, err)
+	}
+}

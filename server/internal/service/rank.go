@@ -57,7 +57,8 @@ func containsFold(list []string, s string) bool {
 }
 
 // rankReleases orders releases best first: cached anywhere, language preference (cfg order,
-// unknown language after the wanted ones), format, bitrate (unknown last), match score, seeders.
+// unknown language after the wanted ones), format, bitrate (unknown last), match score, own
+// release before series pack, seeders.
 // It returns a new slice; the order is total (info hash breaks the last tie).
 func rankReleases(in []scored, languages []string, preferFormat string) []scored {
 	out := slices.Clone(in)
@@ -77,6 +78,9 @@ func rankReleases(in []scored, languages []string, preferFormat string) []scored
 		}
 		if a.Score != b.Score {
 			return a.Score > b.Score
+		}
+		if a.Collection != b.Collection {
+			return !a.Collection // a book of its own before a pack
 		}
 		if a.Release.Seeders != b.Release.Seeders {
 			return a.Release.Seeders > b.Release.Seeders
