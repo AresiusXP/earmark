@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.2.1...v0.3.0) (2026-11-16)
+
+
+### Features
+
+* add torrents-csv and SolidTorrents release sources ([717b191](https://github.com/AresiusXP/stremio-audiobooks/commit/717b19152cdc6aaa9468b256170c5d13716daac1))
+
 ## [0.2.1](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.2.0...v0.2.1) (2026-11-16)
 
 
