@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math"
 	"net/url"
 	"os"
 	"reflect"
@@ -708,5 +709,23 @@ func TestConcurrentWrites(t *testing.T) {
 	}
 	if cands, _ := s.Candidates(ctx, "B1"); len(cands) != 20 {
 		t.Errorf("cands = %d", len(cands))
+	}
+}
+
+// One absurd seeder count from an index must not fail the whole batch.
+func TestUpsertReleasesClampsSeeders(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	big, neg, ok := sampleRelease(hash(0x21), 1), sampleRelease(hash(0x22), 1), sampleRelease(hash(0x23), 7)
+	big.Seeders = 4294967302
+	neg.Seeders = -5
+	if err := s.UpsertReleases(ctx, []model.Release{big, neg, ok}); err != nil {
+		t.Fatalf("batch with out-of-range seeders failed: %v", err)
+	}
+	for h, want := range map[string]int{hash(0x21): math.MaxInt32, hash(0x22): 0, hash(0x23): 7} {
+		var got int
+		if err := s.pool.QueryRow(ctx, "SELECT seeders FROM releases WHERE info_hash=$1", h).Scan(&got); err != nil || got != want {
+			t.Errorf("%s: seeders = %d, %v; want %d", h[:6], got, err, want)
+		}
 	}
 }

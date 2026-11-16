@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -178,7 +179,7 @@ func (p *Postgres) UpsertReleases(ctx context.Context, rs []model.Release) error
 			  size = EXCLUDED.size, seeders = EXCLUDED.seeders,
 			  published_at = EXCLUDED.published_at, parsed = EXCLUDED.parsed,
 			  updated_at = now()`,
-			h, r.Title, r.Source, r.Magnet, r.Size, r.Seeders, published, parsed)
+			h, r.Title, r.Source, r.Magnet, max(r.Size, 0), clampInt4(r.Seeders), published, parsed)
 	}
 	return p.inTx(ctx, "upsert releases", func(tx pgx.Tx) error {
 		return execBatch(ctx, tx, batch)
@@ -451,4 +452,10 @@ func execBatch(ctx context.Context, tx pgx.Tx, b *pgx.Batch) error {
 		}
 	}
 	return br.Close()
+}
+
+// clampInt4 keeps an index-supplied count inside the int4 column: one absurd value (an index
+// once reported 4294967302 seeders) must not fail the whole batch of releases.
+func clampInt4(n int) int32 {
+	return int32(min(max(n, 0), math.MaxInt32))
 }
