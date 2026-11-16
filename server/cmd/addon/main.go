@@ -62,6 +62,12 @@ func run() error {
 	if len(cfg.ABBBaseURLs) > 0 {
 		srcs = append(srcs, sources.NewABB(cfg.ABBBaseURLs))
 	}
+	if cfg.TorrentsCSV {
+		srcs = append(srcs, sources.NewTorrentsCSV())
+	}
+	if cfg.SolidTorrents {
+		srcs = append(srcs, sources.NewSolidTorrents())
+	}
 	svc := service.New(service.Deps{
 		Metadata:  metadata.New(),
 		Sources:   srcs,

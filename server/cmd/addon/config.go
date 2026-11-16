@@ -24,6 +24,9 @@ type config struct {
 	AllowOpenConfig  bool // explicit opt-in to run without INSTANCE_PASSWORD
 	// ABBBaseURLs are the AudioBook Bay mirrors in order of preference; empty disables ABB.
 	ABBBaseURLs []string
+	// TorrentsCSV and SolidTorrents enable those sources (default on; env value "off" disables).
+	TorrentsCSV   bool
+	SolidTorrents bool
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -81,6 +84,17 @@ func loadConfig(getenv func(string) string) (config, error) {
 		errs = append(errs, err)
 	}
 	c.ABBBaseURLs = abb
+
+	for _, sw := range []struct {
+		name string
+		dst  *bool
+	}{{"TORRENTS_CSV", &c.TorrentsCSV}, {"SOLIDTORRENTS", &c.SolidTorrents}} {
+		on, err := parseSwitch(sw.name, getenv(sw.name))
+		if err != nil {
+			errs = append(errs, err)
+		}
+		*sw.dst = on
+	}
 	return c, errors.Join(errs...)
 }
 
@@ -111,4 +125,16 @@ func parseABBBaseURLs(v string) ([]string, error) {
 		return nil, errors.New(`ABB_BASE_URLS: no URLs (use "off" to disable ABB)`)
 	}
 	return out, nil
+}
+
+// parseSwitch reads an on/off variable: unset, "on", "true" and "1" enable; "off", "false" and
+// "0" disable (case-insensitive).
+func parseSwitch(name, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "on", "true", "1":
+		return true, nil
+	case "off", "false", "0":
+		return false, nil
+	}
+	return true, fmt.Errorf(`%s: invalid value %q (use "off" to disable)`, name, v)
 }

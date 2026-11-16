@@ -1,0 +1,9 @@
+{"torrents":[
+{"infohash":"549152bb35b0eab529d6e6d69fba88e7b373f5f5","name":"Dungeon Crawler Carl","size_bytes":8347549512,"created_unix":1784214068,"seeders":481,"leechers":108,"completed":11218,"scraped_date":1792967639,"id":1755},
+{"infohash":"45faa335bdf713746be6fc75079e09e60ff81a37","name":"Dungeon Crawler Carl by Matt Dinniman EPUB","size_bytes":1149638,"created_unix":1671119846,"seeders":391,"leechers":6,"completed":11816,"scraped_date":1792935802,"id":2176},
+{"infohash":"92e715f6b0a3c0f5a7d8e1c2b3a49586776655aa","name":"Dungeon Crawler Carl 1 - Matt Dinniman (Jeff Hays) [M4B]","size_bytes":386480816,"created_unix":1790830045,"seeders":149,"leechers":2,"completed":4605,"scraped_date":1792967000,"id":7984},
+{"infohash":"92E715F6B0A3C0F5A7D8E1C2B3A49586776655AA","name":"Dungeon Crawler Carl 1 - Matt Dinniman (duplicate, fewer seeders)","size_bytes":386480816,"created_unix":1790830045,"seeders":3,"leechers":0,"completed":1,"scraped_date":1792967000,"id":7985},
+{"infohash":"1111111111111111111111111111111111111111","name":"Dungeon Crawler Carl S01E02 1080p WEB-DL","size_bytes":2147483648,"created_unix":1790830045,"seeders":50,"leechers":0,"completed":1,"scraped_date":1792967000,"id":7986},
+{"infohash":"zzzz","name":"Dungeon Crawler Carl broken hash","size_bytes":386480816,"created_unix":1790830045,"seeders":9,"leechers":0,"completed":1,"scraped_date":1792967000,"id":7987},
+{"infohash":"2222222222222222222222222222222222222222","name":"Dungeon Crawler Carl tiny sample","size_bytes":5000000,"created_unix":0,"seeders":7,"leechers":0,"completed":1,"scraped_date":1792967000,"id":7988}
+]}

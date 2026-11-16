@@ -94,3 +94,38 @@ func TestABBBaseURLsRejectCredentials(t *testing.T) {
 		t.Fatal("credentials in a mirror URL must be rejected")
 	}
 }
+
+func TestLoadConfigSourceSwitches(t *testing.T) {
+	base := map[string]string{
+		"PUBLIC_URL": "https://audiobooks.example", "DATABASE_URL": "postgres://x",
+		"CONFIG_SECRET": strings.Repeat("s", 32), "INSTANCE_PASSWORD": "pw",
+	}
+	for _, tc := range []struct {
+		val     string
+		want    bool
+		wantErr bool
+	}{
+		{"", true, false}, {"on", true, false}, {"true", true, false}, {"1", true, false},
+		{"off", false, false}, {" OFF ", false, false}, {"false", false, false}, {"0", false, false},
+		{"nope", true, true},
+	} {
+		for _, name := range []string{"TORRENTS_CSV", "SOLIDTORRENTS"} {
+			m := map[string]string{name: tc.val}
+			for k, v := range base {
+				m[k] = v
+			}
+			c, err := loadConfig(env(m))
+			if (err != nil) != tc.wantErr {
+				t.Errorf("%s=%q: err = %v", name, tc.val, err)
+				continue
+			}
+			got, other := c.TorrentsCSV, c.SolidTorrents
+			if name == "SOLIDTORRENTS" {
+				got, other = other, got
+			}
+			if !tc.wantErr && (got != tc.want || !other) {
+				t.Errorf("%s=%q: got %v (other %v), want %v (other on)", name, tc.val, got, other, tc.want)
+			}
+		}
+	}
+}
