@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.0](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.1.0...v0.2.0) (2026-11-16)
+
+
+### Features
+
+* add private podcast feeds and listening pages ([bb43a02](https://github.com/AresiusXP/stremio-audiobooks/commit/bb43a027107164c06e9909436dff7ce727eefd81))
+* add resilient AudioBook Bay source scraper ([ef426b5](https://github.com/AresiusXP/stremio-audiobooks/commit/ef426b5ac4a584995b4803129802ae98c9db792a))
+* support series packs and resilient release searches ([24b3088](https://github.com/AresiusXP/stremio-audiobooks/commit/24b30886d66b7a6854fe19f77200eb7f6717dfec))
+
 ## 0.1.0 (2026-11-16)
 
 
