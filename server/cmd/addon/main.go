@@ -58,9 +58,13 @@ func run() error {
 		return err
 	}
 
+	srcs := []sources.Source{sources.NewKnaben()}
+	if len(cfg.ABBBaseURLs) > 0 {
+		srcs = append(srcs, sources.NewABB(cfg.ABBBaseURLs))
+	}
 	svc := service.New(service.Deps{
 		Metadata:  metadata.New(),
-		Sources:   []sources.Source{sources.NewKnaben()},
+		Sources:   srcs,
 		Store:     db,
 		Providers: debrid.NewRegistry(torbox.New("", nil)),
 		Logger:    logger,

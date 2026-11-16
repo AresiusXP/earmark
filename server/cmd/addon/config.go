@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
 )
 
 // config is read from the environment (see helm/stremio-audiobooks and docs/DESIGN.md).
@@ -19,6 +22,8 @@ type config struct {
 	ConfigSecret     string
 	InstancePassword string
 	AllowOpenConfig  bool // explicit opt-in to run without INSTANCE_PASSWORD
+	// ABBBaseURLs are the AudioBook Bay mirrors in order of preference; empty disables ABB.
+	ABBBaseURLs []string
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -70,5 +75,40 @@ func loadConfig(getenv func(string) string) (config, error) {
 		// debrid APIs with their own key). Running open must be a conscious choice.
 		errs = append(errs, errors.New("INSTANCE_PASSWORD is required (or set ALLOW_OPEN_CONFIG=true to run an open instance)"))
 	}
+
+	abb, err := parseABBBaseURLs(getenv("ABB_BASE_URLS"))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	c.ABBBaseURLs = abb
 	return c, errors.Join(errs...)
+}
+
+// parseABBBaseURLs reads ABB_BASE_URLS: unset means the default mirrors, "off" disables ABB,
+// otherwise a comma list of absolute http(s) URLs without a path.
+func parseABBBaseURLs(v string) ([]string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return slices.Clone(sources.DefaultABBBaseURLs), nil
+	}
+	if strings.EqualFold(v, "off") {
+		return nil, nil
+	}
+	var out []string
+	for _, raw := range strings.Split(v, ",") {
+		raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.User != nil {
+			// userinfo is rejected: base URLs show up in logged request errors.
+			return nil, errors.New("ABB_BASE_URLS: every entry must be an absolute http(s) URL without a path or credentials")
+		}
+		out = append(out, raw)
+	}
+	if len(out) == 0 {
+		return nil, errors.New(`ABB_BASE_URLS: no URLs (use "off" to disable ABB)`)
+	}
+	return out, nil
 }

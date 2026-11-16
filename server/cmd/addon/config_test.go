@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -49,5 +50,47 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if c, err := loadConfig(env(with("ADMIN_PORT", "0"))); err != nil || c.AdminPort != 0 {
 		t.Errorf("admin off: %+v %v", c, err)
+	}
+}
+
+func TestLoadConfigABBBaseURLs(t *testing.T) {
+	base := map[string]string{
+		"PUBLIC_URL": "https://audiobooks.example", "DATABASE_URL": "postgres://x",
+		"CONFIG_SECRET": strings.Repeat("s", 32), "INSTANCE_PASSWORD": "pw",
+	}
+	for _, tc := range []struct {
+		name, val string
+		want      []string
+		wantErr   bool
+	}{
+		{"unset: defaults", "", []string{"https://audiobookbay.lu", "https://audiobookbay.is", "https://audiobookbay.fi"}, false},
+		{"off", "off", nil, false},
+		{"OFF with spaces", " OFF ", nil, false},
+		{"list trimmed", " https://a.example/ , http://b.example:8080,,", []string{"https://a.example", "http://b.example:8080"}, false},
+		{"single", "https://a.example", []string{"https://a.example"}, false},
+		{"no scheme", "a.example", nil, true},
+		{"ftp", "ftp://a.example", nil, true},
+		{"path", "https://a.example/abb", nil, true},
+		{"one bad in list", "https://a.example,nope", nil, true},
+		{"only commas", ",,", nil, true},
+	} {
+		m := map[string]string{"ABB_BASE_URLS": tc.val}
+		for k, v := range base {
+			m[k] = v
+		}
+		c, err := loadConfig(env(m))
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v", tc.name, err)
+			continue
+		}
+		if !tc.wantErr && !slices.Equal(c.ABBBaseURLs, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, c.ABBBaseURLs, tc.want)
+		}
+	}
+}
+
+func TestABBBaseURLsRejectCredentials(t *testing.T) {
+	if _, err := parseABBBaseURLs("https://user:pw@audiobookbay.example"); err == nil {
+		t.Fatal("credentials in a mirror URL must be rejected")
 	}
 }

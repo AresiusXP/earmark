@@ -10,7 +10,7 @@ import (
 )
 
 // PerSourceTimeout bounds each source inside MultiSearch.
-const PerSourceTimeout = 25 * time.Second
+const PerSourceTimeout = 15 * time.Second
 
 // MultiSearch queries every source concurrently, merges the releases and dedupes them by
 // info hash (highest seeders wins). A failing source never fails the call: its error is
