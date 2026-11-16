@@ -483,10 +483,12 @@ type streamHints struct {
 }
 
 type streamDoc struct {
-	Name          string      `json:"name"`
-	Title         string      `json:"title"`
-	URL           string      `json:"url"`
-	BehaviorHints streamHints `json:"behaviorHints"`
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	// Exactly one of URL (playable) and ExternalURL (opened in the browser) is set.
+	URL           string       `json:"url,omitempty"`
+	ExternalURL   string       `json:"externalUrl,omitempty"`
+	BehaviorHints *streamHints `json:"behaviorHints,omitempty"`
 }
 
 type streamResponse struct {
@@ -535,6 +537,15 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Streams = append(resp.Streams, s.streamDoc(tok, hash, st))
 	}
+	if len(resp.Streams) > 0 && isASIN(ref.ASIN) {
+		// Stremio only shows meta links of its own categories, so the podcast option also lives
+		// here, where every client lists it: it opens the landing page in the browser.
+		resp.Streams = append(resp.Streams, streamDoc{
+			Name:        "ABK 🎧",
+			Title:       "Listen in a podcast app\n(background playback, screen off)",
+			ExternalURL: s.publicURL + "/" + tok + "/listen/" + ref.ASIN,
+		})
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -574,7 +585,7 @@ func (s *server) streamDoc(tok, hash string, st service.Stream) streamDoc {
 	return streamDoc{
 		Name: name, Title: title,
 		URL: s.resolveURL(tok, st.Provider, hash, st.FileIndex, ""),
-		BehaviorHints: streamHints{
+		BehaviorHints: &streamHints{
 			BingeGroup: "abk-" + hash, Filename: filename, VideoSize: size,
 		},
 	}

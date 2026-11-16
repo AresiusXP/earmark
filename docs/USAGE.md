@@ -60,8 +60,9 @@ Stremio on Android stops the audio when the screen turns off, and there is no se
 The addon therefore also publishes every book as a **private podcast feed**: one episode per chapter
 file, in order. Podcast apps are built for background listening.
 
-1. In Stremio, open the book and press the link **Listen in a podcast app** (below the description).
-   It opens a page in your browser. (You can also open
+1. In Stremio, open the book, tap any episode, and in the list of streams choose
+   **ABK 🎧 Listen in a podcast app** (the last entry). It opens a page in your browser. Some Stremio
+   versions also show a *Listen in a podcast app* link on the book page itself. (You can also open
    `https://<your-instance>/<your-config>/listen/<ASIN>` directly.)
 2. Choose the release you want (prefer one marked `⚡ TB`).
 3. Subscribe with one tap, or copy the feed URL:

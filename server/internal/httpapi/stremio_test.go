@@ -440,8 +440,15 @@ func TestStream(t *testing.T) {
 		t.Errorf("ref = %+v", e.api.gotRef)
 	}
 	streams := decode(t, rec)["streams"].([]any)
-	if len(streams) != 2 {
+	if len(streams) != 3 { // two playable streams + the podcast option
 		t.Fatalf("streams = %v", streams)
+	}
+	ext := streams[2].(map[string]any)
+	if want := testPublic + "/" + tok + "/listen/B002V0QK4C"; ext["externalUrl"] != want || ext["url"] != nil || ext["behaviorHints"] != nil {
+		t.Errorf("podcast stream = %v, want an externalUrl-only stream %s", ext, want)
+	}
+	if !strings.Contains(ext["title"].(string), "podcast") {
+		t.Errorf("podcast stream title = %v", ext["title"])
 	}
 	s0 := streams[0].(map[string]any)
 	if s0["name"] != "ABK ⚡ TB" {
