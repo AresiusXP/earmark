@@ -1,5 +1,6 @@
 // Package httpapi implements the Stremio addon protocol (manifest, catalog, meta, stream), the
-// /resolve redirector and the /configure page on top of service.API.
+// /resolve redirector, the /configure page and the background-listening feed (/feed, /listen)
+// on top of service.API.
 //
 // Security notes: the sealed user config travels in the URL path, so no request URL is ever
 // logged (only route patterns), every response sends Referrer-Policy: no-referrer, and debrid
@@ -87,14 +88,22 @@ func New(d Deps) http.Handler {
 		_, _ = io.WriteString(w, "ok")
 	})
 	m.Handle("GET /metrics", s.metricsH)
-	m.HandleFunc("GET /static/logo.png", servePNG(logoPNG))
-	m.HandleFunc("GET /static/background.png", servePNG(backgroundPNG))
+	m.HandleFunc("GET /static/logo.png", serveAsset("logo.png", "image/png"))
+	m.HandleFunc("GET /static/icon-192.png", serveAsset("icon-192.png", "image/png"))
+	m.HandleFunc("GET /static/favicon.png", serveAsset("favicon.png", "image/png"))
+	m.HandleFunc("GET /static/background.jpg", serveAsset("background.jpg", "image/jpeg"))
+	m.HandleFunc("GET /favicon.ico", serveAsset("favicon.png", "image/png"))
 	m.HandleFunc("GET /manifest.json", s.manifest)
 	m.HandleFunc("GET /{cfg}/manifest.json", s.manifest)
 	m.HandleFunc("GET /{cfg}/catalog/audiobook/{id}", s.catalog)
 	m.HandleFunc("GET /{cfg}/catalog/audiobook/{id}/{extra}", s.catalog)
 	m.HandleFunc("GET /{cfg}/meta/audiobook/{id}", s.meta)
 	m.HandleFunc("GET /{cfg}/stream/audiobook/{id}", s.stream)
+	// The ".rss" suffix cannot be part of a wildcard segment: the handler strips it from the
+	// last segment ("{asin}" for the default feed, "{ref}" otherwise).
+	m.HandleFunc("GET /{cfg}/feed/{asin}", s.feed)
+	m.HandleFunc("GET /{cfg}/feed/{asin}/{ref}", s.feed)
+	m.HandleFunc("GET /{cfg}/listen/{asin}", s.listenPage)
 	m.HandleFunc("GET /configure", s.configurePage)
 	m.HandleFunc("GET /{cfg}/configure", s.configurePage)
 	m.HandleFunc("POST /api/config", s.configAPI)

@@ -98,6 +98,8 @@ func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "rate limited")
 	case errors.Is(err, debrid.ErrNotFound), errors.Is(err, service.ErrNotFound), errors.Is(err, service.ErrNoProvider):
 		outcome("not_found")
+		// The reason (e.g. "no audio file in torrent") is what makes a failing stream debuggable.
+		s.log.Warn("resolve: not found", "provider", provider, "err", safeErr(err))
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, context.Canceled) && r.Context().Err() != nil:
 		outcome("canceled")

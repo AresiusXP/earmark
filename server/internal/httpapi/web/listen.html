@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Listen in a podcast app</title>
+<link rel="icon" href="/static/favicon.png">
+<style nonce="{{.Nonce}}">
+  :root { color-scheme: light dark; --bg: #f6f6fb; --fg: #1b1d33; --muted: #5d607f; --card: #fff; --line: #d5d7e8; --accent: #6a49c8; --accent-fg: #fff; --ok: #2f7d4a; --field: #f0f1f9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14162b; --fg: #e8e8f2; --muted: #a8a8c0; --card: #1d2040; --line: #3a3d63; --accent: #7b5bd6; --ok: #6cc08a; --field: #14162b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  main { max-width: 36rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+  header { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
+  .brand { display: flex; align-items: center; gap: .5rem; margin: 0 0 .9rem; color: var(--muted); font-size: .9rem; }
+  .brand img { width: 1.75rem; height: 1.75rem; }
+  header img { width: 6rem; height: 6rem; border-radius: .5rem; object-fit: cover; flex: none; background: var(--line); }
+  h1 { font-size: 1.35rem; margin: 0; line-height: 1.25; overflow-wrap: anywhere; }
+  .author { margin: .15rem 0 0; color: var(--muted); }
+  .lead { color: var(--muted); margin: 0 0 1rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: .6rem; padding: .9rem 1rem 1rem; margin: 0 0 1rem; }
+  .card h2 { font-size: 1rem; margin: 0 0 .15rem; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: .9rem; margin: 0 0 .6rem; overflow-wrap: anywhere; }
+  .tag { display: inline-block; padding: 0 .45rem; border-radius: 1rem; font-size: .8rem; border: 1px solid var(--line); margin-right: .3rem; }
+  .tag.ok { color: var(--ok); border-color: var(--ok); }
+  .row { display: flex; gap: .5rem; }
+  input[type=text] { flex: 1; min-width: 0; padding: .5rem; border-radius: .35rem; border: 1px solid var(--line); background: var(--field); color: inherit; font: .85rem ui-monospace, monospace; }
+  button, a.btn { padding: .5rem .9rem; border: 0; border-radius: .4rem; background: var(--accent); color: var(--accent-fg); font: inherit; cursor: pointer; text-decoration: none; display: inline-block; }
+  a.btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .apps { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .7rem; }
+  .hint { color: var(--muted); font-size: .9rem; }
+  .hint li { margin: .3rem 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><img src="/static/logo.png" alt="" width="28" height="28">Audiobooks for Stremio</div>
+  <header>
+    {{if .Cover}}<img src="{{.Cover}}" alt="" referrerpolicy="no-referrer" width="96" height="96">{{end}}
+    <div>
+      <h1>{{.Title}}</h1>
+      {{if .Authors}}<p class="author">{{.Authors}}</p>{{end}}
+    </div>
+  </header>
+  <p class="lead">Stremio on Android stops playing when the screen turns off. Subscribe to a private podcast feed of this book instead and listen in any podcast app.</p>
+
+  {{range $i, $r := .Releases}}
+  <section class="card">
+    <h2>{{if $r.Label}}{{$r.Label}}{{else}}Release {{$i}}{{end}}</h2>
+    <p class="meta">
+      {{if $r.Cached}}<span class="tag ok">⚡ cached</span>{{end}}{{if $r.Pack}}<span class="tag">series pack</span>{{end}}{{if eq $r.Files 1}}1 file{{else if $r.Files}}{{$r.Files}} files{{else}}file list unknown, one episode{{end}}
+      {{if $r.Title}}<br>{{$r.Title}}{{end}}
+    </p>
+    <div class="row">
+      <input type="text" id="feed-{{$i}}" value="{{$r.FeedURL}}" readonly aria-label="Feed URL" spellcheck="false" autocapitalize="off" autocomplete="off">
+      <button type="button" data-copy="feed-{{$i}}" hidden>Copy</button>
+    </div>
+    <div class="apps">
+      <a class="btn" href="{{$r.AntennaPod}}">Open in AntennaPod</a>
+      <a class="btn" href="{{$r.PocketCasts}}">Open in Pocket Casts</a>
+      <a class="btn secondary" href="{{$r.Pcast}}">pcast://</a>
+      <a class="btn secondary" href="{{$r.Podcast}}">podcast://</a>
+    </div>
+  </section>
+  {{else}}
+  <section class="card"><p class="meta">No playable release is known for this book yet. Open it in Stremio once, wait a minute and reload this page.</p></section>
+  {{end}}
+
+  <ul class="hint">
+    <li>Other apps (Pocket Casts, Audiobookshelf, Podcast Addict, ...): choose <em>Add podcast by URL / RSS feed</em> and paste the link above.</li>
+    <li>You only add the feed once. It stays valid for as long as the instance secret is not rotated.</li>
+    <li>Episodes are the book's files in order. Streaming works best for <span class="tag ok">⚡ cached</span> releases; when a file is not ready yet you hear about 10 seconds of silence, so do not download episodes until the release is cached.</li>
+    <li>The link contains your sealed settings: anyone who has it can play from your debrid account. Do not share it.</li>
+  </ul>
+</main>
+<script nonce="{{.Nonce}}">
+(function () {
+  var buttons = document.querySelectorAll('button[data-copy]');
+  var inputs = document.querySelectorAll('input[readonly]');
+  Array.prototype.forEach.call(inputs, function (input) {
+    input.addEventListener('focus', function () { input.select(); });
+    input.addEventListener('click', function () { input.select(); });
+  });
+  Array.prototype.forEach.call(buttons, function (btn) {
+    var input = document.getElementById(btn.getAttribute('data-copy'));
+    if (!input) { return; }
+    btn.hidden = false;
+    var label = btn.textContent;
+    function done(ok) {
+      btn.textContent = ok ? 'Copied' : 'Press and hold to copy';
+      setTimeout(function () { btn.textContent = label; }, 2000);
+    }
+    function fallback() {
+      var ok = false;
+      try { input.focus(); input.select(); input.setSelectionRange(0, input.value.length); ok = document.execCommand('copy'); } catch (e) {}
+      done(ok);
+    }
+    btn.addEventListener('click', function () {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(input.value).then(function () { done(true); }, fallback);
+      } else {
+        fallback();
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

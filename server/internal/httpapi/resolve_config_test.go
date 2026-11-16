@@ -246,9 +246,17 @@ func TestConfigurePage(t *testing.T) {
 	if strings.Contains(body, "{{") {
 		t.Error("unreplaced placeholder")
 	}
-	for _, bad := range []string{"http://", "https://", "<link", "src=", "onclick", "onsubmit"} {
+	for _, bad := range []string{"http://", "https://", "onclick", "onsubmit"} {
 		if strings.Contains(body, bad) {
 			t.Errorf("page contains %q (external resource or inline handler)", bad)
+		}
+	}
+	// The only sub-resources are our own brand images (same origin).
+	for _, attr := range []string{`src="`, `href="`} {
+		for _, part := range strings.Split(body, attr)[1:] {
+			if !strings.HasPrefix(part, "/static/") && !strings.HasPrefix(part, "#") {
+				t.Errorf("page references a non-local resource: %s%.30s", attr, part)
+			}
 		}
 	}
 	if rec.Header().Get("Content-Type") != "text/html; charset=utf-8" || rec.Header().Get("Cache-Control") != "no-store" {

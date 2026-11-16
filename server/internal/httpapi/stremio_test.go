@@ -308,7 +308,7 @@ func TestMeta(t *testing.T) {
 	}
 	rec := e.get("/" + tok + "/meta/audiobook/abk%3AB002V0QK4C.json")
 	mustStatus(t, rec, 200)
-	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=300" {
+	if cc := rec.Header().Get("Cache-Control"); cc != "private, max-age=300" { // the body carries a link with the sealed config
 		t.Errorf("Cache-Control = %q", cc)
 	}
 	m := decode(t, rec)["meta"].(map[string]any)
@@ -318,7 +318,7 @@ func TestMeta(t *testing.T) {
 		t.Errorf("meta = %v", m)
 	}
 	links := m["links"].([]any)
-	if len(links) != 4 {
+	if len(links) != 5 {
 		t.Fatalf("links = %v", links)
 	}
 	want := []struct{ name, cat, url string }{
@@ -326,6 +326,7 @@ func TestMeta(t *testing.T) {
 		{"Scott Brick", "narrator", "stremio:///search?search=Scott%20Brick"},
 		{"Orlagh Cassidy", "narrator", "stremio:///search?search=Orlagh%20Cassidy"},
 		{"Dune Chronicles", "series", "stremio:///search?search=Dune%20Chronicles"},
+		{"Listen in a podcast app", "Podcast", testPublic + "/" + tok + "/listen/B002V0QK4C"},
 	}
 	for i, w := range want {
 		l := links[i].(map[string]any)
@@ -572,11 +573,17 @@ func TestLogsNeverContainSecrets(t *testing.T) {
 
 func TestStaticAssets(t *testing.T) {
 	e := newEnv(t, "")
-	for _, p := range []string{"/static/logo.png", "/static/background.png"} {
+	for p, tc := range map[string]struct{ ctype, magic string }{
+		"/static/logo.png":       {"image/png", "\x89PNG"},
+		"/static/icon-192.png":   {"image/png", "\x89PNG"},
+		"/static/favicon.png":    {"image/png", "\x89PNG"},
+		"/favicon.ico":           {"image/png", "\x89PNG"},
+		"/static/background.jpg": {"image/jpeg", "\xff\xd8\xff"},
+	} {
 		rec := e.get(p)
 		mustStatus(t, rec, 200)
-		if rec.Header().Get("Content-Type") != "image/png" || !strings.HasPrefix(rec.Body.String(), "\x89PNG") {
-			t.Errorf("%s: not a png", p)
+		if rec.Header().Get("Content-Type") != tc.ctype || !strings.HasPrefix(rec.Body.String(), tc.magic) {
+			t.Errorf("%s: wrong content type or magic bytes", p)
 		}
 	}
 }
@@ -589,3 +596,22 @@ func TestSafeErr(t *testing.T) {
 }
 
 var urlErr = url.Error{Op: "Get", URL: "https://api.example/?apikey=SECRET", Err: errors.New("connection refused")}
+
+func TestReleaseOverviewMarksSeriesPacks(t *testing.T) {
+	rv := service.ReleaseView{
+		Season: 2, Collection: true, Cached: map[string]bool{"torbox": true},
+		Release: model.Release{InfoHash: strings.Repeat("a", 40), Title: "Dungeon Crawler Carl Books 1-8", Size: 20 << 30, Parsed: model.ParsedTitle{Format: "m4b"}},
+		Files:   []model.File{{Index: 1, Path: "Pack/Dungeon Crawler Carl, Book 1.m4b", Size: 1 << 30}},
+	}
+	want := "S2 · M4B · 1.0 GB · from a series pack · ⚡ TB\nDungeon Crawler Carl Books 1-8"
+	if got := releaseOverview(rv); got != want {
+		t.Errorf("overview = %q, want %q", got, want)
+	}
+	if vs := buildVideos(model.Book{ASIN: "B002V0QK4C"}, []service.ReleaseView{{Season: 1, Collection: true}}); len(vs) != 0 {
+		t.Errorf("a pack without files must not get an AutoFile video: %+v", vs)
+	}
+	rv.Collection = false
+	if got := releaseOverview(rv); strings.Contains(got, "series pack") || !strings.Contains(got, "20.0 GB") {
+		t.Errorf("plain release overview = %q", got)
+	}
+}

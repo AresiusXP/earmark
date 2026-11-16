@@ -66,7 +66,7 @@ func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
 	m := manifestDoc{
 		ID: manifestID, Version: version, Name: "Audiobooks",
 		Description: "Audiobooks with Audible metadata, played from your debrid service.",
-		Logo:        s.publicURL + "/static/logo.png", Background: s.publicURL + "/static/background.png",
+		Logo:        s.publicURL + "/static/logo.png", Background: s.publicURL + "/static/background.jpg",
 		Types:      []string{"audiobook"},
 		Catalogs:   []catalogDef{},
 		IDPrefixes: []string{idPrefix},
@@ -255,7 +255,7 @@ type metaResponse struct {
 }
 
 func (s *server) meta(w http.ResponseWriter, r *http.Request) {
-	cfg, _, ok := s.openCfg(w, r)
+	cfg, tok, ok := s.openCfg(w, r)
 	if !ok {
 		return
 	}
@@ -293,8 +293,15 @@ func (s *server) meta(w http.ResponseWriter, r *http.Request) {
 		notFound()
 		return
 	}
-	setCache(w, metaAge)
-	writeJSON(w, http.StatusOK, metaResponse{Meta: buildMeta(page), CacheMaxAge: metaAge})
+	// The response carries a link with the sealed config: never let a shared cache keep it.
+	w.Header().Set("Cache-Control", "private, max-age="+strconv.Itoa(metaAge))
+	m := buildMeta(page)
+	if len(m.Videos) > 0 { // nothing to listen to without a playable release
+		m.Links = append(m.Links, metaLink{
+			Name: "Listen in a podcast app", Category: "Podcast", URL: s.publicURL + "/" + tok + "/listen/" + asin,
+		})
+	}
+	writeJSON(w, http.StatusOK, metaResponse{Meta: m, CacheMaxAge: metaAge})
 }
 
 func stremioSearch(q string) string {
@@ -345,6 +352,9 @@ func buildVideos(b model.Book, views []service.ReleaseView) []video {
 
 	out := []video{}
 	for _, rv := range vs {
+		if rv.Collection && len(rv.Files) == 0 {
+			continue // AutoFile on a pack would pick another book; the service never sends this
+		}
 		hash := rv.Release.InfoHash
 		overview := releaseOverview(rv)
 		vid := func(idx, episode int, title string) video {
@@ -429,8 +439,20 @@ func releaseLabel(rel model.Release, f *model.File) string {
 
 func releaseOverview(rv service.ReleaseView) string {
 	parts := []string{"S" + strconv.Itoa(rv.Season)}
-	if l := releaseLabel(rv.Release, nil); l != "" {
+	rel := rv.Release
+	if rv.Collection {
+		// The torrent size is the whole pack; show what this book weighs.
+		var n int64
+		for _, f := range rv.Files {
+			n += f.Size
+		}
+		rel.Size = n
+	}
+	if l := releaseLabel(rel, nil); l != "" {
 		parts = append(parts, l)
+	}
+	if rv.Collection {
+		parts = append(parts, "from a series pack")
 	}
 	var cached []string
 	for p, ok := range rv.Cached {
@@ -551,7 +573,7 @@ func (s *server) streamDoc(tok, hash string, st service.Stream) streamDoc {
 	}
 	return streamDoc{
 		Name: name, Title: title,
-		URL: s.publicURL + "/resolve/" + tok + "/" + st.Provider + "/" + hash + "/" + strconv.Itoa(st.FileIndex),
+		URL: s.resolveURL(tok, st.Provider, hash, st.FileIndex, ""),
 		BehaviorHints: streamHints{
 			BingeGroup: "abk-" + hash, Filename: filename, VideoSize: size,
 		},

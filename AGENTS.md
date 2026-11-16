@@ -1,6 +1,6 @@
 # AGENTS.md — stremio-audiobooks
 
-Stremio addon serving audiobooks via debrid services (TorBox first, then Real-Debrid).
+Stremio addon serving audiobooks via debrid services (TorBox; Real-Debrid was dropped).
 **Read `docs/DESIGN.md` first**; if code and design diverge, update the design in the same change.
 
 ## Rules
