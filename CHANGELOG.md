@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.2.0...v0.2.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* expose podcast listening option in Stremio stream lists ([2ee4370](https://github.com/AresiusXP/stremio-audiobooks/commit/2ee437063d623ebb7807a1dfee8ef4ce638b4bec))
+
+
+### Documentation
+
+* overhaul README with project branding and setup guide ([e581e91](https://github.com/AresiusXP/stremio-audiobooks/commit/e581e91a05215c04723292f8f3d2100339639bec))
+
 ## [0.2.0](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.1.0...v0.2.0) (2026-11-16)
 
 
