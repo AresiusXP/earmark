@@ -295,6 +295,7 @@ class OnboardingViewModelTest {
         vm.onServerUrlChange(server.baseUrl)
         vm.chooseMethod(OnboardingMethod.Link)
         vm.onScanResult(ScanResult.Text(TestCodes.LINK))
+        vm.state.awaitState { it.secret.isNotEmpty() } // the state is a combine().stateIn() pipeline: wait for the write before signIn() reads it
         vm.signIn()
         vm.state.awaitState { it.step == OnboardingStep.Debrid }
         assertTrue(server.lastBody("POST", "/v1/auth/link").contains(""""link_code":"${TestCodes.LINK}""""))
