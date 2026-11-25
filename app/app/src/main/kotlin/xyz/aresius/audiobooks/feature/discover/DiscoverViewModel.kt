@@ -5,16 +5,25 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalTime
 import javax.inject.Inject
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import xyz.aresius.audiobooks.core.data.CatalogRepository
+import xyz.aresius.audiobooks.core.data.CatalogRepositoryImpl
 import xyz.aresius.audiobooks.core.data.LibraryRepository
 import xyz.aresius.audiobooks.core.data.MeRepository
+import xyz.aresius.audiobooks.core.data.NetworkEvents
+import xyz.aresius.audiobooks.core.data.NoNetworkEvents
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiResult
 import xyz.aresius.audiobooks.core.network.Book
@@ -36,16 +45,20 @@ data class DiscoverUiState(
     val continueListening: LibraryEntry? = null,
 )
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class DiscoverViewModel(
     private val catalog: CatalogRepository,
     private val library: LibraryRepository,
     me: MeRepository,
+    networkEvents: NetworkEvents = NoNetworkEvents,
+    private val debounceMs: Long = REFRESH_DEBOUNCE_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
     private val hourNow: () -> Int,
 ) : ViewModel() {
     @Inject
-    constructor(catalog: CatalogRepository, library: LibraryRepository, me: MeRepository) :
-        this(catalog, library, me, { LocalTime.now().hour })
+    constructor(catalog: CatalogRepository, library: LibraryRepository, me: MeRepository, networkEvents: NetworkEvents) :
+        this(catalog, library, me, networkEvents, REFRESH_DEBOUNCE_MS, System::currentTimeMillis, { LocalTime.now().hour })
 
     private val local = MutableStateFlow(DiscoverUiState(greeting = greetingForHour(hourNow())))
 
@@ -57,20 +70,50 @@ class DiscoverViewModel(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
 
     private var nextPage = 0
+    private var loadJob: Job? = null
+    private var loadedAtMs = 0L
+
+    /** The screen came back (foreground, tab reopened) or the network returned: several of these in a row make one refresh. */
+    private val triggers = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     init {
-        load(refresh = false)
+        start(refresh = false)
         // The hero comes from the library copy; a failed refresh just leaves what is cached.
         viewModelScope.launch { library.refresh() }
+        viewModelScope.launch { merge(triggers, networkEvents.available).debounce(debounceMs).collect { refreshIfNeeded() } }
     }
 
     /** First load, retry after an error, and pull-to-refresh (which asks the server again instead of the 5-minute cache). */
     fun load(refresh: Boolean = true) {
         if (local.value.refreshing) return
+        start(refresh)
+    }
+
+    /** Discover is on screen again: the app returned to the foreground or the tab was reopened. */
+    fun onResumed() {
+        triggers.tryEmit(Unit)
+    }
+
+    /**
+     * A saved copy (or an error) is replaced as soon as the server answers again, also when an earlier request is still hanging; a fresh page is
+     * only refreshed once its 5 minutes are over, so coming back to Discover never reshuffles what you were just looking at.
+     */
+    internal fun refreshIfNeeded() {
+        val books = local.value.books
+        val saved = books is Load.Failed || (books is Load.Content && books.stale)
+        val old = books is Load.Content && clock() - loadedAtMs >= CatalogRepositoryImpl.FRESH_MS
+        if (!saved && !old) return
+        start(refresh = true)
+        viewModelScope.launch { library.refresh() }
+    }
+
+    private fun start(refresh: Boolean) {
+        loadJob?.cancel()
         local.update { it.copy(refreshing = true, greeting = greetingForHour(hourNow()), books = if (it.books is Load.Content) it.books else Load.Loading) }
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val r = catalog.discover(0, refresh)
             nextPage = 1
+            if (r is ApiResult.Success && !r.stale) loadedAtMs = clock()
             local.update { s ->
                 when (r) {
                     is ApiResult.Success -> s.copy(
@@ -101,5 +144,9 @@ class DiscoverViewModel(
                 is ApiResult.Failure -> local.update { it.copy(loadingMore = false, loadMoreError = r.error) }
             }
         }
+    }
+
+    companion object {
+        const val REFRESH_DEBOUNCE_MS = 1_500L
     }
 }
