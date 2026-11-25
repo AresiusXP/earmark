@@ -173,13 +173,15 @@ func (m *memStore) userAvailOf(fp, p, h string) (cached, ok bool) {
 type provBase struct {
 	name string
 
-	mu       sync.Mutex
-	acct     map[string]map[string]bool // key -> hashes in the account
-	adds     int
-	resolves []string // "key|hash|index"
-	keysSeen map[string]bool
-	gate     chan struct{} // when set, Resolve waits for it (coalescing tests)
-	validate error         // Validate answer
+	mu        sync.Mutex
+	acct      map[string]map[string]bool // key -> hashes in the account
+	adds      int
+	resolves  []string // "key|hash|index"
+	keysSeen  map[string]bool
+	gate      chan struct{} // when set, Resolve waits for it (coalescing tests)
+	started   int           // Resolve calls that reached the gate
+	cancelled int           // ... that ended because their context did
+	validate  error         // Validate answer
 	// answer decides the Resolve result; added is true when this call added the torrent.
 	answer func(key string, req debrid.ResolveRequest, added bool) (debrid.ResolveResult, error)
 	files  []model.File
@@ -196,17 +198,27 @@ func (p *provBase) Validate(context.Context, string) error {
 	return p.validate
 }
 func (p *provBase) calls() int    { p.mu.Lock(); defer p.mu.Unlock(); return len(p.resolves) }
+func (p *provBase) gated() int    { p.mu.Lock(); defer p.mu.Unlock(); return p.started }
+func (p *provBase) cancels() int  { p.mu.Lock(); defer p.mu.Unlock(); return p.cancelled }
 func (p *provBase) addCount() int { p.mu.Lock(); defer p.mu.Unlock(); return p.adds }
 func (p *provBase) CheckCached(context.Context, string, []string) (map[string]debrid.Cached, error) {
 	return nil, nil
 }
 
-func (p *provBase) Resolve(_ context.Context, key string, req debrid.ResolveRequest) (debrid.ResolveResult, error) {
+func (p *provBase) Resolve(ctx context.Context, key string, req debrid.ResolveRequest) (debrid.ResolveResult, error) {
 	p.mu.Lock()
 	if p.gate != nil {
 		g := p.gate
+		p.started++
 		p.mu.Unlock()
-		<-g
+		select {
+		case <-g:
+		case <-ctx.Done():
+			p.mu.Lock()
+			p.cancelled++
+			p.mu.Unlock()
+			return debrid.ResolveResult{}, ctx.Err()
+		}
 		p.mu.Lock()
 	}
 	defer p.mu.Unlock()
@@ -333,7 +345,7 @@ func newRelEnv(t *testing.T, addsPerHour int) *relEnv {
 	e.app = &app{
 		API: api, d: AppDeps{Store: e.store, Providers: provs, AddsPerHour: addsPerHour}, log: log, now: e.clk.Now,
 		allow: NewLinkAllowlist(nil), links: newLinkCache(e.clk.Now), trk: newTracker(e.clk.Now), bud: newBudget(addsPerHour, e.clk.Now),
-		appDL: make(chan struct{}, maxAppDownloads),
+		work: newWorkGate(0, 0), appDL: make(chan struct{}, maxAppDownloads),
 	}
 	t.Cleanup(e.scan)
 	return e

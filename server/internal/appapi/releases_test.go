@@ -1,7 +1,6 @@
 package appapi
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -580,30 +579,6 @@ func TestConcurrentDownloadsOfOneKeyShareOneProviderCall(t *testing.T) {
 	}
 	if e.rd.calls() != 1 {
 		t.Fatalf("provider calls = %d, want 1 (singleflight + link cache)", e.rd.calls())
-	}
-}
-
-func TestDownloadCallerCancelDoesNotCancelTheFlight(t *testing.T) {
-	var g flights[int]
-	release := make(chan struct{})
-	started := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := g.do(ctx, "k", func() (int, error) { close(started); <-release; return 7, nil })
-		done <- err
-	}()
-	<-started
-	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v", err)
-	}
-	v, err := func() (int, error) {
-		go func() { time.Sleep(10 * time.Millisecond); close(release) }()
-		return g.do(context.Background(), "k", func() (int, error) { return 99, nil })
-	}()
-	if err != nil || v != 7 {
-		t.Fatalf("second caller joined the running flight: %d %v", v, err)
 	}
 }
 
