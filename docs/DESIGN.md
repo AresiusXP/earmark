@@ -5,13 +5,22 @@ Source of truth. Phase 0 decisions are marked **TBD(phase0)** until the experime
 
 ## Decisions taken
 
-* Go server, Postgres, Helm/ArgoCD like tutti-frutti. Product name **Earmark** (renamed from "stremio-audiobooks" on 2026-11-25). Host `earmark.aresius.xyz`; `audiobooks.aresius.xyz` stays as a second Ingress host (`ingress.extraHosts`) so existing Stremio install URLs keep working until the addon is retired.
+* Go server, Postgres, Helm chart. Product name **Earmark** (renamed from "stremio-audiobooks" on 2026-11-25). A renamed host can stay as an extra Ingress host (`ingress.extraHosts`) so existing Stremio install URLs keep working until the addon is retired.
 * Debrid: TorBox (batch cache check) and Real-Debrid (re-added 2026-11-25 for the app, see "App direction"). Real-Debrid had been dropped on 2026-11-16; the Provider interface made it easy to bring back.
 * Metadata: Audible catalog search + Audnexus (ASIN ids), Open Library fallback.
-* Sources: Knaben (audiobook category 1003000) and AudioBook Bay (`sources/abb.go`, scraper: search page + detail page for the info hash; mirrors in `ABB_BASE_URLS`, `off` disables; queries must be lowercase or the site redirects to its front page; titles are sometimes scrambled by one letter, the matcher tolerates that). `TorrentsCSV` (`sources/torrentscsv.go`: torrents-csv.com JSON API, info hashes included; 1 req/s limiter, 30 min cache; `TORRENTS_CSV=off` disables) and `SolidTorrents` (`sources/solidtorrents.go`: the site now lives on bitsearch.eu, solidtorrents.to only redirects there; the free tier allows 200 requests per day, so results are cached for 6 h and the `x-ratelimit-*` headers are honoured: at <= 20 requests left, or after a 429, it answers `ErrRateLimited` until the reset time, fallback 1 h; `SOLIDTORRENTS=off` disables). Both search the title only (full-text AND on torrent names, many audiobook names lack the author) and drop ebook/video names and anything under 20 MB. Generic Torznab / Prowlarr only if coverage is still thin.
+* Sources: public torrent indexes only, behind the `sources` package interface; each can be switched off by an environment variable.
+  * An aggregator search API (audiobook category, `seeders` field, uppercase hex info hash).
+  * A scraped audiobook index (`sources/abb.go`): search page + detail page for the info hash; mirrors in `ABB_BASE_URLS`, `off` disables.
+    Queries must be lowercase or the site redirects to its front page; titles are sometimes scrambled by one letter, the matcher tolerates that.
+  * Two JSON APIs (`sources/torrentscsv.go`, `sources/solidtorrents.go`) that return info hashes. The first has a 1 req/s limiter and a
+    30 min cache (`TORRENTS_CSV=off` disables). The second moved to a new domain (the old one only redirects); its free tier allows
+    200 requests per day, so results are cached for 6 h and the `x-ratelimit-*` headers are honoured: at <= 20 requests left, or after
+    a 429, it answers `ErrRateLimited` until the reset time, fallback 1 h (`SOLIDTORRENTS=off` disables).
+    Both search the title only (full-text AND on torrent names, many audiobook names lack the author) and drop ebook/video names and
+    anything under 20 MB.
+  * A generic Torznab / Prowlarr source only if coverage is still thin.
 * Languages: English, Dutch and Spanish (`en`, `nl`, `es`; Audible marketplaces us/uk, nl via us, es + us for Spanish, see "Metadata findings").
 * Config sealed in the addon URL (AES-GCM, server secret); private instance.
-* Prowlarr in the cluster: decided in Phase 3.
 
 ## Phase 0 results (2026-11-16, Stremio desktop)
 
@@ -68,13 +77,13 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   (`los las del al y un una lo`) are stopwords. A wrong-language release scores -0.40 (an English
   copy of a Spanish book and the other way round), and `filterReleases` drops releases explicitly in
   an unwanted language (ranking is by the user's language order, then format, bitrate, score).
-* **Spanish source queries**: the indexes match accents literally (live: Knaben "cien años de
-  soledad" 2 hits, "cien anos de soledad" 0; torrents-csv and bitsearch return different hits for the
+* **Spanish source queries**: the indexes match accents literally (live: the aggregator returned 2 hits for "cien años de
+  soledad" and 0 for "cien anos de soledad"; the JSON-API indexes return different hits for the
   two spellings), and Spanish releases are named both ways. `Service.searchReleases` therefore also runs
   the accent-folded, lowercase query (`match.FoldAccents`) when the title or author has accents.
-  ABB needs lowercase queries (the capital letter redirect) and accepts accented ones
+  One of the scraped indexes needs lowercase queries (the capital letter redirect) and accepts accented ones
   (`?s=cien+a%c3%b1os+de+soledad` -> 6 results).
-* `num_results` max 50, `page` 0-based. Knaben: `seeders` field, uppercase hex hash.
+* `num_results` max 50, `page` 0-based (aggregator API); it reports `seeders` and an uppercase hex hash.
 
 ## Implementation notes (Phase 1)
 
@@ -148,7 +157,7 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   * Bootstrap / disabling users take `pg_advisory_xact_lock` (`abk_user`) so "first admin only while zero users" and "never
     the last enabled admin" hold under concurrency; self-disable is refused (409). Invite redemption is
     `UPDATE invites SET used_at ... WHERE used_at IS NULL AND expires_at > now` in the same transaction that creates the user.
-  * Limiters (global, in memory; client IPs are not visible behind Traefik, so every limit is process-wide and anybody
+  * Limiters (global, in memory; client IPs may not be visible behind a reverse proxy or NAT, so every limit is process-wide and anybody
     who can send garbage could use a failure lockout to lock EVERYONE out). Therefore failures are only counted where the
     secret is guessable: `POST /v1/auth/bootstrap` (instance password; exists only while no user does) allows 5
     failures/min, and invite creation 10/min (an admin action). Each attempt reserves a slot and a success refunds
@@ -267,7 +276,7 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     availability writes. A file the provider reports ready answers `200` (no `Location`: creating a link is not read-only; a `GET`
     redirects), anything that cannot be proven read-only `202 preparing`, a failed torrent (also from memory, never retried) `502`, a
     file missing from a ready torrent `404`. HEAD takes a work-gate unit like a GET. (4) `Location` must be https, default port, no
-    userinfo and a host equal to / a subdomain of the provider table in `linkhosts.go` (TorBox `tb-cdn.st`, `torbox.app`, as in Echoes;
+    userinfo and a host equal to / a subdomain of the provider table in `linkhosts.go` (TorBox `tb-cdn.st`, `torbox.app`;
     RD `real-debrid.com`, `real-debrid.cloud`, `rdb.so`; extend with `DEBRID_LINK_HOSTS=realdebrid:cdn.example,...`), re-checked
     on every cached hit; anything else is `502 upstream_failed`, never a redirect. The response is `no-store`, an empty 302, and
     no log line carries a path, query or link. Status mapping beyond the contract: pending `202` + Prepare body (+ `Retry-After`
@@ -300,7 +309,7 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     deleting an entry
     deletes its bookmarks (FK cascade), deleting a user cascades everything. `user_availability` is keyed by fingerprint, not user, so
     it has no FK to `users` (its rows are harmless booleans a key can only read itself).
-  * **App update** (`appupdate` + `appupdate.go`): modelled on Echoes: directory `APP_UPDATE_DIR` (default `/update`) with `update.json`
+  * **App update** (`appupdate` + `appupdate.go`): directory `APP_UPDATE_DIR` (default `/update`) with `update.json`
     (`version_name`, `version_code` = X*10000+Y*100+Z, `sha256`, `size`, `notes`, `released_at`) and `audiobooks.apk`, verified once at start
     (size + sha256; anything inconsistent = "no update", never an error). `GET /v1/app/update` (unauthenticated) answers
     `{available, version, version_code, size, sha256, url}` with `url = PUBLIC_URL/v1/app/update/apk`; the APK route supports Range (`206`, in the contract), is
@@ -318,13 +327,13 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   * Tests: `appapi` unit tests with in-memory fakes (`relharness_test.go`: provider accounts per key, release/key stores, a log + body
     scan that fails the test when a key or link token leaks), Postgres tests for per-user isolation, LWW, limits, per-key availability,
     client files and the full HTTP stack (`catalog_pg_test.go`, `store/library_test.go`; run by `scripts/test-store.sh`).
-* Known limits: Knaben alone finds few releases per book (more sources: Phase 3); file lists are
+* Known limits: a single source finds few releases per book (more sources: Phase 3); file lists are
   stored per hash, not per provider; a stream's "not cached" label
   also shows when the cache state is simply unknown.
 
 ## Open
 
-* Prowlarr in the cluster: decided in Phase 3.
+* Prowlarr / Torznab as an additional source: decided in Phase 3.
 
 ## App direction (decided 2026-11-25)
 
@@ -337,7 +346,7 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
 ### Model
 * **Download-first (streaming-first with debrid since Phase 3, see "Player").** Audiobooks are small, so the app downloads the files of a release to the phone and the
   player plays local files only. Debrid and BitTorrent are two ways to get the files onto the phone. Playback can
-  start on file 1 while the rest downloads. No audio ever passes through the server or Cloudflare:
+  start on file 1 while the rest downloads. No audio ever passes through the server (or a proxy in front of it):
   `GET /v1/releases/{hash}/files/{index}/download` answers 302 to the provider's short-lived CDN link (never stored by
   the app) and `202` while the provider is still preparing it (instead of the silent MP3 of the Stremio route).
 * **Users, not a shared instance.** `users` (admin|user). The instance password only creates the first admin
@@ -345,7 +354,7 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
   admin; more devices join with single-use link codes. Each device has its own token pair (1 h HS256 JWT + rotating
   refresh token, only the SHA-256 of the refresh token stored); disabling a user or revoking a device stops access
   immediately (access tokens are checked against the device/user row). The JWT secret is derived from `CONFIG_SECRET`
-  with HKDF (own label), like Echoes. Only the guessable secret (the instance password at bootstrap) has a failure limiter; everything else has a global request-rate cap (see Limiters).
+  with HKDF (own label), as above. Only the guessable secret (the instance password at bootstrap) has a failure limiter; everything else has a global request-rate cap (see Limiters).
 * **Debrid keys belong to the user.** `user_debrid_keys(user_id, provider, sealed_key, fingerprint, status, validated_at,
   last_error)`; sealed with AES-256-GCM using an HKDF-derived key (own label, never the JWT key); never returned, never
   logged. A request that talks to a debrid service uses ONLY the requesting user's key; there is no fallback to another
@@ -386,9 +395,8 @@ provider index); consumers match by path, never by index.
 
 ### App rules
 * Kotlin, Compose, Material 3, Hilt, Room, Retrofit + kotlinx-serialization, Media3 (ExoPlayer + MediaSessionService),
-  WorkManager, DataStore. Same Gradle/signing/update setup as Echoes (`/home/aresius/repo/echoes/app` is the template; copy
-  patterns, not the music-specific code). Own signing key `/home/aresius/android/keys/audiobooks*` (USER MUST BACK UP).
-  `versionCode = X*10000+Y*100+Z`. Build with `source /home/aresius/android/env.sh`.
+  WorkManager, DataStore. Signed with your own release keystore (see `docs/RELEASING.md`; back it up, a new key cannot update installed apps).
+  `versionCode = X*10000+Y*100+Z`. Building needs JDK 17 and the Android SDK (see `app/README.md`).
 * Player: one timeline per book over its ordered files; chapters from the server, falling back to one chapter per file when
   the Audible total (with the branding `intro_ms`/`outro_ms` the release may have cut taken into account) differs from the files' total by more
   than 2 %. Skip back/forward 30 s (configurable), speed 0.5-3x per
@@ -486,7 +494,7 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
 * **Service.** `PlaybackService` (Media3 `MediaSessionService`, foreground `mediaPlayback`, wake + Wi-Fi lock while playing) owns one
   ExoPlayer; `PlaybackCore` is its brain (load, ticker, sleep timer, smart rewind, persistence, errors). The UI never touches the player: it
   reads `PlayerHub` (a `StateFlow<PlayerState>`, same process) and sends commands through a `MediaController` (`PlaybackController`; book-level
-  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close). The service is exported (lock screen, Bluetooth, Android Auto must bind), so `onConnect` is a trust gate (`TrustedControllers`, the pattern of Echoes' `core/auto`): this app (same uid), platform-trusted controllers and the system uid, and the allowlisted packages (System UI, Bluetooth stack, Android Auto, Assistant, Wear OS) whose package name matches their uid get everything; a media-button/legacy caller under a platform uid gets the playback keys only; every other app is refused. The custom commands are checked again in `onCustomCommand`.
+  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close). The service is exported (lock screen, Bluetooth, Android Auto must bind), so `onConnect` is a trust gate (`TrustedControllers`, the usual Android Auto media-controller allow-list pattern, `core/auto`): this app (same uid), platform-trusted controllers and the system uid, and the allowlisted packages (System UI, Bluetooth stack, Android Auto, Assistant, Wear OS) whose package name matches their uid get everything; a media-button/legacy caller under a platform uid gets the playback keys only; every other app is refused. The custom commands are checked again in `onCustomCommand`.
 * **One timeline per book.** `BookTimeline(files, catalog runtime)` maps book position <-> (file, offset); a file's initial duration is what this
   phone measured, else `duration_ms` of the book page (matched by path), else estimated (rest of the runtime by size) until ExoPlayer has prepared
   the file; then it is learned and stored (`file_duration`) and, when the server had none, reported once in a batch (`POST /v1/releases/{hash}/durations`). One ExoPlayer item
@@ -530,22 +538,26 @@ Gradle reads that same manifest (`-PappVersion` overrides it), so `versionName` 
 `versionCode = X*10000 + Y*100 + Z` (each component 0..99 without leading zeros; checked by `release.yml`, Gradle and
 `appupdate.VersionCode`). Steps and secrets: `docs/RELEASING.md`.
 
-* **`release.yml`** (push to main, or `workflow_dispatch` with an existing tag): `release-please` -> `apk` -> `images` -> `chart` -> `register`.
-  * `apk`: JDK 17, Android SDK, Gradle cache, `:app:assembleRelease -PappVersion=X.Y.Z` signed with the keystore decoded from the
-    secrets (kept in `RUNNER_TEMP`, deleted at the end), `apksigner verify` (refuses the debug key; pins the certificate when the
-    repository variable `ANDROID_CERT_SHA256` is set). Output: `audiobooks-X.Y.Z.apk` + `.sha256` uploaded to the GitHub release and,
-    as workflow artifact `apk` (5 days), `audiobooks.apk` + `update.json` in the format of `server/internal/appupdate`
-    (`version_name`, `version_code`, `sha256`, `size`, `notes` = release body capped at 4000, `released_at`).
-  * `images`: waits for `apk` but **never depends on its success** (fail-open). It downloads the artifact into `server/update/`,
-    re-checks version, sha256 and size, and bakes it in (`COPY update/ /update/`, `APP_UPDATE_DIR=/update`). A missing or inconsistent
-    bundle gives a warning annotation and a job summary line "NOT included"; the image is still built and the server reports
-    "no update bundled". The Dockerfile never uses `COPY . .`, and `server/update/*.apk|update.json` are git-ignored (only `.gitkeep`
-    is tracked).
+* **`release.yml`** (push to main, or `workflow_dispatch` with an existing tag): `release-please` -> `tag-check` -> `apk` -> `publish-apk`, `images` -> `chart` -> `register`.
+  * `tag-check`: runs before any job that sees a secret. A manual run must come from `main` and the tag must exist and be an ancestor of
+    `origin/main`; the commit it resolves is what the later jobs check out.
+  * `apk`: the only job with the signing secrets, and it has no write token. JDK 17, Android SDK, read-only Gradle cache,
+    `:app:assembleRelease -PappVersion=X.Y.Z` signed with the keystore decoded from the secrets (kept in `RUNNER_TEMP`, removed by a trap
+    in the same step and again by an `always()` step), `apksigner verify` (refuses the debug key; pins the certificate when the
+    repository variable `ANDROID_CERT_SHA256` is set). Output: workflow artifact `apk-signed` (5 days) with `audiobooks-X.Y.Z.apk` + `.sha256`.
+  * `publish-apk`: `contents: write`, no secrets, no checkout. Verifies the artifact (names, sha256, zip magic) and uploads it to the GitHub release.
+  * `images`: waits for `apk` but **never depends on its success** (fail-open). It downloads the artifact, re-checks the sha256, writes
+    `update.json` in the format of `server/internal/appupdate` (`version_name`, `version_code`, `sha256`, `size`, `notes` = release body capped
+    at 4000, `released_at`) into `server/update/` next to `audiobooks.apk`, and bakes both in (`COPY update/ /update/`,
+    `APP_UPDATE_DIR=/update`). A missing or inconsistent bundle gives a warning annotation and a job summary line "NOT included"; the image
+    is still built and the server reports "no update bundled". The Dockerfile never uses `COPY . .`, and `server/update/*.apk|update.json`
+    are git-ignored (only `.gitkeep` is tracked).
   * Recovery: `workflow_dispatch` with `tag`. `apk` rebuilds the APK of that tag; `images` skips an existing image tag (immutable)
     unless `force_images` is ticked, which is how an image published without the APK gets it later. A tag that predates the
     pipeline (its Dockerfile has no `COPY update/`) is built without the bundle.
-  * `chart` and `register` are unchanged: the chart version must equal the tag, publishing is idempotent, and `register` only moves
-    `targetRevision` in `argocd-apps` forward and skips pre-releases.
+  * `chart`: the chart version must equal the tag; publishing is idempotent.
+  * `register` is an optional GitOps step: it only runs when the `ARGOCD_APPS_DEPLOY_KEY` secret exists (otherwise it skips with a
+    notice) and then moves `targetRevision` in a GitOps repository forward, skipping pre-releases.
 * **CI** is path-filtered: `ci-app.yml` (app/, `api/openapi.yaml`, the manifest) runs the strings-generator consistency check,
   unit tests, lint and `assembleDebug`; `ci-server.yml` (server/) and `ci-helm.yml` (helm/) do not run for app-only changes, and
   vice versa.

@@ -5,7 +5,7 @@
 <h1 align="center">Earmark</h1>
 
 <p align="center">
-  A self-hosted <b>audiobook</b> app for Android and the server behind it. Earmark finds audiobook releases,
+  A self-hosted <b>audiobook</b> app for Android and the server behind it. Earmark finds audiobook releases on public torrent indexes,
   plays them through your debrid service (TorBox, Real-Debrid) or, if you choose, BitTorrent on the phone, and keeps
   your place across devices: chapters, speed, sleep timer, bookmarks, offline downloads.
   It also still works as a <a href="https://www.stremio.com/">Stremio</a> addon (see below) until the app replaces it.
@@ -23,7 +23,7 @@
 
 ## The Stremio addon (legacy)
 
-The addon below keeps working at the same host (the old `audiobooks.aresius.xyz` name is still served).
+The same server still speaks the Stremio addon protocol. It keeps working until the app replaces it.
 
 ---
 
@@ -54,15 +54,14 @@ flowchart LR
   S[Stremio] -- manifest / catalog / meta / stream --> A[Addon]
   P[Podcast app] -- RSS feed + enclosures --> A
   A -- books --> AU[Audible + Audnexus]
-  A -- releases --> K[Knaben]
-  A -- releases --> B[AudioBook Bay]
+  A -- releases --> I[Public torrent indexes]
   A -- cache check, links --> T[TorBox]
   A <--> DB[(PostgreSQL)]
   S -- audio --> C[TorBox CDN]
   P -- audio --> C
 ```
 
-1. You open a book. The addon looks up its metadata, searches the torrent sources (on first visit and
+1. You open a book. The addon looks up its metadata, searches public torrent indexes (on first visit and
    when the data is stale), parses and scores the releases, and asks TorBox which are cached.
 2. Stremio (or the podcast app) asks for a file. The addon answers with a redirect to a signed TorBox
    download link, so the audio never flows through the addon.
@@ -77,7 +76,7 @@ your TorBox key and your preferences, and get an install link for Stremio.
 
 ## Run it yourself
 
-Requirements: Go 1.26+, PostgreSQL (tested with 17), a TorBox account.
+Requirements: Go 1.26+, PostgreSQL (tested with 17), an account at a supported debrid service (TorBox or Real-Debrid).
 
 ```bash
 cd server
@@ -98,10 +97,12 @@ Then open `http://localhost:8080/configure`. For use outside your own machine pu
 | `PUBLIC_URL` | Public base URL, no path |
 | `INSTANCE_PASSWORD` | Protects `POST /api/config`; required unless `ALLOW_OPEN_CONFIG=true` |
 | `PORT` / `ADMIN_PORT` | Public port (default 8080) / internal metrics port (default 9090, `0` disables) |
-| `ABB_BASE_URLS` | AudioBook Bay mirrors, comma separated; `off` disables the source |
+| `ABB_BASE_URLS` | Mirrors of one of the scraped indexes, comma separated; `off` disables that source |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
 
-A container image is built from `server/Dockerfile`, and a Helm chart lives in `helm/earmark`.
+A container image is built from `server/Dockerfile`, and a Helm chart lives in `helm/earmark`. The chart needs a Kubernetes cluster with an
+Ingress controller, an existing PostgreSQL database and a Secret with the database URL, the config secret and the instance password (the key
+names are in `helm/earmark/values.yaml`). Images and chart are published to GHCR by the release pipeline (`docs/RELEASING.md`).
 
 ## Development
 
@@ -109,7 +110,7 @@ A container image is built from `server/Dockerfile`, and a Helm chart lives in `
 cd server
 go vet ./... && go test -race ./...     # store tests need TEST_DATABASE_URL, else they are skipped
 ../scripts/test-store.sh                # runs the store tests against a throwaway Docker Postgres
-TORBOX_API_KEY=... ../scripts/smoke.sh  # end to end against the real Audible, Knaben and TorBox APIs
+TORBOX_API_KEY=... ../scripts/smoke.sh  # end to end against the real Audible, index and TorBox APIs
 ```
 
 ```
@@ -120,7 +121,7 @@ server/
     service          application logic and the contract between layers (contract.go)
     store            PostgreSQL store and migrations
     metadata         Audible catalog + Audnexus client
-    sources          Knaben and AudioBook Bay release sources
+    sources          release sources (public torrent indexes)
     parse, match     release-name parsing and book/release scoring
     debrid           provider interface, TorBox and Real-Debrid clients
     userconfig       AES-GCM sealed user configuration
@@ -128,14 +129,16 @@ docs/                design (source of truth), usage guide
 helm/                Helm chart
 ```
 
+* [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build, test and send changes; report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 * [docs/DESIGN.md](docs/DESIGN.md) is the source of truth for decisions and behaviour.
 * [AGENTS.md](AGENTS.md) holds the working rules for contributors and coding agents.
 * Conventional commits; releases are cut by release-please (one version for the image and the chart).
 
 ## Notes
 
-* This addon only uses **public** indexes and never touches private trackers. You are responsible for
-  what you stream: use it with content you have the right to listen to.
+* Earmark only uses **public** indexes and never touches private trackers. You are responsible for
+  what you download or stream: use it with content you have the right to listen to.
+* There is no public instance: Earmark is meant to be self-hosted. (The maintainer runs a private one for personal use.)
 * The addon talks to the debrid service on behalf of the person whose key is sealed in the link, and
   nothing is stored on the server except public book and release metadata.
 

@@ -10,7 +10,7 @@ cd proto/phase0 && go run . -addr :7000
 ```
 
 * Desktop / Stremio Web on the same machine: add `http://127.0.0.1:7000/manifest.json`.
-  (Stremio Web needs https unless it is localhost; use the cluster/tunnel for that.)
+  (Stremio Web needs https unless it is localhost; use a TLS tunnel or reverse proxy for that.)
 * Phone / TV: the machine's LAN IP, `BASE_URL=http://<lan-ip>:7000 go run . -addr :7000`,
   then install `http://<lan-ip>:7000/manifest.json` (Android app allows http on LAN).
 
