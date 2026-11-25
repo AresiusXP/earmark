@@ -4,6 +4,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -144,19 +145,106 @@ class ApiClientTest {
     }
 
     @Test fun whenAnotherCallAlreadyRotatedTheTokenNoSecondRefreshHappens() = runBlocking<Unit> {
-        // Both calls sent the old token; by the time the second 401 is handled the session holds the new one.
+        // The call sent the old token; by the time its 401 is handled another call of the SAME sign-in has rotated it.
+        server.onRequest("GET", "/v1/me") { req ->
+            if (req.headers["Authorization"] == "Bearer access-1") {
+                sessions.handle()!!.let { sessions.replaceIfCurrentBlocking(it, it.session.copy(accessToken = "access-new", refreshToken = "refresh-new")) }
+                FakeServer.error(401, "unauthorized")
+            } else {
+                FakeServer.json(Samples.ME_ADMIN)
+            }
+        }
+        assertNotNull(me().valueOrNull)
+        assertEquals(0, server.requestsTo("POST", "/v1/auth/refresh").size)
+        assertEquals("Bearer access-new", server.requestsTo("GET", "/v1/me").last().headers["Authorization"])
+    }
+
+    private fun u2() = testSession(server.baseUrl, "u2").copy(accessToken = "access-u2", refreshToken = "refresh-u2")
+
+    @Test fun a401ForAnEarlierAccountIsNeverRetriedWithTheNewAccountsToken() = runBlocking<Unit> {
+        server.onRequest("GET", "/v1/me") { req ->
+            if (req.headers["Authorization"] == "Bearer access-1") {
+                sessions.saveBlocking(u2()) // the user switched account while this request was in flight
+                FakeServer.error(401, "unauthorized")
+            } else {
+                FakeServer.json(Samples.ME_ADMIN)
+            }
+        }
+        assertTrue(me().errorOrNull!!.isUnauthorized)
+        assertEquals(1, server.requestsTo("GET", "/v1/me").size, "not retried at all")
+        assertEquals(0, server.requestsTo("POST", "/v1/auth/refresh").size, "the old account's refresh token is not used either")
+        assertEquals("refresh-u2", sessions.load()?.refreshToken)
+    }
+
+    @Test fun aSignOutDuringARefreshWinsAndTheLateTokensAreDropped() = runBlocking<Unit> {
         server.onRequest("GET", "/v1/me") { req ->
             if (req.headers["Authorization"] == "Bearer access-1") FakeServer.error(401, "unauthorized") else FakeServer.json(Samples.ME_ADMIN)
         }
+        server.onRequest("POST", "/v1/auth/refresh") {
+            sessions.clearBlocking() // the user signs out while the refresh is on the wire
+            FakeServer.json(Samples.session())
+        }
+        assertTrue(me().errorOrNull!!.isUnauthorized)
+        assertNull(sessions.load(), "the refresh must not bring the old session back")
+        assertEquals(1, server.requestsTo("GET", "/v1/me").size, "no retry with tokens of a dead session")
+    }
+
+    @Test fun aUserSwitchDuringARefreshKeepsTheNewUser() = runBlocking<Unit> {
+        server.onRequest("GET", "/v1/me") { req ->
+            if (req.headers["Authorization"] == "Bearer access-1") FakeServer.error(401, "unauthorized") else FakeServer.json(Samples.ME_ADMIN)
+        }
+        server.onRequest("POST", "/v1/auth/refresh") {
+            sessions.saveBlocking(u2())
+            FakeServer.json(Samples.session())
+        }
+        assertTrue(me().errorOrNull!!.isUnauthorized)
+        val kept = sessions.load()
+        assertEquals("u2", kept?.userId)
+        assertEquals("refresh-u2", kept?.refreshToken)
+        assertEquals(1, server.requestsTo("GET", "/v1/me").size)
+    }
+
+    @Test fun aRejectedRefreshOfAnEarlierSignInDoesNotSignTheNewOneOut() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/me", """{"error":{"code":"unauthorized"}}""", code = 401)
+        server.onRequest("POST", "/v1/auth/refresh") {
+            sessions.saveBlocking(u2())
+            FakeServer.error(401, "unauthorized")
+        }
+        val events = java.util.concurrent.CopyOnWriteArrayList<SignOutReason>()
+        val collector = async(kotlinx.coroutines.Dispatchers.Unconfined) { signedOut.events.collect { events.add(it) } }
+        assertTrue(me().errorOrNull!!.isUnauthorized)
+        collector.cancel()
+        assertEquals("u2", sessions.load()?.userId)
+        assertEquals(emptyList(), events.toList())
+    }
+
+    @Test fun twoConcurrent401sRefreshOnce() = runBlocking<Unit> {
+        val barrier = java.util.concurrent.CyclicBarrier(2)
+        server.onRequest("GET", "/v1/me") { req ->
+            if (req.headers["Authorization"] == "Bearer access-1") {
+                barrier.await(5, java.util.concurrent.TimeUnit.SECONDS) // both calls are in flight with the old token
+                FakeServer.error(401, "unauthorized")
+            } else {
+                FakeServer.json(Samples.ME_ADMIN)
+            }
+        }
         server.onJson("POST", "/v1/auth/refresh", Samples.session())
-        val first = me()
-        sessions.save(sessions.load()!!.copy(accessToken = "access-new"))
-        val stale = factory.api().newCall(
-            Request.Builder().url(server.baseUrl + "/v1/me").header("Authorization", "Bearer access-1").build(),
-        ).execute().use { it.code }
-        assertEquals(200, stale)
+        val results = (1..2).map { async(kotlinx.coroutines.Dispatchers.IO) { me() } }.map { it.await() }
+        assertTrue(results.all { it.valueOrNull != null })
         assertEquals(1, server.requestsTo("POST", "/v1/auth/refresh").size)
-        assertNotNull(first.valueOrNull)
+        assertEquals("refresh-new", sessions.load()?.refreshToken)
+    }
+
+    @Test fun aFutureUpdatedAtRejectionCarriesTheServersDate() = runBlocking<Unit> {
+        server.on(
+            "PUT", "/v1/me/library/B001",
+            FakeServer.error(400, "invalid_request", "updated_at must be the client clock in ms since epoch (not in the future)", "Date" to "Wed, 25 Nov 2026 12:00:00 GMT"),
+        )
+        val e = safeApiCall { provider.api().putLibraryEntry("B001", LibraryEntryWrite(status = "listening", updatedAt = 1)) }.errorOrNull as ApiError.Http
+        assertTrue(e.isFutureUpdatedAt)
+        assertEquals(java.time.Instant.parse("2026-11-25T12:00:00Z").toEpochMilli(), e.serverDateMs)
+        server.on("PUT", "/v1/me/library/B002", FakeServer.error(400, "invalid_request", "speed must be within 0.5-3.0"))
+        assertFalse(safeApiCall { provider.api().putLibraryEntry("B002", LibraryEntryWrite(status = "listening", updatedAt = 1)) }.errorOrNull!!.isFutureUpdatedAt)
     }
 
     @Test fun theTokenNeverGoesToAnotherHostOrAnAuthRoute() = runBlocking<Unit> {

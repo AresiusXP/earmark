@@ -69,6 +69,11 @@ class FakeProgressRemote : ProgressRemote {
     var failure: ApiError? = null
     var getDelayMs = 0L
 
+    /** The server's clock; when set, a write more than 24 h ahead of it is refused like the real server does (400, `Date` header when [sendsDate]). */
+    var serverNow: (() -> Long)? = null
+    var sendsDate = true
+    var beforeAccept: (suspend (LibraryEntryWrite) -> Unit)? = null
+
     override suspend fun get(asin: String): ApiResult<LibraryEntry> {
         if (getDelayMs > 0) kotlinx.coroutines.delay(getDelayMs)
         failure?.let { return ApiResult.Failure(it) }
@@ -78,6 +83,18 @@ class FakeProgressRemote : ProgressRemote {
     override suspend fun put(asin: String, write: LibraryEntryWrite): ApiResult<LibraryEntry> {
         failure?.let { return ApiResult.Failure(it) }
         puts.add(asin to write)
+        serverNow?.let { now ->
+            if (write.updatedAt > now() + 24 * 3_600_000L) {
+                return ApiResult.Failure(
+                    ApiError.Http(
+                        400, xyz.aresius.audiobooks.core.network.ErrorCode.InvalidRequest,
+                        message = "updated_at must be the client clock in ms since epoch (not in the future)",
+                        serverDateMs = now().takeIf { sendsDate },
+                    ),
+                )
+            }
+        }
+        beforeAccept?.invoke(write)
         val old = entries[asin]
         val entry = if (old != null && old.updatedAt > write.updatedAt) old
         else LibraryEntry(testBook(asin), write.status, write.releaseHash, write.positionMs ?: 0, write.filePath, write.filePositionMs ?: 0, write.speed ?: 1.0, write.updatedAt)

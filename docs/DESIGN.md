@@ -397,6 +397,11 @@ flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/Tor
 * **Session**: one `SessionManager`, started on first use, stopped 15 s after the last torrent stopped; DHT state in `noBackupFilesDir/torrent`.
   DHT, LSD, PEX, uTP, UPnP/NAT-PMP on while the policy allows. Not auto-managed: the engine runs its own slots (max active torrents 2) and
   libtorrent's reconnect wait is 10 s (a pause drops every peer).
+  **A blocked policy is applied before anything can run** (`PolicyGate`, `NetworkSwitches`): a session that starts while the policy blocks is built
+  with DHT, LSD, UPnP/NAT-PMP, incoming TCP/uTP and the listen sockets all OFF (whatever the restored session state says) and is paused right
+  after `start` (libtorrent4j cannot start paused; with every switch off and no torrent yet there is nothing to pause). A policy change (set the
+  decision + apply it to the session) and every resume of a torrent or the session (metadata fetch, download, seeding) run under ONE lock, and
+  torrents are added paused: a resume either completes before a flip (which then pauses it) or sees the new decision and does not happen.
 * **Metadata**: `fetchFiles` adds the magnet in upload mode, waits up to 60 s, lists the files in metainfo order (BEP 47 pad files are skipped;
   `index` is the metainfo position) and stores a minimal `.torrent` (raw info dictionary) so the list never needs the network again; `download`
   fetches metadata first the same way when it is missing (a bare magnet with no wanted file is "finished" for libtorrent and drops its seeds).
@@ -430,7 +435,11 @@ flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/Tor
   5 s after the engine is idle; notification with speed, peers, ETA and Pause/Resume/Stop; a partial wake lock only while data flows. Android 15
   limits dataSync to 6 h per 24 h: `onTimeout` pauses everything (`Paused(USER)`), posts "open the app to continue" and schedules
   `TorrentResumeWorker` (WorkManager, 1 h, network + battery not low); the engine also resumes when the app comes to the foreground. If
-  `startForeground` is refused (budget used up) the same path runs.
+  `startForeground` is refused (budget used up) the same path runs. A refusal is never ignored: `startForegroundService` throwing in the engine
+  (`ServiceLauncher.ensureRunning` rethrows after posting the notification and scheduling the worker) or `startForeground` failing in the service pauses every
+  torrent as `Paused(SYSTEM)` (downloads show "waiting: Android does not allow background downloads", `WaitReason.Background`) and `TorrentResumeWorker`
+  resumes; `setUserPaused(false)` asks for the service again. Same for the WorkManager download worker: when `setForeground` is refused it marks the job
+  `Paused(Background)` and returns `retry` (backoff 30 s, doubling) instead of downloading without foreground protection.
 * **Tests**: policy state machine, paths, planner and stall detector, settings, options ViewModel (unit); a real two-session loopback swarm,
   service and timeout (instrumented, emulator). Not verifiable on an emulator: a real phone behind CGNAT / a real VPN app.
 
@@ -441,7 +450,7 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
 * **Service.** `PlaybackService` (Media3 `MediaSessionService`, foreground `mediaPlayback`, wake + Wi-Fi lock while playing) owns one
   ExoPlayer; `PlaybackCore` is its brain (load, ticker, sleep timer, smart rewind, persistence, errors). The UI never touches the player: it
   reads `PlayerHub` (a `StateFlow<PlayerState>`, same process) and sends commands through a `MediaController` (`PlaybackController`; book-level
-  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close).
+  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close). The service is exported (lock screen, Bluetooth, Android Auto must bind), so `onConnect` is a trust gate (`TrustedControllers`, the pattern of Echoes' `core/auto`): this app (same uid), platform-trusted controllers and the system uid, and the allowlisted packages (System UI, Bluetooth stack, Android Auto, Assistant, Wear OS) whose package name matches their uid get everything; a media-button/legacy caller under a platform uid gets the playback keys only; every other app is refused. The custom commands are checked again in `onCustomCommand`.
 * **One timeline per book.** `BookTimeline(files, catalog runtime)` maps book position <-> (file, offset); a file's initial duration is what this
   phone measured, else `duration_ms` of the book page (matched by path), else estimated (rest of the runtime by size) until ExoPlayer has prepared
   the file; then it is learned and stored (`file_duration`) and, when the server had none, reported once in a batch (`POST /v1/releases/{hash}/durations`). One ExoPlayer item
@@ -471,7 +480,7 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
   rows play, Book detail shows the chosen release, its files, the catalog chapters and the needs-key / preparing / failed states, with Play and the
   Download button (per book and per release, `feature/download`) side by side; Library rows carry the "Downloaded" badge and the play button.
 * **Downloads link.** The player reads files through `LocalFiles` (`DownloadedLocalFiles`, bound in `di/LocalFilesModule`) and tells core/download which
-  book it holds through `PlayingBook` (`PlayerPlayingBook`, bound in `di/PlayerModule`), so the storage LRU never evicts the playing book.
+  book it holds through `PlayingBook` (`PlayerPlayingBook`, bound in `di/PlayerModule`), so the storage LRU never evicts the playing book: the check is made per book at deletion time (`beginDelete`/`endDelete`, under the lock `PlayerHub` changes its state under, job re-checked as `completed` in the same DB transaction), not on a snapshot taken at victim selection.
 
 ### Phases
 0 contract + design (this section, `api/openapi.yaml`) -> 1 server (users/invites/devices, per-user keys, `appapi`, Real-Debrid,

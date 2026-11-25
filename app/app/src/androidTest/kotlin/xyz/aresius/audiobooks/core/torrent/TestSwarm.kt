@@ -135,7 +135,7 @@ object Bencode {
 }
 
 /** Fakes for the engine's inputs, driven by the tests. */
-class Rig(val dir: File, config: EngineConfig = testConfig()) {
+class Rig(val dir: File, config: EngineConfig = testConfig(), launcher: ServiceLauncher = ServiceLauncher { }) {
     val settings = MutableStateFlow(TorrentSettings(p2pEnabled = true))
     val device = MutableStateFlow(DeviceState(vpnActive = true, network = NetworkKind.WIFI, batteryPercent = 80, charging = false))
     val store = TorrentStore(File(dir, "engine"))
@@ -143,7 +143,7 @@ class Rig(val dir: File, config: EngineConfig = testConfig()) {
         object : TorrentSettingsSource { override val settings = this@Rig.settings },
         object : DeviceStateMonitor { override val state = device },
         store,
-        ServiceLauncher { },
+        launcher,
         config,
     )
 

@@ -90,6 +90,13 @@ class DownloadRunner(
         }
     }
 
+    /** The system refused to run the job in the foreground: show "waiting" (the worker asks WorkManager for a retry). */
+    suspend fun markWaiting(userId: String, asin: String, reason: WaitReason) {
+        val job = dao.book(userId, asin) ?: return
+        if (job.state !in JobState.ACTIVE) return
+        dao.updateBook(userId, asin) { it.copy(state = JobState.PAUSED, pauseReason = reason.name, updatedAtMs = clock()) }
+    }
+
     private suspend fun handle(job: DownloadBookEntity, e: DownloadException): RunOutcome {
         if (!e.retryable) {
             fail(job, e)

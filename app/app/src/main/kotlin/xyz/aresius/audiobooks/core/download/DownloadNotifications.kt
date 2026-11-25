@@ -17,9 +17,9 @@ import xyz.aresius.audiobooks.R
 
 /** The ongoing notification of a running download (the foreground service of the worker). */
 @Singleton
-class DownloadNotifications @Inject constructor(@ApplicationContext private val context: Context) {
+open class DownloadNotifications @Inject constructor(@ApplicationContext private val context: Context) {
 
-    fun foregroundInfo(asin: String, progress: LiveProgress?, preparing: Boolean): ForegroundInfo {
+    open fun foregroundInfo(asin: String, progress: LiveProgress?, preparing: Boolean): ForegroundInfo {
         val id = notificationId(asin)
         val notification = build(progress, preparing)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

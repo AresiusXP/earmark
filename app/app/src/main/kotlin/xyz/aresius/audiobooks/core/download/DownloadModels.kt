@@ -53,7 +53,8 @@ enum class FailReason {
 }
 
 /** What a paused download waits for. */
-enum class WaitReason { WiFi, Network, Vpn, Battery }
+/** [Background]: the system refused to run the download as a foreground service; WorkManager tries again. */
+enum class WaitReason { WiFi, Network, Vpn, Battery, Background }
 
 /** The per-book state other code observes (Book detail, Downloads screen, the player). */
 sealed interface BookDownloadState {
@@ -120,9 +121,20 @@ data class DownloadedBook(val book: Book, val releaseHash: String, val state: Bo
 
 data class StorageInfo(val usedBytes: Long, val limitBytes: Long, val freeBytes: Long)
 
-/** What the player may tell us: the book playing right now is never evicted. */
+/**
+ * What the player may tell us: the book playing right now is never evicted.
+ *
+ * [currentAsin] alone is a snapshot. Deleting a book for the storage rules therefore goes through [beginDelete] / [endDelete], which the player
+ * implements inside the same critical section in which it marks a book as playing: when [beginDelete] answers true, the player cannot start
+ * that book until [endDelete]; when it answers false, the book is playing (or being opened) and must not be deleted.
+ */
 interface PlayingBook {
     fun currentAsin(): String?
+
+    /** True when the files of [asin] may be deleted now (it is not playing); until [endDelete] the player will wait before it opens [asin]. */
+    fun beginDelete(asin: String): Boolean = currentAsin() != asin
+
+    fun endDelete(asin: String) {}
 }
 
 object NoPlayingBook : PlayingBook {

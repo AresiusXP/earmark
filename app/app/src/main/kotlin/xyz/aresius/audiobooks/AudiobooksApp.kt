@@ -39,7 +39,7 @@ class AudiobooksApp : Application(), SingletonImageLoader.Factory {
     /** Images: memory 15 % of the app heap, disk 100 MB, through the app's HTTP client (timeouts; the debug FakeBackend serves its covers). */
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { httpClients.plain() })) }
+            .components { add(OkHttpNetworkFetcherFactory(callFactory = { httpClients.cdn() })) }
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.15).build() }
             .diskCache {
                 DiskCache.Builder()

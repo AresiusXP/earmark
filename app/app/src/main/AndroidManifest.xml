@@ -15,6 +15,22 @@
     <!-- BitTorrent engine (core/torrent): foreground service of type dataSync, its notification, and a wake lock held only while data flows; the player shares the wake lock. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Package visibility (Android 11+): the playback service checks a controller's package name against its uid (core/player/TrustedControllers). -->
+    <queries>
+        <package android:name="com.google.android.projection.gearhead" />
+        <package android:name="com.google.android.projection.gearhead.emulator" />
+        <package android:name="com.google.android.gms" />
+        <package android:name="com.google.android.googlequicksearchbox" />
+        <package android:name="com.google.android.apps.googleassistant" />
+        <package android:name="com.google.android.apps.bard" />
+        <package android:name="com.google.android.carassistant" />
+        <package android:name="com.android.systemui" />
+        <package android:name="com.android.bluetooth" />
+        <package android:name="com.google.android.bluetooth" />
+        <package android:name="com.google.android.wearable.app" />
+        <package android:name="com.google.android.apps.wear.companion" />
+    </queries>
+
     <application
         android:name=".AudiobooksApp"
         android:allowBackup="false"
@@ -41,7 +57,7 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
-        <!-- The playback service holds the ExoPlayer and the media session. Exported so controllers (lock screen, Bluetooth, later Android Auto) can bind. -->
+        <!-- The playback service holds the ExoPlayer and the media session. Exported so controllers (lock screen, Bluetooth, later Android Auto) can bind; onConnect admits only trusted controllers (TrustedControllers). -->
         <service
             android:name=".core.player.PlaybackService"
             android:exported="true"

@@ -39,8 +39,9 @@ Debug and release builds use different keys: uninstall one before installing the
 ```
 core/network  AudiobooksApi (Retrofit, one method per path of the contract), Dtos (hand-written from openapi.yaml), ApiResult/ApiError
               (typed {"error":{"code","message"}}), HttpClientFactory: AuthInterceptor (token for the signed-in host only),
-              RetryInterceptor (502/503/504 + Retry-After; IO errors for idempotent methods), TokenAuthenticator (401 -> refresh once ->
-              sign out when the refresh is rejected), no redirects (the download route answers 302 and the caller reads Location)
+              RetryInterceptor (502/503/504 + Retry-After; IO errors for idempotent methods), TokenAuthenticator (every request is bound to the sign-in it was made under: `SessionStore.handle()`/`SessionHandle.id` changes on sign-in, user switch and sign-out, not on a refresh; a 401 of an earlier sign-in is never retried with the current token, a refresh is stored/cleared only by `replaceIfCurrent`/`clearIfCurrent`, so a sign-out or user switch mid-refresh wins; 401 -> refresh once ->
+              sign out when the refresh is rejected); `api()` and `plain()` (auth, onboarding, refresh, APK) NEVER follow redirects (a redirect is an error: a 307/308 can't carry a
+              body to another host; the download route answers 302 and the caller reads Location), `cdn()` (covers, provider CDN downloads/streams) is credential-free and follows them
 core/auth     Session + SessionStore (Tink AES-GCM, Android Keystore master key, DataStore blob), AuthRepository
               (bootstrap / join / link / sign out; sign-out never depends on the server), GoogleAuthRepository (Sign in with Google: sign in,
               join, link, unlink), GoogleTokenSource (Credential Manager; a debug fake for the demo backend), CodeFormat (invite/link
@@ -51,8 +52,8 @@ core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Cat
               AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends)
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
 core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
-              (chapters as the session playlist), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
-              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository (client_id),
+              (chapters as the session playlist), TrustedControllers (the exported session's gate: own uid / platform-trusted / allowlisted packages verified against their uid = full, platform-uid media keys = keys only, everyone else refused; custom commands re-checked), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
+              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue; a 400 for an `updated_at` > 24 h ahead of the server (message "... not in the future") never drops the row: it is re-stamped with the server's `Date` header and resent once, later writes use the learned clock offset; with no `Date` the row stays queued; any other 400 stays permanent), BookmarkRepository (client_id),
               DurationReporter (POST durations), SleepTimerLogic,
               PlayerHub (state) + PlaybackController (commands), PlayerPreferences (skip lengths, smart rewind)
 core/download  offline downloads (Phase 3b), see below; feature/download = its UI
@@ -88,12 +89,14 @@ DownloadRunner        the policy and the result of a run (Done / Retry / Waiting
 DownloadSource        DebridSource (prepare + poll with retry_after_s; per file GET /v1/releases/{hash}/files/{index}/download -> 302 -> CDN,
                       fresh link right before each file, never stored, the CDN call carries no Authorization) and TorrentSource (TorrentEngine
                       when a binding exists, else FailReason.TorrentUnavailable)
-HttpFileFetcher       one file: `.part` + HTTP Range resume + size check + atomic rename; only 200/206 with an audio-ish content type is written
+HttpFileFetcher       one file: `.part` + HTTP Range resume + size check + atomic rename; only 200/206 is written, and only with an accepted content type (`audio/<anything>`, `video/mp4`, `audio/mp4`, `application/mp4`; `application/octet-stream`, `binary/octet-stream` or no type only when the first bytes are a known audio container: ID3, MPEG/ADTS frame, `ftyp`, OggS, fLaC, RIFF/WAVE, Matroska, ASF); everything else is refused as `InvalidContent`
 StorageManager        usage, storage limit (default 5 GB) with LRU eviction of FINISHED books only (never the one playing, never active jobs),
                       auto-delete N days after finishing (off), orphan cleanup, repair of vanished files, wipe
 PathSafety            every server-provided path is untrusted: absolute paths, `..`, backslashes, control characters, drive letters are rejected
 ```
 
+* A refused foreground promotion (Android 12+ background limits, used-up dataSync budget) pauses the job as `Paused(Background)` ("waiting: Android does not allow background downloads") and
+  asks WorkManager for a retry (`Result.retry`, backoff); the torrent engine pauses as `Paused(SYSTEM)` and `TorrentResumeWorker` resumes it.
 * Wi-Fi only is the default (setting "Also download on mobile data"); auto-download is always Wi-Fi only. Free space (300 MB reserve) and the
   limit are checked before a job starts and again when the file list is known.
 * Hooks other features implement/override: `PlayingBook` (core/download; bound by the player), `TorrentEngine` (core/torrent; optional
@@ -103,7 +106,7 @@ PathSafety            every server-provided path is untrusted: absolute paths, `
 
 The player consumes downloads through the `LocalFiles` interface (`core/download/LocalFiles.kt`, bound to `DownloadedLocalFiles` in
 `di/LocalFilesModule`): a complete local copy always wins over streaming, file by file. The player in turn tells the storage rules which book it
-holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it, and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
+holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it (not a snapshot: every eviction / auto-delete of a book runs `beginDelete` ... `endDelete` inside the lock of `PlayerHub` that the player changes its state under, re-checks that the job is still `completed` in the same DB transaction (`removeBookIfCompleted`), and a book that is being deleted when the player claims it makes `PlaybackCore.load` wait for the deletion first), and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
 `ReleaseRepository` has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
 
 ## Contract v1.1 in the app
@@ -206,6 +209,9 @@ Against a real server in development use `http://10.0.2.2:<port>` (the emulator'
   `-Pandroid.testInstrumentationRunnerArguments.fgsTimeout=true` after `adb shell device_config put activity_manager data_sync_fgs_timeout_duration 20000`,
   the Android 15 dataSync timeout. `RealSwarmSmokeTest` is a manual, off-by-default test against a real LibriVox magnet
   (`-Pandroid.testInstrumentationRunnerArguments.librivoxMagnet=...`; your IP is visible in a real swarm: run it behind a VPN).
+* Policy ordering: `PolicyGate` (decision + the one lock for policy changes and every torrent/session resume; `PolicyGateTest` stress-tests it) and
+  `NetworkSwitches` (blocked = DHT/LSD/port maps/incoming/listen sockets all off, also at session start). Instrumented:
+  `aSessionStartedWhileBlockedIsPausedAndSilent`, `aPolicyFlipDuringMetadataFetchLeavesNothingRunning`.
 * Release ships `arm64-v8a` only; debug adds `x86_64` for the emulator (`ndk.abiFilters` per build type in `app/build.gradle.kts`).
 
 ## Player on an emulator

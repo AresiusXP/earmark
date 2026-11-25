@@ -38,10 +38,13 @@ data class NetworkTimeouts(
 annotation class DebugInterceptors
 
 /**
- * The one place that builds OkHttp clients:
- *  - [api]: auth header (signed-in server only), retry on 502/503/504, 401 -> refresh once -> sign out; never follows redirects
- *    (the download route answers 302 and the app must read `Location` itself)
- *  - [plain]: retry only, no auth (onboarding calls, the refresh call, images)
+ * The one place that builds OkHttp clients. Every client that carries API or auth traffic never follows redirects (a redirect
+ * is an error for the caller, and a 307/308 can never carry a refresh token, a password, an invite/link code or an ID token to another
+ * host; the download route answers 302 and the app must read `Location` itself):
+ *  - [api]: auth header (signed-in server only), retry on 502/503/504, 401 -> refresh once -> sign out
+ *  - [plain]: retry only, no auth (onboarding calls, the refresh call, the APK of the server)
+ *  - [cdn]: retry only, no auth, FOLLOWS redirects: only for credential-free GETs of public files (cover images, the provider's CDN for
+ *    downloads and streaming). Never use it for a request that has a body or a secret.
  */
 @Singleton
 class HttpClientFactory(
@@ -60,6 +63,8 @@ class HttpClientFactory(
             .readTimeout(timeouts.readMs, TimeUnit.MILLISECONDS)
             .writeTimeout(timeouts.writeMs, TimeUnit.MILLISECONDS)
             .callTimeout(timeouts.callMs, TimeUnit.MILLISECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .apply { debugInterceptors.forEach(::addInterceptor) }
             .build()
     }
@@ -71,9 +76,11 @@ class HttpClientFactory(
             .addInterceptor(retry())
             .addInterceptor(AuthInterceptor(sessions))
             .authenticator(TokenAuthenticator(sessions, plainClient, signedOut))
-            .followRedirects(false)
-            .followSslRedirects(false)
             .build()
+    }
+
+    private val cdnClient: OkHttpClient by lazy {
+        base.newBuilder().addInterceptor(retry()).followRedirects(true).followSslRedirects(false).build()
     }
 
     private fun retry() = RetryInterceptor(maxTotalMs = timeouts.callMs)
@@ -81,6 +88,8 @@ class HttpClientFactory(
     fun api(): OkHttpClient = apiClient
 
     fun plain(): OkHttpClient = plainClient
+
+    fun cdn(): OkHttpClient = cdnClient
 }
 
 /** Builds Retrofit [AudiobooksApi] instances; the server URL is user-provided so it is read from the session. */

@@ -119,6 +119,12 @@ class TorrentSourceTest {
         k2.seed("P", listOf(4000), state = JobState.QUEUED, complete = false, source = "torrent")
         assertEquals(RunOutcome.Retry, k2.runner.run("u1", "P"), "the engine ended without finishing: retried later")
         assertEquals(WaitReason.Vpn.name, k2.dao.book("u1", "P")!!.pauseReason)
+
+        val system = FakeEngine { listOf(TorrentProgress.Paused(PauseReason.SYSTEM)) }
+        val k3 = kit(system)
+        k3.seed("S", listOf(4000), state = JobState.QUEUED, complete = false, source = "torrent")
+        k3.runner.run("u1", "S")
+        assertEquals(WaitReason.Background.name, k3.dao.book("u1", "S")!!.pauseReason, "a refused foreground service shows as waiting for the system")
     }
 
     @Test fun deletingATorrentBookAsksTheEngineToDropItsData() = runBlocking<Unit> {

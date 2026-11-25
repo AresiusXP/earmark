@@ -3,6 +3,7 @@ package xyz.aresius.audiobooks.core.player
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.AudioAttributes
@@ -17,6 +18,7 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
@@ -105,7 +107,7 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         session = MediaSession.Builder(this, bookPlayer)
-            .setCallback(SessionCallback(playbackCore))
+            .setCallback(SessionCallback(playbackCore, Process.myUid(), PackageManagerCallerDirectory(packageManager)))
             .setSessionActivity(openApp)
             .setBitmapLoader(CoilBitmapLoader(this, scope))
             .build()
@@ -160,16 +162,40 @@ class PlaybackService : MediaSessionService() {
         else -> if (forwardIcon) CommandButton.ICON_SKIP_FORWARD else CommandButton.ICON_SKIP_BACK
     }
 
-    private class SessionCallback(private val core: PlaybackCore) : MediaSession.Callback {
+    /** Every controller is judged by [TrustedControllers]: refused, playback keys only, or full (standard + book-level custom commands). */
+    private class SessionCallback(
+        private val core: PlaybackCore,
+        private val ownUid: Int,
+        private val directory: CallerDirectory,
+    ) : MediaSession.Callback {
+        private fun verdict(controller: MediaSession.ControllerInfo) = TrustedControllers.decide(controller.claim(), ownUid, directory)
+
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply { PlayerCommands.ALL.forEach(::add) }.build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder()
-                .setAvailableSessionCommands(commands)
-                .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
-                .build()
+            val verdict = verdict(controller)
+            Log.i(TAG, "controller ${controller.packageName} (uid ${controller.uid}): ${verdict.access} (${verdict.reason})")
+            return when (verdict.access) {
+                ControllerAccess.NONE -> MediaSession.ConnectionResult.reject()
+                ControllerAccess.KEYS -> MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+                    .setAvailableSessionCommands(SessionCommands.EMPTY)
+                    .setAvailablePlayerCommands(KeyCommands.player)
+                    .build()
+                ControllerAccess.FULL -> {
+                    val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply { PlayerCommands.ALL.forEach(::add) }.build()
+                    MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+                        .setAvailableSessionCommands(commands)
+                        .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
+                        .build()
+                }
+            }
         }
 
+        /** A media button of anyone who is not allowed to control the session is consumed, not played. */
+        override fun onMediaButtonEvent(session: MediaSession, controller: MediaSession.ControllerInfo, intent: Intent): Boolean =
+            verdict(controller).access == ControllerAccess.NONE
+
         override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
+            // Checked again here: a controller that was not given the custom commands at connect time must not get them through a crafted call.
+            if (verdict(controller).access != ControllerAccess.FULL) return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             when (customCommand.customAction) {
                 PlayerCommands.LOAD -> {
                     val book = args.getString(PlayerCommands.KEY_BOOK_JSON)?.let { runCatching { AudiobooksJson.decodeFromString(Book.serializer(), it) }.getOrNull() }

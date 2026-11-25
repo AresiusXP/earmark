@@ -9,6 +9,7 @@ add("torrent_notif_paused_vpn", "Paused: connect your VPN to continue", "Gepauze
 add("torrent_notif_paused_wifi", "Paused: waiting for Wi-Fi", "Gepauzeerd: wacht op wifi")
 add("torrent_notif_paused_battery", "Paused: the battery is low", "Gepauzeerd: de batterij is bijna leeg")
 add("torrent_notif_paused_user", "Paused", "Gepauzeerd")
+add("torrent_notif_paused_system", "Waiting: Android does not allow background downloads right now", "Wachten: Android staat nu geen downloads op de achtergrond toe")
 add("torrent_notif_seeding", "Seeding to ratio 1.0 (Wi-Fi, charging)", "Seeden tot ratio 1,0 (wifi, aan de lader)")
 add("torrent_action_pause", "Pause", "Pauzeren")
 add("torrent_action_resume", "Resume", "Hervatten")

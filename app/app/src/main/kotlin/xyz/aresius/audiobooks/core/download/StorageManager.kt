@@ -37,9 +37,10 @@ class StorageManager(
         if (need > 0 && free.freeBytes() < need + minFreeBytes) throw DownloadException(FailReason.NoSpace, "Not enough free space on this phone")
         val limit = settings.current().storageLimitBytes
         if (limit <= 0) return
+        val skipped = HashSet<String>()
         while (usedBytes(userId) + need.coerceAtLeast(0) > limit) {
-            val victim = nextVictim(userId, except = asin) ?: throw DownloadException(FailReason.StorageLimit, "Storage limit reached")
-            deleteBook(userId, victim.asin)
+            val victim = nextVictim(userId, except = asin, skip = skipped) ?: throw DownloadException(FailReason.StorageLimit, "Storage limit reached")
+            if (!evict(userId, victim.asin)) skipped += victim.asin
         }
     }
 
@@ -47,18 +48,36 @@ class StorageManager(
     suspend fun enforceLimit(userId: String, keep: String? = null) {
         val limit = settings.current().storageLimitBytes
         if (limit <= 0) return
+        val skipped = HashSet<String>()
         while (usedBytes(userId) > limit) {
-            val victim = nextVictim(userId, except = keep) ?: return
-            deleteBook(userId, victim.asin)
+            val victim = nextVictim(userId, except = keep, skip = skipped) ?: return
+            if (!evict(userId, victim.asin)) skipped += victim.asin
         }
     }
 
-    private suspend fun nextVictim(userId: String, except: String?): DownloadBookEntity? {
+    /** A first choice only: [evict] decides again, per book, at the moment of deletion. */
+    private suspend fun nextVictim(userId: String, except: String?, skip: Set<String>): DownloadBookEntity? {
         val finishedAt = finished.finishedAtMs(userId)
         val playingNow = playing.currentAsin()
         return dao.books(userId)
-            .filter { it.state == JobState.COMPLETED && it.asin != except && it.asin != playingNow && finishedAt.containsKey(it.asin) }
+            .filter { it.state == JobState.COMPLETED && it.asin != except && it.asin != playingNow && it.asin !in skip && finishedAt.containsKey(it.asin) }
             .minByOrNull { finishedAt.getValue(it.asin) }
+    }
+
+    /**
+     * Deletes one book for the storage rules (LRU eviction, auto-delete), re-checking at THIS moment what the victim selection only saw earlier:
+     * the player must not be playing it (and cannot start it until we are done, see [PlayingBook.beginDelete]) and its job must still be
+     * finished (the row is removed only if it is still [JobState.COMPLETED]: a re-queued or downloading job is not deleted). False when skipped.
+     */
+    private suspend fun evict(userId: String, asin: String): Boolean {
+        if (!playing.beginDelete(asin)) return false
+        try {
+            val removed = dao.removeBookIfCompleted(userId, asin) ?: return false
+            removeFiles(removed)
+            return true
+        } finally {
+            playing.endDelete(asin)
+        }
     }
 
     /** Deletes the books finished more than [days] ago (not the playing one). */
@@ -69,18 +88,21 @@ class StorageManager(
         val playingNow = playing.currentAsin()
         dao.books(userId)
             .filter { it.state == JobState.COMPLETED && it.asin != playingNow && (finishedAt[it.asin] ?: Long.MAX_VALUE) <= cutoff }
-            .forEach { deleteBook(userId, it.asin) }
+            .forEach { evict(userId, it.asin) }
     }
 
+    /** The user's own request (or a sign-out): not a storage rule, so it does not ask the player. */
     suspend fun deleteBook(userId: String, asin: String) {
         val book = dao.book(userId, asin)
         dao.removeBook(userId, asin)
-        if (book != null) {
-            bookDir(book.asin, book.releaseHash)?.deleteRecursively()
-            onBookRemoved(book)
-            // Leave no empty `<asin>` directory behind.
-            File(root, book.asin).takeIf { it.isDirectory && it.list().isNullOrEmpty() }?.delete()
-        }
+        if (book != null) removeFiles(book)
+    }
+
+    private suspend fun removeFiles(book: DownloadBookEntity) {
+        bookDir(book.asin, book.releaseHash)?.deleteRecursively()
+        onBookRemoved(book)
+        // Leave no empty `<asin>` directory behind.
+        File(root, book.asin).takeIf { it.isDirectory && it.list().isNullOrEmpty() }?.delete()
     }
 
     suspend fun deleteAll(userId: String) {

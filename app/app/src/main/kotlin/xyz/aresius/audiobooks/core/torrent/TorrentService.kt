@@ -70,7 +70,11 @@ class TorrentService : Service() {
             )
         } catch (e: Exception) {
             // Android 15: the dataSync budget (6 h / 24 h) is used up, or the app may not start a foreground service from the background.
-            handleTimeout()
+            // Everything pauses (Paused(SYSTEM)) and the resume worker tries again; nothing keeps running unprotected.
+            runtime.suspendForForegroundRefusal()
+            TorrentNotifications.notifyTimeout(this)
+            TorrentResumeWorker.schedule(this)
+            shutDown()
             return START_NOT_STICKY
         }
         when (intent?.action) {
@@ -183,6 +187,7 @@ internal object TorrentNotifications {
             PauseReason.WIFI_REQUIRED -> context.getString(R.string.torrent_notif_paused_wifi)
             PauseReason.LOW_BATTERY -> context.getString(R.string.torrent_notif_paused_battery)
             PauseReason.USER -> context.getString(R.string.torrent_notif_paused_user)
+            PauseReason.SYSTEM -> context.getString(R.string.torrent_notif_paused_system)
             null -> when {
                 a.downloads == 0 && a.seeding > 0 -> context.getString(R.string.torrent_notif_seeding)
                 a.bytesTotal == 0L -> context.getString(R.string.torrent_notif_connecting)
@@ -230,10 +235,19 @@ internal object TorrentNotifications {
     }
 }
 
-/** Starts [TorrentService]; a refusal (Android 12+ background-start limits, exhausted dataSync budget) is not fatal: the engine keeps working. */
+/**
+ * Starts [TorrentService]. A refusal (Android 12+ background-start limits) is rethrown after the user was told and [TorrentResumeWorker]
+ * was scheduled: the engine pauses everything ([PauseReason.SYSTEM]) instead of running without the foreground protection.
+ */
 class AndroidServiceLauncher @Inject constructor(@ApplicationContext private val context: Context) : ServiceLauncher {
     override fun ensureRunning() {
-        context.startForegroundService(Intent(context, TorrentService::class.java))
+        try {
+            context.startForegroundService(Intent(context, TorrentService::class.java))
+        } catch (e: Exception) {
+            TorrentNotifications.notifyTimeout(context)
+            TorrentResumeWorker.schedule(context)
+            throw e
+        }
     }
 }
 

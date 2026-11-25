@@ -142,6 +142,8 @@ class PlaybackCore(
         loadCounter++
         hub.update { PlayerState(phase = PlayerPhase.Loading, asin = asin, book = hint, loadId = loadCounter) }
         loadJob = scope.launch {
+            // The storage rules may be deleting this book's downloads right now (they decided before it was claimed): look at the files after that.
+            hub.deletionOf(asin)?.await()
             when (val r = loader.load(asin, releaseHash)) {
                 is LoadResult.Failure -> hub.update { copy(phase = PlayerPhase.Failed(r.kind, r.message)) }
                 is LoadResult.Ready -> start(r.plan, autoplay)

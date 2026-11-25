@@ -170,4 +170,79 @@ class ProgressSyncTest {
         assertEquals(1.75, sync.resolve("u1", "B1")!!.speed)
         assertEquals(0.8, sync.resolve("u1", "B2")!!.speed)
     }
+
+    // ---- clock skew: a 400 for an updated_at more than 24 h ahead must not discard the progress ----
+
+    private val day = 24 * 3_600_000L
+
+    @Test
+    fun `a phone clock days ahead is repaired with the server's Date and the progress is kept`() = runTest {
+        val serverTime = wall
+        wall = serverTime + 3 * day // this phone's clock is 3 days ahead
+        remote.serverNow = { serverTime }
+        assertEquals(SyncOutcome.Synced, sync.record("u1", "B1", point(position = 42_000), force = true))
+        assertEquals(2, remote.puts.size, "refused once, repaired once")
+        assertEquals(wall, remote.puts[0].second.updatedAt)
+        assertEquals(serverTime, remote.puts[1].second.updatedAt, "re-stamped with the server's time")
+        assertEquals(42_000, remote.entries["B1"]!!.positionMs)
+        val row = dao.progress("u1", "B1")!!
+        assertFalse(row.dirty)
+        assertEquals(serverTime, row.updatedAt)
+
+        // later writes are stamped with the learned offset: accepted at once
+        wall += 40_000; mono += 40_000
+        remote.serverNow = { serverTime + 40_000 }
+        assertEquals(SyncOutcome.Synced, sync.record("u1", "B1", point(position = 50_000), force = true))
+        assertEquals(3, remote.puts.size)
+        assertEquals(serverTime + 40_000, remote.puts.last().second.updatedAt)
+    }
+
+    @Test
+    fun `without a server Date the row stays queued instead of being dropped`() = runTest {
+        val serverTime = wall
+        wall = serverTime + 3 * day
+        remote.serverNow = { serverTime }
+        remote.sendsDate = false
+        assertEquals(SyncOutcome.Pending, sync.record("u1", "B1", point(position = 42_000), force = true))
+        assertTrue(sync.pending())
+        assertTrue(scheduler.scheduled >= 1)
+        assertEquals(1, remote.puts.size)
+        assertEquals(42_000, dao.progress("u1", "B1")!!.positionMs)
+
+        remote.sendsDate = true // a later retry that does get a Date repairs it
+        assertTrue(sync.flush("u1"))
+        assertFalse(sync.pending())
+        assertEquals(42_000, remote.entries["B1"]!!.positionMs)
+    }
+
+    @Test
+    fun `a phone clock less than 24 hours ahead needs no repair`() = runTest {
+        val serverTime = wall
+        wall = serverTime + 23 * 3_600_000L
+        remote.serverNow = { serverTime }
+        assertEquals(SyncOutcome.Synced, sync.record("u1", "B1", point(), force = true))
+        assertEquals(1, remote.puts.size)
+        assertEquals(wall, remote.puts.single().second.updatedAt)
+    }
+
+    @Test
+    fun `any other 400 is still permanent`() = runTest {
+        remote.failure = ApiError.Http(400, ErrorCode.InvalidRequest, message = "position_ms and file_position_ms must be >= 0 and speed within 0.5-3.0", serverDateMs = wall)
+        assertEquals(SyncOutcome.Rejected, sync.record("u1", "B1", point(), force = true))
+        assertFalse(sync.pending())
+    }
+
+    @Test
+    fun `a write made while the repair is on the wire is not overwritten`() = runTest {
+        val serverTime = wall
+        wall = serverTime + 3 * day
+        remote.serverNow = { serverTime }
+        remote.beforeAccept = { write ->
+            if (write.updatedAt == serverTime) dao.putProgress(point(position = 99_000, updatedAt = wall + 1).toRow("u1", "B1", dirty = true))
+        }
+        assertEquals(SyncOutcome.Synced, sync.record("u1", "B1", point(position = 42_000), force = true))
+        val row = dao.progress("u1", "B1")!!
+        assertEquals(99_000, row.positionMs)
+        assertTrue(row.dirty, "the newer local state still has to be sent")
+    }
 }

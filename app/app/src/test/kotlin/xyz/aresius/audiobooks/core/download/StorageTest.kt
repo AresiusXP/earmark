@@ -69,6 +69,68 @@ class StorageTest {
         assertTrue(exists("A") && exists("C"))
     }
 
+    /** The player starts the oldest book AFTER the victim was chosen (a snapshot said "nothing is playing"): it must survive. */
+    @Test fun aBookThatStartsPlayingAfterTheVictimWasChosenSurvives() = runBlocking<Unit> {
+        listOf("A", "B", "C").forEach { kit.seed(it, listOf(1000)) }
+        kit.finished.map.putAll(mapOf("A" to 100L, "B" to 200L, "C" to 300L))
+        var snapshots = 0
+        val racing = object : PlayingBook {
+            override fun currentAsin(): String? = null.also { snapshots++ } // what the victim selection sees
+            override fun beginDelete(asin: String): Boolean = asin != "A" // by deletion time the player holds A
+        }
+        val storage = StorageManager(kit.dao, kit.root, kit.settings, kit.finished, racing, FreeSpace { Long.MAX_VALUE }, { 0L }, minFreeBytes = 0, orphanGraceMs = 0)
+        storage.ensureRoom("u1", "NEW", 1000)
+        assertTrue(snapshots > 0)
+        assertTrue(exists("A"), "A started playing after it was chosen")
+        assertTrue(File(kit.root, "A").exists(), "its files are still there")
+        assertFalse(exists("B"), "the next oldest is evicted instead")
+        assertTrue(exists("C"))
+    }
+
+    @Test fun everyDeletionIsBracketedByBeginAndEndAndEndsEvenWhenSkipped() = runBlocking<Unit> {
+        listOf("A", "B", "C").forEach { kit.seed(it, listOf(1000)) }
+        kit.finished.map.putAll(mapOf("A" to 100L, "B" to 200L, "C" to 300L))
+        val log = ArrayList<String>()
+        val p = object : PlayingBook {
+            override fun currentAsin(): String? = null
+            override fun beginDelete(asin: String): Boolean { log += "begin $asin"; return asin != "A" }
+            override fun endDelete(asin: String) { log += "end $asin" }
+        }
+        val storage = StorageManager(kit.dao, kit.root, kit.settings, kit.finished, p, FreeSpace { Long.MAX_VALUE }, { 0L }, minFreeBytes = 0, orphanGraceMs = 0)
+        storage.ensureRoom("u1", "NEW", 1000)
+        assertEquals(listOf("begin A", "begin B", "end B"), log, "a refused begin needs no end; an accepted one always has it")
+    }
+
+    /** A book that was finished when it was chosen, but its job runs again by deletion time (re-downloaded / repaired): not deleted. */
+    @Test fun aBookWhoseJobIsActiveAgainByDeletionTimeIsNotDeleted() = runBlocking<Unit> {
+        listOf("A", "B", "C").forEach { kit.seed(it, listOf(1000)) }
+        kit.finished.map.putAll(mapOf("A" to 100L, "B" to 200L, "C" to 300L))
+        val p = object : PlayingBook {
+            override fun currentAsin(): String? = null
+            override fun beginDelete(asin: String): Boolean {
+                if (asin == "A") runBlocking { kit.dao.updateBook("u1", "A") { it.copy(state = JobState.QUEUED) } }
+                return true
+            }
+        }
+        val storage = StorageManager(kit.dao, kit.root, kit.settings, kit.finished, p, FreeSpace { Long.MAX_VALUE }, { 0L }, minFreeBytes = 0, orphanGraceMs = 0)
+        storage.ensureRoom("u1", "NEW", 1000)
+        assertTrue(exists("A") && File(kit.root, "A").exists(), "an active job is never evicted")
+        assertEquals(JobState.QUEUED, kit.dao.book("u1", "A")!!.state)
+        assertFalse(exists("B"))
+    }
+
+    @Test fun autoDeleteAlsoAsksThePlayerAtDeletionTime() = runBlocking<Unit> {
+        kit.seed("A", listOf(1000))
+        kit.finished.map["A"] = 0L
+        val p = object : PlayingBook {
+            override fun currentAsin(): String? = null
+            override fun beginDelete(asin: String) = false
+        }
+        val storage = StorageManager(kit.dao, kit.root, kit.settings, kit.finished, p, FreeSpace { Long.MAX_VALUE }, { 10L * 24 * 3_600_000 }, minFreeBytes = 0, orphanGraceMs = 0)
+        storage.autoDeleteFinished("u1", 1)
+        assertTrue(exists("A"))
+    }
+
     @Test fun onlyFinishedBooksAreEvictedNeverOnesStillBeingListenedToOrDownloaded() = runBlocking<Unit> {
         kit.seed("LISTENING", listOf(1000))
         kit.seed("DOWNLOADING", listOf(1000), state = JobState.DOWNLOADING, complete = false)

@@ -46,6 +46,8 @@ sealed interface ApiError {
         val rawCode: String? = null,
         val message: String? = null,
         val retryAfterSec: Int? = null,
+        /** The server's clock from the `Date` response header (ms since epoch), when it sent one. */
+        val serverDateMs: Long? = null,
     ) : ApiError
 
     data class Unknown(val message: String? = null) : ApiError
@@ -54,6 +56,14 @@ sealed interface ApiError {
 val ApiError.isUnauthorized: Boolean get() = this is ApiError.Http && (status == 401 || code == ErrorCode.Unauthorized)
 val ApiError.isNotFound: Boolean get() = this is ApiError.Http && (status == 404 || code == ErrorCode.NotFound)
 val ApiError.isRateLimited: Boolean get() = this is ApiError.Http && (status == 429 || code == ErrorCode.RateLimited)
+/**
+ * `PUT /v1/me/library/{asin}` refuses an `updated_at` more than 24 h ahead of the server's clock with `400 invalid_request` and the message
+ * "updated_at must be the client clock in ms since epoch (not in the future)" (server/internal/appapi/library.go; there is no dedicated code).
+ * That is a clock problem of this phone, not a bad request: the data is fine and must not be dropped.
+ */
+val ApiError.isFutureUpdatedAt: Boolean
+    get() = this is ApiError.Http && status == 400 && message.orEmpty().let { "updated_at" in it && "future" in it }
+
 val ApiError.isTransient: Boolean get() = this is ApiError.Http && status in setOf(502, 503, 504)
 
 /** Result of a repository/API call. [Success.stale] is true when cached data was served because the network failed. */
@@ -90,7 +100,7 @@ fun Throwable.toApiError(): ApiError = when (this) {
     is NotSignedInException -> ApiError.NotSignedIn
     is HttpException -> {
         val body = runCatching { response()?.errorBody()?.string() }.getOrNull()
-        apiErrorFrom(code(), body, response()?.headers()?.get("Retry-After")?.trim()?.toIntOrNull())
+        apiErrorFrom(code(), body, response()?.headers()?.get("Retry-After")?.trim()?.toIntOrNull(), response()?.headers()?.getDate("Date")?.time)
     }
     is IOException -> ApiError.Network
     is SerializationException -> ApiError.Unknown("Unexpected server response")
@@ -98,7 +108,7 @@ fun Throwable.toApiError(): ApiError = when (this) {
 }
 
 /** The [ApiError] of an HTTP failure: status [status], the JSON error [body] (if any) and the `Retry-After` header seconds. */
-fun apiErrorFrom(status: Int, body: String?, retryAfterHeader: Int?): ApiError.Http {
+fun apiErrorFrom(status: Int, body: String?, retryAfterHeader: Int?, serverDateMs: Long? = null): ApiError.Http {
     val detail = body?.takeIf { it.isNotBlank() }?.let {
         runCatching { AudiobooksJson.decodeFromString(ApiErrorBody.serializer(), it).error }.getOrNull()
     }
@@ -109,6 +119,7 @@ fun apiErrorFrom(status: Int, body: String?, retryAfterHeader: Int?): ApiError.H
         rawCode = detail?.code?.takeIf { it.isNotBlank() },
         message = detail?.message?.takeIf { it.isNotBlank() },
         retryAfterSec = detail?.retryAfterS ?: retryAfterHeader,
+        serverDateMs = serverDateMs,
     )
 }
 

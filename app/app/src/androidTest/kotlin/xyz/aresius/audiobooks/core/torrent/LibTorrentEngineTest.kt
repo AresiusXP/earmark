@@ -11,6 +11,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.toList
@@ -108,6 +109,57 @@ class LibTorrentEngineTest {
         assertEquals(setOf("Book/big.m4b"), finished.completedPaths)
         assertContentEquals(s.files.getValue("Book/big.m4b"), File(dest, "Book/big.m4b").readBytes())
         assertTrue(frozen in 900_000 until size)
+    }
+
+    /** A session that starts while the policy blocks (VPN down) must come up paused with no networking switched on. */
+    @Test fun aSessionStartedWhileBlockedIsPausedAndSilent() = runBlocking<Unit> {
+        val s = newSwarm(threeChapters)
+        rig.device.value = rig.device.value.copy(vpnActive = false)
+        withTimeout(5_000) { while (rig.engine.decision != PolicyDecision.Blocked(PauseReason.VPN_REQUIRED)) kotlinx.coroutines.delay(10) }
+        val events = java.util.concurrent.CopyOnWriteArrayList<TorrentProgress>()
+        val job = launch { rig.engine.download(request(s, listOf("Book/ch1.mp3"), File(dir, "dest-blocked"))).collect { events += it } }
+        withTimeout(10_000) { while (events.lastOrNull() != TorrentProgress.Paused(PauseReason.VPN_REQUIRED)) kotlinx.coroutines.delay(20) }
+        assertTrue(rig.engine.isSessionPaused)
+        assertFalse(rig.engine.networkSwitches()!!.anyEnabled, "no DHT, LSD, port mapping, incoming connection or listen socket while blocked")
+        kotlinx.coroutines.delay(1_000)
+        assertTrue(events.none { it is TorrentProgress.Downloading || it is TorrentProgress.Starting && it.peers > 0 })
+        rig.device.value = rig.device.value.copy(vpnActive = true)
+        withTimeout(60_000) { job.join() }
+        assertIs<TorrentProgress.Finished>(events.last())
+    }
+
+    /** The policy flips while the metadata is being fetched: the fetch ends blocked, the torrent is gone and nothing stays switched on. */
+    @Test fun aPolicyFlipDuringMetadataFetchLeavesNothingRunning() = runBlocking<Unit> {
+        val hash = "2".repeat(40)
+        val fetch = async { runCatching { rig.engine.fetchFiles(hash, "magnet:?xt=urn:btih:$hash") } }
+        withTimeout(10_000) { while (!rig.engine.isInSession(hash)) kotlinx.coroutines.delay(10) }
+        rig.device.value = rig.device.value.copy(vpnActive = false)
+        val failure = withTimeout(10_000) { fetch.await() }.exceptionOrNull()
+        assertIs<TorrentBlockedException>(failure)
+        assertTrue(rig.engine.isSessionPaused)
+        assertFalse(rig.engine.isInSession(hash))
+        assertFalse(rig.engine.networkSwitches()!!.anyEnabled)
+    }
+
+    /** The system refuses the foreground service: nothing may run unprotected; it waits (Paused(SYSTEM)) and goes on when the service can start. */
+    @Test fun aRefusedForegroundServicePausesEverythingUntilItCanStart() = runBlocking<Unit> {
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val refusing = Rig(File(dir, "refusing").also { it.mkdirs() }, launcher = ServiceLauncher { if (!allowed.get()) throw IllegalStateException("ForegroundServiceStartNotAllowedException") })
+        try {
+            val s = newSwarm(threeChapters)
+            val events = java.util.concurrent.CopyOnWriteArrayList<TorrentProgress>()
+            val job = launch { refusing.engine.download(request(s, listOf("Book/ch1.mp3"), File(dir, "dest-refused"))).collect { events += it } }
+            withTimeout(10_000) { while (events.lastOrNull() != TorrentProgress.Paused(PauseReason.SYSTEM)) kotlinx.coroutines.delay(20) }
+            assertEquals(PauseReason.SYSTEM, refusing.engine.activity.value.paused)
+            assertTrue(refusing.engine.suspendedForTimeLimit, "the resume worker picks this up")
+            assertTrue(refusing.engine.isSessionPaused)
+            kotlinx.coroutines.delay(1_000)
+            assertTrue(events.none { it is TorrentProgress.Downloading })
+            allowed.set(true)
+            refusing.engine.resumeAfterTimeLimit()
+            withTimeout(60_000) { job.join() }
+            assertIs<TorrentProgress.Finished>(events.last())
+        } finally { refusing.close() }
     }
 
     @Test fun cancellingPausesAndALaterCollectResumesFromDisk() = runBlocking<Unit> {

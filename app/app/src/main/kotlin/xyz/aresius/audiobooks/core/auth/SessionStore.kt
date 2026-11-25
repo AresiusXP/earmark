@@ -26,6 +26,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
+/**
+ * A session together with the identity of the sign-in it belongs to. [id] changes on every [SessionStore.save] (sign-in, join, link,
+ * user switch) and every [SessionStore.clear]; a token refresh keeps it. A request, or a refresh, that started under one [id] must never
+ * act on (retry with, persist into, clear) a session with another one.
+ */
+data class SessionHandle(val session: Session, val id: Long)
+
 /** Encrypted storage of the [Session]. All reads after the first are served from memory. */
 interface SessionStore {
     /** Emits the current session (null when signed out) and every change. */
@@ -37,8 +44,20 @@ interface SessionStore {
 
     /** In-memory value; blocks on the first call only (used from OkHttp threads). */
     fun snapshot(): Session?
+
+    /** Like [snapshot], with the identity of the sign-in (read atomically with it). */
+    fun handle(): SessionHandle?
+
+    /** Stores refreshed tokens, but only when [expected] is still exactly the current session; false (nothing written) otherwise. Keeps the id. */
+    suspend fun replaceIfCurrent(expected: SessionHandle, updated: Session): Boolean
+
+    /** Signs out, but only when [expected] is still the current sign-in; false (nothing done) otherwise. */
+    suspend fun clearIfCurrent(expected: SessionHandle): Boolean
+
     fun saveBlocking(session: Session) = runBlocking { save(session) }
     fun clearBlocking() = runBlocking { clear() }
+    fun replaceIfCurrentBlocking(expected: SessionHandle, updated: Session): Boolean = runBlocking { replaceIfCurrent(expected, updated) }
+    fun clearIfCurrentBlocking(expected: SessionHandle): Boolean = runBlocking { clearIfCurrent(expected) }
 }
 
 /** Symmetric encryption of the session blob (Tink AEAD on device, a fake in JVM tests). */
@@ -57,21 +76,24 @@ class EncryptedSessionStore(
     private val cipher: TokenCipher,
     private val storage: BlobStorage,
 ) : SessionStore {
-    private val state = MutableStateFlow<Session?>(null)
+    private val state = MutableStateFlow<SessionHandle?>(null)
     private val mutex = Mutex()
+    private var lastId = 0L
     @Volatile private var loaded = false
 
     override val session: Flow<Session?> = flow {
         ensureLoaded()
-        emitAll(state)
+        emitAll(state.map { it?.session })
     }
 
     override suspend fun load(): Session? {
         ensureLoaded()
-        return state.value
+        return state.value?.session
     }
 
-    override fun snapshot(): Session? {
+    override fun snapshot(): Session? = handle()?.session
+
+    override fun handle(): SessionHandle? {
         if (!loaded) runBlocking { ensureLoaded() }
         return state.value
     }
@@ -79,8 +101,8 @@ class EncryptedSessionStore(
     override suspend fun save(session: Session) {
         ensureLoaded()
         mutex.withLock {
-            storage.write(cipher.encrypt(Json.encodeToString(Session.serializer(), session)))
-            state.value = session
+            write(session)
+            state.value = SessionHandle(session, ++lastId)
         }
     }
 
@@ -88,9 +110,33 @@ class EncryptedSessionStore(
         ensureLoaded()
         mutex.withLock {
             storage.write(null)
+            lastId++
             state.value = null
         }
     }
+
+    override suspend fun replaceIfCurrent(expected: SessionHandle, updated: Session): Boolean {
+        ensureLoaded()
+        return mutex.withLock {
+            if (state.value != expected) return@withLock false
+            write(updated)
+            state.value = SessionHandle(updated, expected.id)
+            true
+        }
+    }
+
+    override suspend fun clearIfCurrent(expected: SessionHandle): Boolean {
+        ensureLoaded()
+        return mutex.withLock {
+            if (state.value != expected) return@withLock false
+            storage.write(null)
+            lastId++
+            state.value = null
+            true
+        }
+    }
+
+    private suspend fun write(session: Session) = storage.write(cipher.encrypt(Json.encodeToString(Session.serializer(), session)))
 
     private suspend fun ensureLoaded() {
         if (loaded) return
@@ -98,7 +144,7 @@ class EncryptedSessionStore(
             if (loaded) return
             state.value = runCatching {
                 storage.read()?.let { Json.decodeFromString(Session.serializer(), cipher.decrypt(it)) }
-            }.getOrNull() // undecryptable blob (keystore wiped, corrupt): behave as signed out
+            }.getOrNull()?.let { SessionHandle(it, ++lastId) } // undecryptable blob (keystore wiped, corrupt): behave as signed out
             loaded = true
         }
     }

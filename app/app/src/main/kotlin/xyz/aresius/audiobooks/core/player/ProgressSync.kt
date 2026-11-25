@@ -5,6 +5,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiProvider
 import xyz.aresius.audiobooks.core.network.ApiResult
+import xyz.aresius.audiobooks.core.network.isFutureUpdatedAt
 import xyz.aresius.audiobooks.core.network.LibraryEntry
 import xyz.aresius.audiobooks.core.network.LibraryEntryWrite
 import xyz.aresius.audiobooks.core.network.safeApiCall
@@ -52,9 +53,15 @@ class ProgressSync(
 ) {
     private val lastPush = ConcurrentHashMap<String, Long>()
 
+    /**
+     * How far this phone's clock is from the server's (server - phone, ms), learned only when the server refused a write for a timestamp
+     * more than 24 h in the future; from then on writes are stamped with the server's time. 0 until then (and after a process restart).
+     */
+    @Volatile private var clockOffsetMs = 0L
+
     /** Stores [point] as the newest local state of the book (stamped now) and sends it when due or [force]d. */
     suspend fun record(userId: String, asin: String, point: ResumePoint, force: Boolean): SyncOutcome {
-        val stamped = point.copy(updatedAt = clock())
+        val stamped = point.copy(updatedAt = clock() + clockOffsetMs)
         dao.putProgress(stamped.toRow(userId, asin, dirty = true))
         val key = "$userId/$asin"
         val last = lastPush[key]
@@ -78,14 +85,51 @@ class ProgressSync(
         )
         return when (val r = remote.put(asin, write)) {
             is ApiResult.Success -> {
-                dao.markClean(userId, asin, row.updatedAt)
-                // The server keeps a newer write of another device: adopt it unless this phone wrote again meanwhile.
-                if (r.value.updatedAt > row.updatedAt && dao.progress(userId, asin)?.updatedAt == row.updatedAt) {
-                    dao.putProgress(r.value.toRow(userId, dirty = false))
-                }
+                confirmed(userId, asin, row, row.updatedAt, r.value)
                 SyncOutcome.Synced
             }
-            is ApiResult.Failure -> if (r.error.isPermanentForWrites()) {
+            is ApiResult.Failure -> when {
+                r.error.isFutureUpdatedAt -> repairFutureStamp(userId, asin, row, write, r.error as ApiError.Http)
+                r.error.isPermanentForWrites() -> {
+                    dao.markClean(userId, asin, row.updatedAt)
+                    SyncOutcome.Rejected
+                }
+                else -> {
+                    scheduler.schedule()
+                    SyncOutcome.Pending
+                }
+            }
+        }
+    }
+
+    /** The server accepted [sentAt] as the row's `updated_at`: the row is clean (when this phone has not written again meanwhile). */
+    private suspend fun confirmed(userId: String, asin: String, row: ProgressEntity, sentAt: Long, stored: LibraryEntry) {
+        val unchanged = dao.progress(userId, asin)?.updatedAt == row.updatedAt
+        if (sentAt != row.updatedAt && unchanged) dao.putProgress(row.copy(updatedAt = sentAt, dirty = false)) else dao.markClean(userId, asin, row.updatedAt)
+        // The server keeps a newer write of another device: adopt it unless this phone wrote again meanwhile.
+        if (stored.updatedAt > sentAt && unchanged) dao.putProgress(stored.toRow(userId, dirty = false))
+    }
+
+    /**
+     * A 400 for an `updated_at` more than 24 h ahead of the server: this phone's clock is far off. The row is NOT dropped. When the server
+     * sent its `Date`, the write is re-stamped with the server's time (clamped, never later than the original) and sent once more, and later
+     * writes are stamped with the learned offset. Without a server date the row stays dirty and is retried later (the retry cannot make the
+     * stamp valid by itself, but nothing is lost, and a corrected clock fixes it).
+     */
+    private suspend fun repairFutureStamp(userId: String, asin: String, row: ProgressEntity, write: LibraryEntryWrite, error: ApiError.Http): SyncOutcome {
+        val serverNow = error.serverDateMs
+        if (serverNow == null || serverNow < 0) {
+            scheduler.schedule()
+            return SyncOutcome.Pending
+        }
+        val fixed = minOf(row.updatedAt, serverNow)
+        clockOffsetMs = serverNow - clock()
+        return when (val r = remote.put(asin, write.copy(updatedAt = fixed))) {
+            is ApiResult.Success -> {
+                confirmed(userId, asin, row, fixed, r.value)
+                SyncOutcome.Synced
+            }
+            is ApiResult.Failure -> if (!r.error.isFutureUpdatedAt && r.error.isPermanentForWrites()) {
                 dao.markClean(userId, asin, row.updatedAt)
                 SyncOutcome.Rejected
             } else {

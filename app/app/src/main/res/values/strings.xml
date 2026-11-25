@@ -320,6 +320,7 @@
     <string name="download_status_paused_network">Waiting for a connection.</string>
     <string name="download_status_paused_vpn">Waiting for your VPN to be on.</string>
     <string name="download_status_paused_battery">Paused: the battery is low.</string>
+    <string name="download_status_paused_background">Waiting: Android does not allow background downloads right now. It continues by itself, or open the app.</string>
     <string name="download_status_completed">On this phone (%1$s). Plays without a connection.</string>
     <string name="download_eta_seconds">%1$d s</string>
     <string name="download_eta_minutes">%1$d min</string>
@@ -465,6 +466,7 @@
     <string name="torrent_notif_paused_wifi">Paused: waiting for Wi-Fi</string>
     <string name="torrent_notif_paused_battery">Paused: the battery is low</string>
     <string name="torrent_notif_paused_user">Paused</string>
+    <string name="torrent_notif_paused_system">Waiting: Android does not allow background downloads right now</string>
     <string name="torrent_notif_seeding">Seeding to ratio 1.0 (Wi-Fi, charging)</string>
     <string name="torrent_action_pause">Pause</string>
     <string name="torrent_action_resume">Resume</string>

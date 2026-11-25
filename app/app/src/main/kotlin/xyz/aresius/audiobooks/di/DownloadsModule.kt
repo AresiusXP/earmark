@@ -118,9 +118,9 @@ object DownloadsProvides {
     @Provides @Singleton
     fun finishedBooks(libraryDao: LibraryDao): FinishedBooks = FinishedBooks { userId -> libraryDao.finishedAtMs(userId) }
 
-    /** No redirects followed with credentials, no auth: this client only ever talks to a provider's CDN. No whole-call timeout (files are big). */
+    /** The credential-free redirect-following client ([HttpClientFactory.cdn]): this client only ever talks to a provider's CDN. No whole-call timeout (files are big). */
     @Provides @Singleton @DownloadClient
-    fun downloadClient(clients: HttpClientFactory): OkHttpClient = clients.plain().newBuilder()
+    fun downloadClient(clients: HttpClientFactory): OkHttpClient = clients.cdn().newBuilder()
         .callTimeout(0, TimeUnit.MILLISECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()

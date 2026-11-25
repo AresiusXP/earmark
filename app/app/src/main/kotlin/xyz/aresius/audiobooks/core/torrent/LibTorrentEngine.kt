@@ -81,13 +81,16 @@ class LibTorrentEngine @Inject constructor(
 
     @Volatile private var settings = TorrentSettings()
     @Volatile private var device = monitor.state.value
-    private val userPaused = MutableStateFlow(false)
-    private val gate = MutableStateFlow<PolicyDecision?>(null)
-    private val gateVersion = MutableStateFlow(0L)
+    /** Why every torrent is paused by hand: [PauseReason.USER] (notification, time limit) or [PauseReason.SYSTEM] (foreground service refused); null = not. */
+    private val manualPause = MutableStateFlow<PauseReason?>(null)
+    private val policyGate = PolicyGate()
+    private val gate get() = policyGate.decision
+    private val gateVersion get() = policyGate.version
 
-    private val sessionLock = ReentrantLock()
+    /** The policy's lock: held for every change of the session's state and for every start (resume) of a torrent or of the session. */
+    private val sessionLock = policyGate.lock
     private val lifecycleMutex = Mutex()
-    private var users = 0
+    @Volatile private var users = 0
     private var idleStop: Job? = null
 
     private val running = ConcurrentHashMap<String, Stat>()
@@ -109,19 +112,15 @@ class LibTorrentEngine @Inject constructor(
 
     init {
         scope.launch {
-            combine(settingsSource.settings, monitor.state, userPaused) { s, d, u -> Triple(s, d, u) }.collect { (s, d, u) ->
+            combine(settingsSource.settings, monitor.state, manualPause) { s, d, u -> Triple(s, d, u) }.collect { (s, d, u) ->
                 settings = s
                 device = d
                 val decision = when {
                     !s.p2pEnabled -> PolicyDecision.Disabled
-                    u -> PolicyDecision.Blocked(PauseReason.USER)
+                    u != null -> PolicyDecision.Blocked(u)
                     else -> policy.decide(s, d)
                 }
-                if (decision != gate.value) {
-                    gate.value = decision
-                    gateVersion.value++
-                }
-                sessionLock.withLock { applyGateLocked(s, decision) }
+                policyGate.update(decision) { applyGateLocked(s, it) }
                 publishActivity()
             }
         }
@@ -137,15 +136,24 @@ class LibTorrentEngine @Inject constructor(
     // ---- TorrentRuntime ----
 
     override fun setUserPaused(paused: Boolean) {
-        userPaused.value = paused
-        if (!paused) suspendedForTimeLimit = false
+        manualPause.value = if (paused) PauseReason.USER else null
+        if (!paused) {
+            suspendedForTimeLimit = false
+            // Resumed (the app came to the foreground, the notification, the worker): make sure the foreground service protects the run again.
+            if (users > 0) scope.launch { requestForegroundService() }
+        }
     }
 
     override fun stopAll() = setUserPaused(true)
 
     override fun suspendForTimeLimit() {
         suspendedForTimeLimit = true
-        userPaused.value = true
+        manualPause.value = PauseReason.USER
+    }
+
+    override fun suspendForForegroundRefusal() {
+        suspendedForTimeLimit = true
+        manualPause.value = PauseReason.SYSTEM
     }
 
     override fun resumeAfterTimeLimit() {
@@ -177,11 +185,14 @@ class LibTorrentEngine @Inject constructor(
             params.setSavePath(dir.absolutePath)
             var flags = params.getFlags()
             flags = flags.and_(TorrentFlags.AUTO_MANAGED.inv()).or_(TorrentFlags.UPLOAD_MODE).or_(TorrentFlags.DEFAULT_DONT_DOWNLOAD)
+                .or_(TorrentFlags.PAUSED)
             params.setFlags(flags)
             val ec = error_code()
             val th = sm.swig().add_torrent(params.swig(), ec)
             if (ec.value() != 0) throw TorrentRejectedException("Could not add torrent: ${ec.message()}")
-            TorrentHandle(th).also { it.resume() }
+            // Added paused and resumed only while the policy allows, under the policy lock: a flip to blocked can't be overtaken by this resume
+            // (a blocked policy leaves it paused; the loop below then ends with TorrentBlockedException).
+            TorrentHandle(th).also { if (policyGate.allowed) it.resume() }
         }
         try {
             val deadline = System.currentTimeMillis() + config.metadataTimeoutMs
@@ -226,7 +237,7 @@ class LibTorrentEngine @Inject constructor(
             emit(TorrentProgress.Failed("This torrent is already downloading")); return@flow
         }
         // A new request is an explicit user action: it clears a Stop / time-limit pause.
-        if (userPaused.value) setUserPaused(false)
+        if (manualPause.value != null) setUserPaused(false)
         var handle: TorrentHandle? = null
         var finished = false
         var used = false
@@ -310,14 +321,21 @@ class LibTorrentEngine @Inject constructor(
                 val state = st.state()
                 val checking = state == TorrentStatus.State.CHECKING_FILES || state == TorrentStatus.State.CHECKING_RESUME_DATA
                 if (plan == null || checking) {
-                    if (paused) { h.resume(); paused = false }
+                    if (paused) {
+                        if (!resumeIfAllowed(h, announce = false)) { waitTick(seen); continue }
+                        paused = false
+                    }
                     running[hash]?.let { it.peers = st.numPeers(); it.down = 0; it.up = st.uploadPayloadRate().toLong() }
                     publishActivity()
                     val r = stall.update(System.currentTimeMillis(), st.numPeers(), 0)
                     send(if (r == StallReason.NO_PEERS && plan == null) TorrentProgress.Stalled(r, 0) else TorrentProgress.Starting(st.numPeers()))
                     waitTick(seen); continue
                 }
-                if (paused) { h.resume(); h.forceReannounce(); h.forceDHTAnnounce(); paused = false; stall.reset() }
+                if (paused) {
+                    if (!resumeIfAllowed(h, announce = true)) { waitTick(seen); continue }
+                    paused = false
+                    stall.reset()
+                }
 
                 val fp = h.fileProgress(TorrentHandle.PIECE_GRANULARITY)
                 val complete = plan.order.filter { fp.getOrElse(it) { 0L } >= plan.sizes[it] }.toSet()
@@ -391,6 +409,21 @@ class LibTorrentEngine @Inject constructor(
 
     internal val isSessionPaused: Boolean get() = sm.isRunning && sm.isPaused
 
+    /** What the running session has switched on (null when there is no session); for tests. */
+    internal fun networkSwitches(): NetworkSwitches? = sessionLock.withLock {
+        if (!sm.isRunning) return@withLock null
+        val sp = sm.settings()
+        NetworkSwitches(
+            dht = sp.isEnableDht,
+            lsd = sp.isEnableLsd,
+            incomingTcp = sp.getBoolean(settings_pack.bool_types.enable_incoming_tcp.swigValue()),
+            incomingUtp = sp.getBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue()),
+            upnp = sp.getBoolean(settings_pack.bool_types.enable_upnp.swigValue()),
+            natpmp = sp.getBoolean(settings_pack.bool_types.enable_natpmp.swigValue()),
+            listenInterfaces = sp.listenInterfaces(),
+        )
+    }
+
     internal fun isInSession(infoHash: String): Boolean = sm.isRunning && sm.find(Sha1Hash.parseHex(infoHash)) != null
 
     /** Stops the session and the engine's coroutines; for tests. */
@@ -415,7 +448,16 @@ class LibTorrentEngine @Inject constructor(
             idleStop?.cancel(); idleStop = null
             users++
             if (!sm.isRunning) withContext(Dispatchers.IO) { sessionLock.withLock { startSessionLocked() } }
-            if (users == 1) runCatching { launcher.ensureRunning() }
+            if (users == 1) requestForegroundService()
+        }
+    }
+
+    /** Asks for the foreground service; when the system refuses, everything pauses (and the launcher scheduled the retry) instead of running unprotected. */
+    private fun requestForegroundService() {
+        try {
+            launcher.ensureRunning()
+        } catch (e: Exception) {
+            suspendForForegroundRefusal()
         }
     }
 
@@ -438,11 +480,11 @@ class LibTorrentEngine @Inject constructor(
         val params = store.sessionState.takeIf { it.isFile }
             ?.let { runCatching { SessionParams(it.readBytes()) }.getOrNull() } ?: SessionParams()
         val sp = params.getSettings()
-        sp.listenInterfaces(config.listenInterfaces)
-        sp.setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), config.enablePortMaps)
-        sp.setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), config.enablePortMaps)
+        // The policy comes first: whatever the restored state says, a blocked policy starts the session with DHT, LSD, port mapping,
+        // incoming connections and listen sockets all off, so nothing touches the network before the pause below is in place.
+        // (libtorrent4j cannot start a session paused; with every switch off and no torrent added there is nothing to pause yet.)
+        applyNetworkSwitches(sp, NetworkSwitches.of(policyGate.allowed, config))
         sp.setBoolean(settings_pack.bool_types.enable_outgoing_utp.swigValue(), config.enableUtp)
-        sp.setBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue(), config.enableUtp)
         // libtorrent waits 60 s before it reconnects to a peer it lost; a pause (VPN drop) loses every peer, so be quicker.
         sp.setInteger(settings_pack.int_types.min_reconnect_time.swigValue(), 10)
         applyLimits(sp, settings)
@@ -468,22 +510,38 @@ class LibTorrentEngine @Inject constructor(
         sp.uploadRateLimit(s.uploadLimitKib * 1024)
     }
 
-    /** Pauses the whole libtorrent session at once when the policy blocks; DHT, LSD, port mapping and incoming connections follow it. */
+    private fun applyNetworkSwitches(sp: SettingsPack, n: NetworkSwitches) {
+        sp.setEnableDht(n.dht)
+        sp.setEnableLsd(n.lsd)
+        sp.setBoolean(settings_pack.bool_types.enable_incoming_tcp.swigValue(), n.incomingTcp)
+        sp.setBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue(), n.incomingUtp)
+        sp.setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), n.upnp)
+        sp.setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), n.natpmp)
+        sp.listenInterfaces(n.listenInterfaces)
+    }
+
+    /**
+     * Pauses the whole libtorrent session at once when the policy blocks; DHT, LSD, port mapping, incoming connections and the listen
+     * sockets follow it. Always called with [sessionLock] held (through [PolicyGate.update] or the session start).
+     */
     private fun applyGateLocked(s: TorrentSettings, decision: PolicyDecision) {
         if (!sm.isRunning) return
         val allowed = decision == PolicyDecision.Allowed
         if (!allowed) sm.pause()
         val sp = sm.settings()
         applyLimits(sp, s)
-        sp.setEnableDht(allowed && config.enableDht)
-        sp.setEnableLsd(allowed && config.enableLsd)
-        sp.setBoolean(settings_pack.bool_types.enable_incoming_tcp.swigValue(), allowed)
-        sp.setBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue(), allowed && config.enableUtp)
-        sp.setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), allowed && config.enablePortMaps)
-        sp.setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), allowed && config.enablePortMaps)
+        applyNetworkSwitches(sp, NetworkSwitches.of(allowed, config))
         sm.applySettings(sp)
         if (allowed) sm.resume()
     }
+
+    /** Resumes [h] (and optionally re-announces it) only while the policy allows, atomically with policy changes; false when it does not. */
+    private fun resumeIfAllowed(h: TorrentHandle, announce: Boolean): Boolean = policyGate.ifAllowed {
+        if (!sm.isRunning || !h.isValid()) return@ifAllowed false
+        h.resume()
+        if (announce) { h.forceReannounce(); h.forceDHTAnnounce() }
+        true
+    } ?: false
 
     private suspend fun awaitGate(): PolicyDecision = gate.filterNotNull().first()
 
@@ -580,10 +638,9 @@ class LibTorrentEngine @Inject constructor(
         if (!h.isValid()) return
         h.flushCache()
         saveResume(h, hash)
-        if (policy.seedingAllowed(settings, device)) {
+        if (policy.seedingAllowed(settings, device) && resumeIfAllowed(h, announce = false)) {
             seeding[hash] = h
             lifecycleMutex.withLock { idleStop?.cancel(); idleStop = null; users++ }
-            h.resume()
             startSeedJob()
         } else {
             sessionLock.withLock { sm.remove(h) }
