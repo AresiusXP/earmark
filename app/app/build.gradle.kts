@@ -149,6 +149,7 @@ dependencies {
     implementation(libs.tink.android)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)

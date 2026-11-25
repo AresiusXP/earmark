@@ -102,7 +102,8 @@ class TokenAuthenticator(
     override fun authenticate(route: Route?, response: Response): Request? {
         val request = response.request
         val sentHeader = request.header("Authorization") ?: return null
-        if (request.isAuthEndpoint() || responseCount(response) >= 3) return null
+        // A request that already went out again after a 401 is not refreshed for a second time: one refresh per request.
+        if (request.isAuthEndpoint() || response.priorResponse?.code == 401 || responseCount(response) >= 3) return null
         synchronized(lock) {
             val session = sessions.snapshot() ?: return null
             if (!request.targetsServer(session)) return null
