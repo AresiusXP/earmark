@@ -17,6 +17,8 @@ import xyz.aresius.audiobooks.core.network.Provider
 import xyz.aresius.audiobooks.core.network.ReleaseView
 import xyz.aresius.audiobooks.feature.common.Load
 import xyz.aresius.audiobooks.feature.library.LibraryViewModel
+import xyz.aresius.audiobooks.testutil.FakeLocalFiles
+import xyz.aresius.audiobooks.testutil.FakePlayerControls
 import xyz.aresius.audiobooks.testutil.FakeServer
 import xyz.aresius.audiobooks.testutil.MainDispatcherRule
 import xyz.aresius.audiobooks.testutil.Samples
@@ -32,7 +34,10 @@ class BookAndLibraryViewModelTest {
 
     @AfterTest fun tearDown() = server.close()
 
-    private fun bookVm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library)
+    private val controls = FakePlayerControls()
+    private val localFiles = FakeLocalFiles()
+
+    private fun bookVm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library, controls, localFiles, app.me)
 
     @Test fun loadsTheBookAndItsRankedReleases() = runBlocking<Unit> {
         server.onJson("GET", "/v1/books/$asin", Samples.bookDetail(releases = Samples.release("a".repeat(40)) + "," + Samples.release("b".repeat(40))))
@@ -64,7 +69,7 @@ class BookAndLibraryViewModelTest {
         assertNull(vm.state.awaitState { it.libraryEntry == null && !it.libraryBusy }.libraryEntry)
     }
 
-    @Test fun aLibraryFailureIsReportedAndDownloadPlayAreComingLater() = runBlocking<Unit> {
+    @Test fun aLibraryFailureIsReportedAndDownloadIsComingLater() = runBlocking<Unit> {
         server.onJson("GET", "/v1/books/$asin", Samples.bookDetail())
         val vm = bookVm()
         vm.state.awaitState { it.detail is Load.Content<*> }
@@ -73,7 +78,7 @@ class BookAndLibraryViewModelTest {
         assertTrue(vm.state.awaitState { it.error != null }.error is ApiError.Http)
         vm.consumeError()
         assertFalse(vm.state.value.comingSoon)
-        vm.onDownloadOrPlay()
+        vm.onDownload()
         assertTrue(vm.state.value.comingSoon)
         vm.consumeComingSoon()
         assertFalse(vm.state.value.comingSoon)

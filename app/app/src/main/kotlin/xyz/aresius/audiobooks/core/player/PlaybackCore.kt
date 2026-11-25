@@ -305,10 +305,13 @@ class PlaybackCore(
             bookPlayer.refresh()
         }
         val state = exo.playbackState
+        // Named locals: inside the lambda `speed` and `sleep` would be the PlayerState's own properties.
+        val currentSpeed = speed
+        val sleepNow = sleepTimer.state(pos, currentSpeed)
         hub.update {
             copy(
                 positionMs = pos, durationMs = tl.totalMs, durationExact = tl.exact, chapters = cm.chapters, chapterSource = cm.source, chapterIndex = ci,
-                speed = speed, sleep = sleepTimer.state(pos, speed), playing = exo.isPlaying, buffering = exo.playWhenReady && state == Player.STATE_BUFFERING,
+                speed = currentSpeed, sleep = sleepNow, playing = exo.isPlaying, buffering = exo.playWhenReady && state == Player.STATE_BUFFERING,
                 ended = state == Player.STATE_ENDED,
             )
         }

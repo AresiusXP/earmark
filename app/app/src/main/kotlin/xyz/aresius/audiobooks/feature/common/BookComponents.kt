@@ -45,7 +45,7 @@ fun ShelfCover(book: Book, onClick: () -> Unit, modifier: Modifier = Modifier, s
 
 /** List row for search results and the library; [progress] (0..1) draws a small wavy bar under the text when set. */
 @Composable
-fun BookRow(book: Book, onClick: () -> Unit, modifier: Modifier = Modifier, supporting: String? = null, progress: Float? = null) {
+fun BookRow(book: Book, onClick: () -> Unit, modifier: Modifier = Modifier, supporting: String? = null, progress: Float? = null, trailing: (@Composable () -> Unit)? = null) {
     Row(
         modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Spacing.screen, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -65,5 +65,6 @@ fun BookRow(book: Book, onClick: () -> Unit, modifier: Modifier = Modifier, supp
                 WavyProgressBar(progress, Modifier.padding(top = 4.dp), height = 18.dp, strokeWidth = 3.dp, waveLength = 28.dp, restingAmplitude = 0.5f, showThumb = false)
             }
         }
+        trailing?.invoke()
     }
 }

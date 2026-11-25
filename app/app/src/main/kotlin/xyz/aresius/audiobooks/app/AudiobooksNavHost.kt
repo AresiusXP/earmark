@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import xyz.aresius.audiobooks.core.network.LibraryEntry
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraphBuilder
@@ -19,6 +21,8 @@ import xyz.aresius.audiobooks.feature.admin.UsersScreen
 import xyz.aresius.audiobooks.feature.book.BookScreen
 import xyz.aresius.audiobooks.feature.discover.DiscoverScreen
 import xyz.aresius.audiobooks.feature.library.LibraryScreen
+import xyz.aresius.audiobooks.feature.player.PlayerScreen
+import xyz.aresius.audiobooks.feature.player.PlayerViewModel
 import xyz.aresius.audiobooks.feature.search.SearchScreen
 import xyz.aresius.audiobooks.feature.settings.SettingsScreen
 
@@ -33,6 +37,19 @@ private inline fun <reified T : Any> NavGraphBuilder.screen(crossinline content:
 @Composable
 fun AudiobooksNavHost(navController: NavHostController, isAdmin: Boolean, modifier: Modifier = Modifier) {
     val openBook: (String) -> Unit = { asin -> navController.navigate(Routes.Book(asin)) }
+    val player: PlayerViewModel = hiltViewModel()
+    val openPlayer: () -> Unit = { navController.navigate(Routes.Player) { launchSingleTop = true } }
+    val playEntry: (LibraryEntry) -> Unit = { entry ->
+        player.play(entry.book.asin, entry.releaseHash, entry.book)
+        openPlayer()
+    }
+    val openSettings: () -> Unit = {
+        navController.navigate(Routes.Settings) {
+            popUpTo<Routes.Discover> { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
     SharedTransitionLayout(modifier) {
         CompositionLocalProvider(LocalSharedTransitionScope provides this) {
             NavHost(
@@ -43,11 +60,12 @@ fun AudiobooksNavHost(navController: NavHostController, isAdmin: Boolean, modifi
                 popEnterTransition = { fadeIn(tween(220)) },
                 popExitTransition = { fadeOut(tween(160)) },
             ) {
-                screen<Routes.Discover> { DiscoverScreen(onBook = openBook) }
+                screen<Routes.Discover> { DiscoverScreen(onBook = openBook, onPlay = playEntry) }
                 screen<Routes.Search> { SearchScreen(onBook = openBook) }
-                screen<Routes.Library> { LibraryScreen(onBook = openBook) }
+                screen<Routes.Library> { LibraryScreen(onBook = openBook, onPlay = playEntry) }
                 screen<Routes.Settings> { SettingsScreen(isAdmin = isAdmin, onUsers = { navController.navigate(Routes.Users) }) }
-                screen<Routes.Book> { BookScreen(onBack = { navController.popBackStack() }) }
+                screen<Routes.Book> { BookScreen(onBack = { navController.popBackStack() }, onPlay = openPlayer, onOpenSettings = openSettings) }
+                screen<Routes.Player> { PlayerScreen(onBack = { navController.popBackStack() }, onOpenBook = openBook, onOpenSettings = openSettings) }
                 screen<Routes.Users> { UsersScreen(onBack = { navController.popBackStack() }) }
             }
         }

@@ -8,7 +8,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -16,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
@@ -41,7 +47,7 @@ internal fun statusLabel(status: String): Int = when (status) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(onBook: (String) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
+fun LibraryScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(stringResource(R.string.library_title))
@@ -74,7 +80,7 @@ fun LibraryScreen(onBook: (String) -> Unit, viewModel: LibraryViewModel = hiltVi
                                 )
                             }
                         }
-                        items(visible, key = { it.book.asin }) { entry -> LibraryRow(entry, onClick = { onBook(entry.book.asin) }) }
+                        items(visible, key = { it.book.asin }) { entry -> LibraryRow(entry, onClick = { onBook(entry.book.asin) }, onPlay = { onPlay(entry) }) }
                     }
                 }
             }
@@ -83,7 +89,7 @@ fun LibraryScreen(onBook: (String) -> Unit, viewModel: LibraryViewModel = hiltVi
 }
 
 @Composable
-private fun LibraryRow(entry: LibraryEntry, onClick: () -> Unit) {
+private fun LibraryRow(entry: LibraryEntry, onClick: () -> Unit, onPlay: () -> Unit) {
     val progress = progressFraction(entry.positionMs, entry.book.runtimeMin)
     val percent = (progress * 100).toInt()
     val runtime = formatRuntime(entry.book.runtimeMin)
@@ -93,5 +99,9 @@ private fun LibraryRow(entry: LibraryEntry, onClick: () -> Unit) {
     } else {
         stringResource(R.string.library_row_plain, status, runtime)
     }
-    BookRow(entry.book, onClick = onClick, supporting = supporting, progress = if (entry.status == LibraryStatus.LISTENING) progress else null)
+    BookRow(entry.book, onClick = onClick, supporting = supporting, progress = if (entry.status == LibraryStatus.LISTENING) progress else null) {
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Rounded.PlayCircle, contentDescription = stringResource(R.string.library_play, entry.book.title), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+        }
+    }
 }

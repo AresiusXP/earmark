@@ -12,6 +12,8 @@ import javax.inject.Singleton
 import xyz.aresius.audiobooks.core.network.ApiProvider
 import xyz.aresius.audiobooks.core.player.ApiProgressRemote
 import xyz.aresius.audiobooks.core.player.DevicePlayerPreferences
+import xyz.aresius.audiobooks.core.player.PlaybackController
+import xyz.aresius.audiobooks.core.player.PlayerControls
 import xyz.aresius.audiobooks.core.player.PlayerDao
 import xyz.aresius.audiobooks.core.player.PlayerDb
 import xyz.aresius.audiobooks.core.player.PlayerPreferences
@@ -25,6 +27,9 @@ import xyz.aresius.audiobooks.core.player.WorkSyncScheduler
 abstract class PlayerBindingsModule {
     @Binds @Singleton
     abstract fun playerPreferences(impl: DevicePlayerPreferences): PlayerPreferences
+
+    @Binds @Singleton
+    abstract fun playerControls(impl: PlaybackController): PlayerControls
 }
 
 /** The player's own Room database (progress, learned durations, bookmarks): separate from `audiobooks.db` so the two never share a schema. */

@@ -10,4 +10,5 @@ object Routes {
     @Serializable data object Settings
     @Serializable data class Book(val asin: String)
     @Serializable data object Users
+    @Serializable data object Player
 }

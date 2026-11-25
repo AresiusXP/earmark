@@ -267,7 +267,6 @@
     <string name="player_chapter_times">%1$s van %2$s</string>
     <string name="player_chapter_position">Hoofdstuk %1$d van %2$d</string>
     <string name="player_time_left">%1$s resterend</string>
-    <string name="player_estimated">Geschat: de lengte klopt zodra elk deel is afgespeeld.</string>
     <string name="player_chapters_from_files">Hoofdstukken volgen de audiobestanden: de hoofdstukken uit de catalogus passen niet bij deze uitgave.</string>
     <string name="player_chapters">Hoofdstukken</string>
     <string name="player_chapters_empty">Geen hoofdstukken</string>

@@ -72,9 +72,18 @@ class BookLoader(
         Provider.fromWire(me.me.value?.settings?.preferredProvider)
     }, System::currentTimeMillis)
 
+    /**
+     * The catalog answer is cached for a few minutes and carries per-user fields (`usable`): a key added a minute ago is not in it. So when
+     * the cached answer says "nothing is usable", the server is asked again before telling the user to add a key.
+     */
     suspend fun load(asin: String, requestedHash: String?): LoadResult {
+        val first = loadWith(asin, requestedHash, refresh = false)
+        return if (first is LoadResult.Failure && first.kind == FailureKind.NeedsSource) loadWith(asin, requestedHash, refresh = true) else first
+    }
+
+    private suspend fun loadWith(asin: String, requestedHash: String?, refresh: Boolean): LoadResult {
         val userId = sessions.load()?.userId ?: return LoadResult.Failure(FailureKind.NotSignedIn)
-        val detail = when (val r = catalog.book(asin)) {
+        val detail = when (val r = catalog.book(asin, refresh)) {
             is ApiResult.Success -> r.value
             is ApiResult.Failure -> return LoadResult.Failure(if (r.error.isNotFound) FailureKind.NoReleases else FailureKind.Network)
         }

@@ -26,10 +26,14 @@ import xyz.aresius.audiobooks.testutil.memorySessionStore
 import xyz.aresius.audiobooks.testutil.testSession
 
 class BookLoaderTest {
-    private class FakeCatalog(var detail: ApiResult<BookDetail>, var chapters: ApiResult<Chapters>) : CatalogRepository {
+    private class FakeCatalog(var detail: ApiResult<BookDetail>, var chapters: ApiResult<Chapters>, var fresh: ApiResult<BookDetail>? = null) : CatalogRepository {
+        val refreshes = ArrayList<Boolean>()
         override suspend fun discover(page: Int, refresh: Boolean) = ApiResult.Success(emptyList<Book>())
         override suspend fun search(query: String, refresh: Boolean) = ApiResult.Success(emptyList<Book>())
-        override suspend fun book(asin: String, refresh: Boolean) = detail
+        override suspend fun book(asin: String, refresh: Boolean): ApiResult<BookDetail> {
+            refreshes.add(refresh)
+            return if (refresh) fresh ?: detail else detail
+        }
         override suspend fun chapters(asin: String) = chapters
     }
 
@@ -132,6 +136,19 @@ class BookLoaderTest {
         assertEquals("One", assertIs<LoadResult.Ready>(loader(listOf(release("a")), ApiResult.Success(chapters)).load("B001", null)).plan.chapters!!.chapters.single().title)
         val offline = loader(listOf(release("a")), ApiResult.Failure(ApiError.Network))
         assertEquals("One", assertIs<LoadResult.Ready>(offline.load("B001", null)).plan.chapters!!.chapters.single().title)
+    }
+
+    @Test
+    fun `a cached page without a usable provider is refreshed once before asking for a key`() = runTest {
+        val stale = ApiResult.Success(BookDetail(testBook("B001"), null, listOf(release("a", debrid = emptyList()))))
+        val fresh = ApiResult.Success(BookDetail(testBook("B001"), null, listOf(release("a"))))
+        val catalog = FakeCatalog(stale, ApiResult.Success(Chapters("B001", 0, emptyList())), fresh)
+        val plan = assertIs<LoadResult.Ready>(BookLoader(catalog, local, sync, dao, cache, sessions, { null }, { 5L }).load("B001", null)).plan
+        assertEquals(Provider.TorBox, plan.provider)
+        assertEquals(listOf(false, true), catalog.refreshes)
+        val noKeyAtAll = FakeCatalog(stale, ApiResult.Success(Chapters("B001", 0, emptyList())))
+        assertEquals(FailureKind.NeedsSource, assertIs<LoadResult.Failure>(BookLoader(noKeyAtAll, local, sync, dao, cache, sessions, { null }, { 5L }).load("B001", null)).kind)
+        assertEquals(listOf(false, true), noKeyAtAll.refreshes)
     }
 
     @Test

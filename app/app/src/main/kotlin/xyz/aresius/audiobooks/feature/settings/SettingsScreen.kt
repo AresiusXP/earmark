@@ -63,6 +63,7 @@ import xyz.aresius.audiobooks.feature.common.formatInstant
 import xyz.aresius.audiobooks.feature.common.message
 import xyz.aresius.audiobooks.feature.debrid.DebridSection
 import xyz.aresius.audiobooks.feature.onboarding.messageRes
+import xyz.aresius.audiobooks.feature.player.PlaybackSection
 import xyz.aresius.audiobooks.feature.update.UpdateSection
 
 /** "us" -> "United States" in the user's language ("uk" is Great Britain's region code in ISO terms). */
@@ -160,6 +161,7 @@ fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, viewModel: SettingsVie
                     }
                 }
             }
+            Section(stringResource(R.string.settings_playback)) { PlaybackSection() }
             if (DynamicColorSupported) {
                 Section(stringResource(R.string.settings_appearance)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
