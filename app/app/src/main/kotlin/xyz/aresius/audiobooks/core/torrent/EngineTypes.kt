@@ -45,13 +45,19 @@ interface TorrentRuntime {
     /** Android 15 caps dataSync foreground services at 6 h per 24 h: pause when the system says so. */
     fun suspendForTimeLimit()
 
-    /** True when [suspendForTimeLimit] paused things and [resumeAfterTimeLimit] has not run yet. */
+    /** The system refused to run the foreground service (background-start limits, used-up budget): pause (`Paused(SYSTEM)`) until it can run. */
+    fun suspendForForegroundRefusal()
+
+    /** True when [suspendForTimeLimit] or [suspendForForegroundRefusal] paused things and [resumeAfterTimeLimit] has not run yet. */
     val suspendedForTimeLimit: Boolean
 
     fun resumeAfterTimeLimit()
 }
 
-/** Starts the foreground service that keeps the process alive while torrents run; a no-op in tests. */
+/**
+ * Starts the foreground service that keeps the process alive while torrents run; a no-op in tests.
+ * Throws when the system refuses: the engine then pauses everything instead of running unprotected in the background.
+ */
 fun interface ServiceLauncher {
     fun ensureRunning()
 }

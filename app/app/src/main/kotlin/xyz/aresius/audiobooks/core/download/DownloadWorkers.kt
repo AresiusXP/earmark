@@ -46,7 +46,7 @@ interface DownloadWorkerEntryPoint {
 /**
  * One book. Expedited with a foreground notification (dataSync) so a long download survives the app going away; on Android 15 the
  * system stops a dataSync service after about 6 h a day: the worker then re-enqueues itself (not expedited) (the downloads resume with Range).
- * Results: Done -> success; Retry/Waiting -> retry (exponential backoff, WorkManager constraints decide when); Failed/Gone -> failure.
+ * A refused promotion to foreground pauses the job ([WaitReason.Background]) and retries later. Results: Done -> success; Retry/Waiting -> retry (exponential backoff, WorkManager constraints decide when); Failed/Gone -> failure.
  */
 class BookDownloadWorker(
     context: Context,
@@ -65,8 +65,14 @@ class BookDownloadWorker(
         if (userId.isEmpty() || asin.isEmpty()) return Result.failure()
         try {
             setForeground(deps.notifications.foregroundInfo(asin, null, preparing = true))
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
-            // Starting a foreground service from the background can be refused (Android 12+); the job still runs, just without the notification.
+            // Starting a foreground service from the background can be refused (Android 12+). A long download must not go on unprotected
+            // (the process could be killed mid-file): the job shows "waiting" and WorkManager runs it again with its backoff (30 s, doubling),
+            // when it may be promoted; the files resume with Range.
+            deps.runner.markWaiting(userId, asin, WaitReason.Background)
+            return Result.retry()
         }
         return coroutineScope {
             val updater = launch {

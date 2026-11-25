@@ -435,7 +435,11 @@ flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/Tor
   5 s after the engine is idle; notification with speed, peers, ETA and Pause/Resume/Stop; a partial wake lock only while data flows. Android 15
   limits dataSync to 6 h per 24 h: `onTimeout` pauses everything (`Paused(USER)`), posts "open the app to continue" and schedules
   `TorrentResumeWorker` (WorkManager, 1 h, network + battery not low); the engine also resumes when the app comes to the foreground. If
-  `startForeground` is refused (budget used up) the same path runs.
+  `startForeground` is refused (budget used up) the same path runs. A refusal is never ignored: `startForegroundService` throwing in the engine
+  (`ServiceLauncher.ensureRunning` rethrows after posting the notification and scheduling the worker) or `startForeground` failing in the service pauses every
+  torrent as `Paused(SYSTEM)` (downloads show "waiting: Android does not allow background downloads", `WaitReason.Background`) and `TorrentResumeWorker`
+  resumes; `setUserPaused(false)` asks for the service again. Same for the WorkManager download worker: when `setForeground` is refused it marks the job
+  `Paused(Background)` and returns `retry` (backoff 30 s, doubling) instead of downloading without foreground protection.
 * **Tests**: policy state machine, paths, planner and stall detector, settings, options ViewModel (unit); a real two-session loopback swarm,
   service and timeout (instrumented, emulator). Not verifiable on an emulator: a real phone behind CGNAT / a real VPN app.
 

@@ -53,7 +53,8 @@ enum class FailReason {
 }
 
 /** What a paused download waits for. */
-enum class WaitReason { WiFi, Network, Vpn, Battery }
+/** [Background]: the system refused to run the download as a foreground service; WorkManager tries again. */
+enum class WaitReason { WiFi, Network, Vpn, Battery, Background }
 
 /** The per-book state other code observes (Book detail, Downloads screen, the player). */
 sealed interface BookDownloadState {

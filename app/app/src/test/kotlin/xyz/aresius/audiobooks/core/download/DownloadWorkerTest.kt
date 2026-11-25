@@ -15,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import okhttp3.OkHttpClient
@@ -77,6 +78,33 @@ class DownloadWorkerTest {
         cdn.enqueue(Audio.response(data))
         enqueue()
         assertEquals(ListenableWorker.Result.success(), worker().doWork())
+    }
+
+    @Test fun aRefusedForegroundPromotionPausesTheJobAndRetriesInsteadOfDownloadingUnprotected() = runBlocking<Unit> {
+        serve()
+        enqueue()
+        val refusing = object : DownloadWorkerDeps by deps {
+            override val notifications = object : DownloadNotifications(context) {
+                override fun foregroundInfo(asin: String, progress: LiveProgress?, preparing: Boolean): androidx.work.ForegroundInfo =
+                    throw IllegalStateException("ForegroundServiceStartNotAllowedException")
+            }
+        }
+        val refused = TestListenableWorkerBuilder<BookDownloadWorker>(context, DownloadWork.input("u1", book.asin))
+            .setWorkerFactory(object : WorkerFactory() {
+                override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker =
+                    BookDownloadWorker(appContext, workerParameters, refusing)
+            }).build()
+        assertEquals(ListenableWorker.Result.retry(), refused.doWork())
+        assertTrue(server.requests.isEmpty() && cdn.requestCount == 0, "nothing was downloaded without the foreground protection")
+        val row = kit.dao.book("u1", book.asin)!!
+        assertEquals(JobState.PAUSED, row.state)
+        assertEquals(WaitReason.Background.name, row.pauseReason)
+        assertTrue(kit.repository.state(book.asin).first() is BookDownloadState.Paused, "the user sees a waiting state")
+
+        // WorkManager runs it again; once the promotion works the download completes
+        cdn.enqueue(Audio.response(data))
+        assertEquals(ListenableWorker.Result.success(), worker(attempt = 1).doWork())
+        assertEquals(JobState.COMPLETED, kit.dao.book("u1", book.asin)!!.state)
     }
 
     @Test fun transientTroubleRetriesWithBackoffAndTheCountResetsWithProgress() = runBlocking<Unit> {

@@ -320,6 +320,7 @@
     <string name="download_status_paused_network">Wacht op een verbinding.</string>
     <string name="download_status_paused_vpn">Wacht tot je VPN aan staat.</string>
     <string name="download_status_paused_battery">Gepauzeerd: de batterij is bijna leeg.</string>
+    <string name="download_status_paused_background">Wachten: Android staat nu geen downloads op de achtergrond toe. Het gaat vanzelf verder, of open de app.</string>
     <string name="download_status_completed">Op deze telefoon (%1$s). Speelt zonder verbinding.</string>
     <string name="download_eta_seconds">%1$d s</string>
     <string name="download_eta_minutes">%1$d min</string>
@@ -465,6 +466,7 @@
     <string name="torrent_notif_paused_wifi">Gepauzeerd: wacht op wifi</string>
     <string name="torrent_notif_paused_battery">Gepauzeerd: de batterij is bijna leeg</string>
     <string name="torrent_notif_paused_user">Gepauzeerd</string>
+    <string name="torrent_notif_paused_system">Wachten: Android staat nu geen downloads op de achtergrond toe</string>
     <string name="torrent_notif_seeding">Seeden tot ratio 1,0 (wifi, aan de lader)</string>
     <string name="torrent_action_pause">Pauzeren</string>
     <string name="torrent_action_resume">Hervatten</string>

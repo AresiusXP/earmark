@@ -34,7 +34,8 @@ sealed interface TorrentProgress {
 }
 
 enum class StallReason { NO_PEERS, NO_PROGRESS }
-enum class PauseReason { VPN_REQUIRED, WIFI_REQUIRED, LOW_BATTERY, USER }
+/** [SYSTEM]: Android refused the foreground service the engine needs to run in the background; it waits and resumes (WorkManager, or when the app opens). */
+enum class PauseReason { VPN_REQUIRED, WIFI_REQUIRED, LOW_BATTERY, USER, SYSTEM }
 
 /**
  * BitTorrent on the phone (Phase 4). The consumer is core/download. Everything here is opt-in by the USER

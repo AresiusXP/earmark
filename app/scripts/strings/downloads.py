@@ -37,6 +37,7 @@ add("download_status_paused_wifi", "Waiting for Wi-Fi. You can allow mobile data
 add("download_status_paused_network", "Waiting for a connection.", "Wacht op een verbinding.")
 add("download_status_paused_vpn", "Waiting for your VPN to be on.", "Wacht tot je VPN aan staat.")
 add("download_status_paused_battery", "Paused: the battery is low.", "Gepauzeerd: de batterij is bijna leeg.")
+add("download_status_paused_background", "Waiting: Android does not allow background downloads right now. It continues by itself, or open the app.", "Wachten: Android staat nu geen downloads op de achtergrond toe. Het gaat vanzelf verder, of open de app.")
 add("download_status_completed", "On this phone (%1$s). Plays without a connection.", "Op deze telefoon (%1$s). Speelt zonder verbinding.")
 add("download_eta_seconds", "%1$d s", "%1$d s")
 add("download_eta_minutes", "%1$d min", "%1$d min")

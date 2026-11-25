@@ -141,6 +141,27 @@ class LibTorrentEngineTest {
         assertFalse(rig.engine.networkSwitches()!!.anyEnabled)
     }
 
+    /** The system refuses the foreground service: nothing may run unprotected; it waits (Paused(SYSTEM)) and goes on when the service can start. */
+    @Test fun aRefusedForegroundServicePausesEverythingUntilItCanStart() = runBlocking<Unit> {
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val refusing = Rig(File(dir, "refusing").also { it.mkdirs() }, launcher = ServiceLauncher { if (!allowed.get()) throw IllegalStateException("ForegroundServiceStartNotAllowedException") })
+        try {
+            val s = newSwarm(threeChapters)
+            val events = java.util.concurrent.CopyOnWriteArrayList<TorrentProgress>()
+            val job = launch { refusing.engine.download(request(s, listOf("Book/ch1.mp3"), File(dir, "dest-refused"))).collect { events += it } }
+            withTimeout(10_000) { while (events.lastOrNull() != TorrentProgress.Paused(PauseReason.SYSTEM)) kotlinx.coroutines.delay(20) }
+            assertEquals(PauseReason.SYSTEM, refusing.engine.activity.value.paused)
+            assertTrue(refusing.engine.suspendedForTimeLimit, "the resume worker picks this up")
+            assertTrue(refusing.engine.isSessionPaused)
+            kotlinx.coroutines.delay(1_000)
+            assertTrue(events.none { it is TorrentProgress.Downloading })
+            allowed.set(true)
+            refusing.engine.resumeAfterTimeLimit()
+            withTimeout(60_000) { job.join() }
+            assertIs<TorrentProgress.Finished>(events.last())
+        } finally { refusing.close() }
+    }
+
     @Test fun cancellingPausesAndALaterCollectResumesFromDisk() = runBlocking<Unit> {
         val s = newSwarm(linkedMapOf("big.m4b" to 3_000_000), keepBytes = 1_200_000)
         val dest = File(dir, "dest")

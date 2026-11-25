@@ -81,7 +81,8 @@ class LibTorrentEngine @Inject constructor(
 
     @Volatile private var settings = TorrentSettings()
     @Volatile private var device = monitor.state.value
-    private val userPaused = MutableStateFlow(false)
+    /** Why every torrent is paused by hand: [PauseReason.USER] (notification, time limit) or [PauseReason.SYSTEM] (foreground service refused); null = not. */
+    private val manualPause = MutableStateFlow<PauseReason?>(null)
     private val policyGate = PolicyGate()
     private val gate get() = policyGate.decision
     private val gateVersion get() = policyGate.version
@@ -89,7 +90,7 @@ class LibTorrentEngine @Inject constructor(
     /** The policy's lock: held for every change of the session's state and for every start (resume) of a torrent or of the session. */
     private val sessionLock = policyGate.lock
     private val lifecycleMutex = Mutex()
-    private var users = 0
+    @Volatile private var users = 0
     private var idleStop: Job? = null
 
     private val running = ConcurrentHashMap<String, Stat>()
@@ -111,12 +112,12 @@ class LibTorrentEngine @Inject constructor(
 
     init {
         scope.launch {
-            combine(settingsSource.settings, monitor.state, userPaused) { s, d, u -> Triple(s, d, u) }.collect { (s, d, u) ->
+            combine(settingsSource.settings, monitor.state, manualPause) { s, d, u -> Triple(s, d, u) }.collect { (s, d, u) ->
                 settings = s
                 device = d
                 val decision = when {
                     !s.p2pEnabled -> PolicyDecision.Disabled
-                    u -> PolicyDecision.Blocked(PauseReason.USER)
+                    u != null -> PolicyDecision.Blocked(u)
                     else -> policy.decide(s, d)
                 }
                 policyGate.update(decision) { applyGateLocked(s, it) }
@@ -135,15 +136,24 @@ class LibTorrentEngine @Inject constructor(
     // ---- TorrentRuntime ----
 
     override fun setUserPaused(paused: Boolean) {
-        userPaused.value = paused
-        if (!paused) suspendedForTimeLimit = false
+        manualPause.value = if (paused) PauseReason.USER else null
+        if (!paused) {
+            suspendedForTimeLimit = false
+            // Resumed (the app came to the foreground, the notification, the worker): make sure the foreground service protects the run again.
+            if (users > 0) scope.launch { requestForegroundService() }
+        }
     }
 
     override fun stopAll() = setUserPaused(true)
 
     override fun suspendForTimeLimit() {
         suspendedForTimeLimit = true
-        userPaused.value = true
+        manualPause.value = PauseReason.USER
+    }
+
+    override fun suspendForForegroundRefusal() {
+        suspendedForTimeLimit = true
+        manualPause.value = PauseReason.SYSTEM
     }
 
     override fun resumeAfterTimeLimit() {
@@ -227,7 +237,7 @@ class LibTorrentEngine @Inject constructor(
             emit(TorrentProgress.Failed("This torrent is already downloading")); return@flow
         }
         // A new request is an explicit user action: it clears a Stop / time-limit pause.
-        if (userPaused.value) setUserPaused(false)
+        if (manualPause.value != null) setUserPaused(false)
         var handle: TorrentHandle? = null
         var finished = false
         var used = false
@@ -438,7 +448,16 @@ class LibTorrentEngine @Inject constructor(
             idleStop?.cancel(); idleStop = null
             users++
             if (!sm.isRunning) withContext(Dispatchers.IO) { sessionLock.withLock { startSessionLocked() } }
-            if (users == 1) runCatching { launcher.ensureRunning() }
+            if (users == 1) requestForegroundService()
+        }
+    }
+
+    /** Asks for the foreground service; when the system refuses, everything pauses (and the launcher scheduled the retry) instead of running unprotected. */
+    private fun requestForegroundService() {
+        try {
+            launcher.ensureRunning()
+        } catch (e: Exception) {
+            suspendForForegroundRefusal()
         }
     }
 

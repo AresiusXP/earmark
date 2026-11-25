@@ -61,6 +61,7 @@ class TorrentSource(
                         PauseReason.WIFI_REQUIRED -> WaitReason.WiFi
                         PauseReason.LOW_BATTERY -> WaitReason.Battery
                         PauseReason.USER -> WaitReason.Network
+                        PauseReason.SYSTEM -> WaitReason.Background
                     },
                 )
                 is TorrentProgress.Stalled -> throw DownloadException(

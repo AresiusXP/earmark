@@ -95,6 +95,8 @@ StorageManager        usage, storage limit (default 5 GB) with LRU eviction of F
 PathSafety            every server-provided path is untrusted: absolute paths, `..`, backslashes, control characters, drive letters are rejected
 ```
 
+* A refused foreground promotion (Android 12+ background limits, used-up dataSync budget) pauses the job as `Paused(Background)` ("waiting: Android does not allow background downloads") and
+  asks WorkManager for a retry (`Result.retry`, backoff); the torrent engine pauses as `Paused(SYSTEM)` and `TorrentResumeWorker` resumes it.
 * Wi-Fi only is the default (setting "Also download on mobile data"); auto-download is always Wi-Fi only. Free space (300 MB reserve) and the
   limit are checked before a job starts and again when the file list is known.
 * Hooks other features implement/override: `PlayingBook` (core/download; bound by the player), `TorrentEngine` (core/torrent; optional
