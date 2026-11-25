@@ -1,5 +1,6 @@
 package xyz.aresius.audiobooks.feature.settings
 
+import java.util.Locale
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -15,6 +16,7 @@ import xyz.aresius.audiobooks.core.auth.BuildInfo
 import xyz.aresius.audiobooks.core.auth.InputProblem
 import xyz.aresius.audiobooks.core.network.AudiobooksJson
 import xyz.aresius.audiobooks.core.network.Me
+import xyz.aresius.audiobooks.core.network.SETTINGS_LANGUAGES
 import xyz.aresius.audiobooks.feature.common.Load
 import xyz.aresius.audiobooks.testutil.FakeServer
 import xyz.aresius.audiobooks.testutil.MainDispatcherRule
@@ -73,6 +75,35 @@ class SettingsViewModelTest {
         vm.toggleLanguage("nl")
         vm.state.awaitState { it.me?.settings?.languages == listOf("en", "nl") }
         assertEquals("""{"settings":{"languages":["en","nl"]}}""", server.lastBody("PATCH", "/v1/me"))
+    }
+
+    @Test fun spanishIsASelectableLanguageAndKeepsTheContractOrder() = runBlocking<Unit> {
+        assertEquals(listOf("en", "nl", "es"), SETTINGS_LANGUAGES)
+        val vm = vm(Samples.ME_USER) // languages = [en, nl]
+        server.onJson("PATCH", "/v1/me", patched(Samples.ME_USER, """"languages":["en","nl"]""" to """"languages":["en","nl","es"]"""))
+        vm.toggleLanguage("es")
+        vm.state.awaitState { it.me?.settings?.languages == listOf("en", "nl", "es") }
+        assertEquals("""{"settings":{"languages":["en","nl","es"]}}""", server.lastBody("PATCH", "/v1/me"))
+    }
+
+    @Test fun spanishAloneIsAllowedAndTurningItOffLastIsRefused() = runBlocking<Unit> {
+        val me = patched(Samples.ME_ADMIN, """"languages":["en"]""" to """"languages":["es"]""")
+        val vm = vm(me)
+        vm.toggleLanguage("es")
+        assertTrue(server.requestsTo("PATCH", "/v1/me").isEmpty(), "es is the only language: it stays")
+        server.onJson("PATCH", "/v1/me", patched(me, """"languages":["es"]""" to """"languages":["en","es"]"""))
+        vm.toggleLanguage("en")
+        vm.state.awaitState { it.me?.settings?.languages == listOf("en", "es") }
+        assertEquals("""{"settings":{"languages":["en","es"]}}""", server.lastBody("PATCH", "/v1/me"))
+    }
+
+    @Test fun languageNamesAreLocalised() {
+        assertEquals("Spanish", languageLabel("es", Locale.ENGLISH))
+        assertEquals("Spaans", languageLabel("es", Locale.forLanguageTag("nl")))
+        assertEquals("Español", languageLabel("es", Locale.forLanguageTag("es-AR")))
+        assertEquals("Inglés", languageLabel("en", Locale.forLanguageTag("es-AR")))
+        assertEquals("Neerlandés", languageLabel("nl", Locale.forLanguageTag("es-AR")))
+        assertEquals("Argentina", regionLabel("ar", Locale.forLanguageTag("es-AR")))
     }
 
     @Test fun bitTorrentSourceModeNeedsBitTorrentTurnedOn() = runBlocking<Unit> {

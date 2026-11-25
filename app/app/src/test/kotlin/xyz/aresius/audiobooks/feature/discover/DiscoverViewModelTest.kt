@@ -53,6 +53,23 @@ class DiscoverViewModelTest {
         (0..23).forEach { greetingForHour(it) }
     }
 
+    @Test fun spanishKeepsGoodAfternoonUntilEight() {
+        assertEquals(20, eveningFromHour("es"))
+        assertEquals(18, eveningFromHour("en"))
+        assertEquals(18, eveningFromHour("nl"))
+        assertEquals(Greeting.Morning, greetingForHour(5, eveningFromHour("es")))
+        assertEquals(Greeting.Morning, greetingForHour(11, eveningFromHour("es")))
+        assertEquals(Greeting.Afternoon, greetingForHour(12, eveningFromHour("es")))
+        assertEquals(Greeting.Afternoon, greetingForHour(19, eveningFromHour("es")))
+        assertEquals(Greeting.Evening, greetingForHour(20, eveningFromHour("es")))
+        assertEquals(Greeting.Evening, greetingForHour(22, eveningFromHour("es")))
+        assertEquals(Greeting.Night, greetingForHour(23, eveningFromHour("es")))
+        assertEquals(Greeting.Night, greetingForHour(4, eveningFromHour("es")))
+        for (lang in listOf("en", "nl", "es")) {
+            assertEquals(Greeting.entries.toSet(), (0..23).map { greetingForHour(it, eveningFromHour(lang)) }.toSet(), lang)
+        }
+    }
+
     @Test fun shelvesAreChunksOfEight() {
         assertEquals(listOf(8, 8, 3), shelves((1..19).toList()).map { it.size })
         assertTrue(shelves(emptyList<Int>()).isEmpty())

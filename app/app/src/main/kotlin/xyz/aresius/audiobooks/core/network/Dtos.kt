@@ -55,7 +55,7 @@ object SourceMode {
 }
 
 val SETTINGS_REGIONS = listOf("us", "uk", "de", "fr", "it", "es", "ca", "au", "in", "nl")
-val SETTINGS_LANGUAGES = listOf("en", "nl")
+val SETTINGS_LANGUAGES = listOf("en", "nl", "es")
 val SETTINGS_FORMATS = listOf("", "m4b", "mp3")
 
 // --- errors -----------------------------------------------------------------------------------------------------
