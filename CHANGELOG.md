@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/AresiusXP/earmark/compare/v0.6.1...v0.7.0) (2026-11-25)
+
+
+### Features
+
+* **android:** load localized shelves from home endpoint ([dae70fe](https://github.com/AresiusXP/earmark/commit/dae70fe6c074d99260d90e45b7ec5320544a019d))
+* **server:** add personalized home shelves ([061cc5b](https://github.com/AresiusXP/earmark/commit/061cc5b44a8f44b81af5ca9e1196fcf93255f139))
+
 ## [0.6.1](https://github.com/AresiusXP/earmark/compare/v0.6.0...v0.6.1) (2026-11-25)
 
 
