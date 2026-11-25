@@ -1,0 +1,62 @@
+package xyz.aresius.audiobooks.core.data
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+
+const val DEFAULT_SERVER_URL = "https://audiobooks.aresius.xyz"
+
+/** Small non-secret app state: which server, whether onboarding finished, update dismissal. Tokens live in the SessionStore. */
+interface AppPreferences {
+    val serverUrl: Flow<String>
+    suspend fun setServerUrl(url: String)
+
+    /** False until the user went through (or skipped) the Debrid and BitTorrent steps after signing in. Reset on sign-out. */
+    val onboardingDone: Flow<Boolean>
+    suspend fun setOnboardingDone(done: Boolean)
+
+    val dismissedUpdateVersionCode: Flow<Long>
+    suspend fun setDismissedUpdateVersionCode(code: Long)
+}
+
+private val Context.appDataStore: DataStore<Preferences> by preferencesDataStore("audiobooks_app")
+
+class DataStoreAppPreferences(private val dataStore: DataStore<Preferences>) : AppPreferences {
+    override val serverUrl: Flow<String> = dataStore.data.map { it[SERVER_URL] ?: DEFAULT_SERVER_URL }
+    override suspend fun setServerUrl(url: String) {
+        dataStore.edit { it[SERVER_URL] = url }
+    }
+
+    override val onboardingDone: Flow<Boolean> = dataStore.data.map { it[ONBOARDING_DONE] ?: false }
+    override suspend fun setOnboardingDone(done: Boolean) {
+        dataStore.edit { it[ONBOARDING_DONE] = done }
+    }
+
+    override val dismissedUpdateVersionCode: Flow<Long> = dataStore.data.map { it[DISMISSED_UPDATE] ?: 0L }
+    override suspend fun setDismissedUpdateVersionCode(code: Long) {
+        dataStore.edit { it[DISMISSED_UPDATE] = code }
+    }
+
+    private companion object {
+        val SERVER_URL = stringPreferencesKey("server_url")
+        val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+        val DISMISSED_UPDATE = longPreferencesKey("dismissed_update_version_code")
+    }
+}
+
+@Singleton
+class DeviceAppPreferences @Inject constructor(@ApplicationContext context: Context) :
+    AppPreferences by DataStoreAppPreferences(context.appDataStore)
+
+suspend fun AppPreferences.currentServerUrl(): String = serverUrl.first()
