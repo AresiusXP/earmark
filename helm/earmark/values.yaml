@@ -105,11 +105,11 @@ ingress:
     cert-manager.io/cluster-issuer: letsencrypt
     ingress.kubernetes.io/force-hsts: "true"
   labels: {}
-  # Example of environment-specific extras (here: the maintainer's external-dns/Pi-hole setup):
+  # Example of environment-specific extras (here: an external-dns annotation and label):
   #   annotations:
-  #     external-dns.aresius.xyz: pihole
+  #     external-dns.example.com: my-provider
   #   labels:
-  #     external-dns.aresius.xyz: pihole
+  #     external-dns.example.com: my-provider
   tls:
     enabled: true
     # Empty = <host>-tls

@@ -79,8 +79,8 @@ info:
     **Retry.** Clients retry `502`, `503` and `504` (a deploy replaces the single pod) and honour
     `Retry-After`.
 servers:
-  - url: https://earmark.aresius.xyz
-    description: Production
+  - url: https://your-server.example
+    description: Your own Earmark server (there is no public instance)
 tags:
   - {name: meta, description: Liveness, version, app updates.}
   - {name: auth, description: Bootstrap, join, link, refresh, Sign in with Google.}

@@ -95,7 +95,7 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   a comma list for a second audience; Sign in with Google, see Accounts notes; Helm: `googleClientId`, empty = off).
 * Video id = `abk:<ASIN>:<infohash>:<fileIndex>`; season = rank of the release at page time.
   File index `-1` (AutoFile) = "provider picks the largest audio file" and is never guessed.
-* `/resolve` answers 302 to the provider's signed CDN link (the API key never reaches the player);
+* `/resolve` answers 302 to the provider's signed CDN link (the API key never reaches the player; the link must pass the same HTTPS provider-host allowlist as the app download route, `internal/linkhosts`);
   while the torrent is not ready, or the key is rejected, it serves ~10 s of silent MP3.
   `HEAD /resolve` has no side effects (it never adds a torrent).
 * Manifest says `audiobook`; the sealed config in the URL is AES-GCM (`userconfig`).
@@ -264,7 +264,7 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     Unknown hash: 404 unless a `magnet` is given; the magnet must be well-formed (<= 2048 bytes, no control chars, every
     `xt=urn:btih` equals the hash, hex or base32); the stored release is rebuilt from the hash + sanitised `dn` (`source = "app"`),
     never the client's trackers, and never overwrites an existing row.
-  * **download** (`releases.go`, `linkcache.go`, `linkhosts.go`). **The route serves both streaming and downloading**: with a debrid
+  * **download** (`releases.go`, `linkcache.go`, `internal/linkhosts`). **The route serves both streaming and downloading**: with a debrid
     key the app mostly STREAMS from it (ExoPlayer follows the 302, seeks with Range requests, reconnects often) and downloads
     for offline use only when asked. Therefore: (1) the resolved link is cached in memory per (key fingerprint, provider, hash,
     index) for 10 minutes (capped per provider in `maxLinkTTL`, 1 h each: neither documents a precise validity), only for
@@ -276,7 +276,7 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     availability writes. A file the provider reports ready answers `200` (no `Location`: creating a link is not read-only; a `GET`
     redirects), anything that cannot be proven read-only `202 preparing`, a failed torrent (also from memory, never retried) `502`, a
     file missing from a ready torrent `404`. HEAD takes a work-gate unit like a GET. (4) `Location` must be https, default port, no
-    userinfo and a host equal to / a subdomain of the provider table in `linkhosts.go` (TorBox `tb-cdn.st`, `torbox.app`;
+    userinfo and a host equal to / a subdomain of the provider table in `internal/linkhosts` (TorBox `tb-cdn.st`, `torbox.app`;
     RD `real-debrid.com`, `real-debrid.cloud`, `rdb.so`; extend with `DEBRID_LINK_HOSTS=realdebrid:cdn.example,...`), re-checked
     on every cached hit; anything else is `502 upstream_failed`, never a redirect. The response is `no-store`, an empty 302, and
     no log line carries a path, query or link. Status mapping beyond the contract: pending `202` + Prepare body (+ `Retry-After`
@@ -561,3 +561,13 @@ Gradle reads that same manifest (`-PappVersion` overrides it), so `versionName` 
 * **CI** is path-filtered: `ci-app.yml` (app/, `api/openapi.yaml`, the manifest) runs the strings-generator consistency check,
   unit tests, lint and `assembleDebug`; `ci-server.yml` (server/) and `ci-helm.yml` (helm/) do not run for app-only changes, and
   vice versa.
+
+## Public repository notes (2026-11-25)
+
+* The repository and its packages are public. The app has **no baked-in server address** (the first screen asks for it; an installed app keeps its saved one).
+  The Helm chart ships neutral example defaults (`ingress.host: earmark.example.com`, optional NetworkPolicy); a deployment sets its own host,
+  `publicUrl`, Google client ID and secrets.
+* The unauthenticated endpoints (`/v1/version`, `/v1/auth/*` incl. the Google nonce, `/v1/app/update*`) carry global request caps (bucket per endpoint, see
+  `accounts.RateCap`); client IPs are not visible behind a typical proxy, so the caps protect the server, not individual users.
+* Release signing is isolated: the `apk` job has the keystore secrets but no write token; a separate `publish-apk` job uploads the release asset.
+* CI runs gitleaks (`.gitleaks.toml` allows only the known fake key fixtures in tests) and `govulncheck`.
