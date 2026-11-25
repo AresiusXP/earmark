@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "semanticCommits": "enabled",
   "enabledManagers": ["gomod", "dockerfile", "github-actions"],
   "schedule": ["* 0-5 * * 1"],
@@ -15,8 +15,13 @@
     },
     {
       "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "github actions"
+    },
+    {
+      "description": "Pin Dockerfile base images by digest",
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true
     },
     {
       "description": "The Go toolchain in server/Dockerfile and server/go.mod move together",
