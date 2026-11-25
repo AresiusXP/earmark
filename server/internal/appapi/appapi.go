@@ -241,7 +241,13 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 // it, including a stray `}` or `]` that json.Decoder.More would let through. With optional, an
 // empty body is accepted and leaves v untouched.
 func readJSON(w http.ResponseWriter, r *http.Request, v any, optional bool) error {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	return readJSONLimit(w, r, v, maxBody, optional)
+}
+
+// readJSONLimit is readJSON with its own body limit. Every body decoder of /v1 goes through it,
+// so "exactly one JSON value" holds everywhere (never json.Decoder.More).
+func readJSONLimit(w http.ResponseWriter, r *http.Request, v any, limit int64, optional bool) error {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(v); err != nil {
 		if optional && errors.Is(err, io.EOF) {

@@ -60,6 +60,7 @@ type fakeGoogle struct {
 	keys         map[string]*rsa.PrivateKey // kid -> key
 	cacheControl string
 	status       int
+	trailing     string // appended after the JSON document
 }
 
 func newFakeGoogle(t *testing.T, keys map[string]*rsa.PrivateKey) *fakeGoogle {
@@ -87,6 +88,7 @@ func newFakeGoogle(t *testing.T, keys map[string]*rsa.PrivateKey) *fakeGoogle {
 		w.Header().Set("Cache-Control", g.cacheControl)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(set)
+		_, _ = w.Write([]byte(g.trailing))
 	}))
 	t.Cleanup(g.srv.Close)
 	return g
@@ -490,6 +492,18 @@ func TestJWKSUnavailable(t *testing.T) {
 	e.clk.Advance(2 * time.Minute)
 	if _, err := e.v.Verify(ctx, e.token(e.claims())); err != nil {
 		t.Fatalf("after recovery: %v", err)
+	}
+}
+
+func TestJWKSTrailingDataIsRejected(t *testing.T) {
+	for _, trailing := range []string{"}", `{"keys":[]}`, "x"} {
+		e := newEnv(t)
+		e.g.mu.Lock()
+		e.g.trailing = trailing
+		e.g.mu.Unlock()
+		if _, err := e.v.Verify(context.Background(), e.token(e.claims())); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("trailing %q: err = %v, want ErrUnavailable", trailing, err)
+		}
 	}
 }
 

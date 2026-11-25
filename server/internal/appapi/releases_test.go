@@ -640,6 +640,10 @@ func TestTorrentFilesValidationAndStoreOnce(t *testing.T) {
 		{"duplicate index", h, map[string]any{"files": []any{file(0, "a.mp3", 1), file(0, "b.mp3", 1)}}},
 		{"missing size", h, map[string]any{"files": []any{map[string]any{"index": 0, "path": "a.mp3"}}}},
 		{"not json", h, "{"},
+		{"trailing brace", h, `{"files":[{"index":0,"path":"a.mp3","size":1}]}}`},
+		{"trailing second value", h, `{"files":[{"index":0,"path":"a.mp3","size":1}]} {"files":[]}`},
+		{"trailing garbage", h, `{"files":[{"index":0,"path":"a.mp3","size":1}]} x`},
+		{"body over the limit", h, `{"files":[{"index":0,"path":"` + strings.Repeat("a", maxTorrentFilesBody) + `","size":1}]}`},
 		{"bad hash", "xyz", map[string]any{"files": []any{file(0, "a.mp3", 1)}}},
 	}
 	for _, c := range bad {

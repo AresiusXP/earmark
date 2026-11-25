@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base32"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -329,7 +328,6 @@ func (a *app) torrentFiles(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid info hash")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxTorrentFilesBody)
 	var in struct {
 		Files []struct {
 			Index *int   `json:"index"`
@@ -337,8 +335,7 @@ func (a *app) torrentFiles(w http.ResponseWriter, r *http.Request) {
 			Size  *int64 `json:"size"`
 		} `json:"files"`
 	}
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&in); err != nil || dec.More() {
+	if err := readJSONLimit(w, r, &in, maxTorrentFilesBody, false); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 		return
 	}

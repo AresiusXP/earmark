@@ -118,7 +118,8 @@ func (k *keySet) fetch(ctx context.Context) error {
 	var set struct {
 		Keys []jwk `json:"keys"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJWKSBody)).Decode(&set); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxJWKSBody))
+	if err != nil || json.Unmarshal(raw, &set) != nil { // Unmarshal: exactly one value, nothing after it
 		return fmt.Errorf("%w: bad key set", ErrUnavailable)
 	}
 	keys := make(map[string]*rsa.PublicKey, len(set.Keys))
