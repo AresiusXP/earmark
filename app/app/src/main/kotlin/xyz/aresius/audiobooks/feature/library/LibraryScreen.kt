@@ -1,14 +1,22 @@
 package xyz.aresius.audiobooks.feature.library
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -56,13 +64,8 @@ fun LibraryScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, onDo
         ScreenTitle(stringResource(R.string.library_title), actions = {
             IconButton(onClick = onDownloads) { Icon(Icons.Rounded.Download, contentDescription = stringResource(R.string.downloads_open)) }
         })
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.screen), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            PillChip(stringResource(R.string.library_filter_all), selected = state.filter == null, onClick = { viewModel.setFilter(null) })
-            LibraryStatus.ALL.forEach { status ->
-                PillChip(stringResource(statusLabel(status)), selected = state.filter == status, onClick = { viewModel.setFilter(status) })
-            }
-            PillChip(stringResource(R.string.library_filter_downloaded), selected = state.filter == FILTER_DOWNLOADED, onClick = { viewModel.setFilter(FILTER_DOWNLOADED) })
-        }
+        val filters = listOf<String?>(null) + LibraryStatus.ALL + FILTER_DOWNLOADED
+        FilterChips(filters, selected = state.filter, onSelect = viewModel::setFilter)
         val error = state.error
         when {
             !state.loaded && state.entries.isEmpty() && state.downloaded.isEmpty() -> ShimmerTrackRows(modifier = Modifier.padding(top = Spacing.m))
@@ -75,7 +78,7 @@ fun LibraryScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, onDo
                         message = stringResource(if (state.entries.isEmpty()) R.string.library_empty_message else R.string.library_empty_filter_message),
                     )
                 } else {
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = Spacing.m)) {
                         if (error != null) {
                             item {
                                 Text(
@@ -92,6 +95,35 @@ fun LibraryScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, onDo
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The status filters in one scrollable line: they never fit a phone, so the row scrolls (the chip at the edge is cut off on purpose, and a
+ * fade at the end says there is more) and the chip you pick is scrolled fully into view.
+ */
+@Composable
+private fun FilterChips(filters: List<String?>, selected: String?, onSelect: (String?) -> Unit) {
+    val listState = rememberLazyListState()
+    val index = filters.indexOf(selected).coerceAtLeast(0)
+    LaunchedEffect(index) { if (index > 0 || listState.firstVisibleItemIndex > 0) listState.animateScrollToItem(index) }
+    Box {
+        LazyRow(state = listState, contentPadding = PaddingValues(horizontal = Spacing.screen), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            items(filters, key = { it ?: "all" }) { filter ->
+                val label = when (filter) {
+                    null -> R.string.library_filter_all
+                    FILTER_DOWNLOADED -> R.string.library_filter_downloaded
+                    else -> statusLabel(filter)
+                }
+                PillChip(stringResource(label), selected = selected == filter, onClick = { onSelect(filter) })
+            }
+        }
+        if (listState.canScrollForward) {
+            Box(
+                Modifier.align(Alignment.CenterEnd).width(28.dp).height(40.dp)
+                    .background(Brush.horizontalGradient(listOf(Color.Transparent, MaterialTheme.colorScheme.background))),
+            )
         }
     }
 }
