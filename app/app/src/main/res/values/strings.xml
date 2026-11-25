@@ -284,6 +284,15 @@
     <string name="code_scan">Scan QR code</string>
     <string name="input_code_invalid">That isn\'t a valid code: it has 26 letters and digits (spaces, dashes and capitals don\'t matter).</string>
     <string name="auth_scanner_unavailable">The QR scanner isn\'t available on this device. Paste or type the code instead.</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_system_help">Follows your phone\'s light or dark setting.</string>
+    <string name="settings_theme_light_help">Paper: warm and light, whatever your phone is set to.</string>
+    <string name="settings_theme_dark_help">Ink: dark, whatever your phone is set to.</string>
+    <string name="settings_player_follows_theme">Player follows the theme</string>
+    <string name="settings_player_follows_theme_help">Off: the full-screen player is always dark. On: it turns light with the Light theme. Saved on this device.</string>
     <string name="downloads_title">Downloads</string>
     <string name="downloads_open">Downloads</string>
     <string name="downloads_empty_title">Nothing on the shelf yet</string>

@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Splash icon: the persimmon rounded square with the mark (the system masks it to a circle on Android 12+, hence the padding). -->
+<!-- Splash icon: the paper mark on the persimmon splash background (the system masks it to a circle on Android 12+, hence the padding). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:scaleX="0.8" android:scaleY="0.8" android:pivotX="54" android:pivotY="54">
-        <path
-            android:fillColor="#D9482B"
-            android:pathData="M24,14 L84,14 A10,10 0 0 1 94,24 L94,84 A10,10 0 0 1 84,94 L24,94 A10,10 0 0 1 14,84 L14,24 A10,10 0 0 1 24,14 Z" />
+    <group android:scaleX="1.1" android:scaleY="1.1" android:pivotX="54" android:pivotY="48">
     <!-- Open book: two pages meeting at the spine. -->
     <path
         android:fillColor="#F6F0E6"

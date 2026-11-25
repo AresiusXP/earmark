@@ -145,7 +145,8 @@ fun ShimmerShelf(count: Int = 3, modifier: Modifier = Modifier) {
     }
 }
 
-@Preview(heightDp = 700)
+@Preview(name = "Paper", heightDp = 700)
+@Preview(name = "Ink", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, heightDp = 700)
 @Composable
 private fun StatesPreview() = AudiobooksPreviewSurface {
     Column(Modifier.fillMaxSize()) {

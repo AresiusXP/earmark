@@ -9,6 +9,7 @@ import xyz.aresius.audiobooks.core.auth.EncryptedSessionStore
 import xyz.aresius.audiobooks.core.auth.Session
 import xyz.aresius.audiobooks.core.auth.TokenCipher
 import xyz.aresius.audiobooks.core.data.AppPreferences
+import xyz.aresius.audiobooks.core.design.ThemeMode
 import xyz.aresius.audiobooks.core.data.CacheDao
 import xyz.aresius.audiobooks.core.data.CacheEntryEntity
 import xyz.aresius.audiobooks.core.data.LibraryDao
@@ -49,6 +50,12 @@ class MemoryPrefs(url: String = "https://earmark.aresius.xyz", done: Boolean = f
     private val dynamic = MutableStateFlow(false)
     override val dynamicColor: Flow<Boolean> = dynamic
     override suspend fun setDynamicColor(enabled: Boolean) { dynamic.value = enabled }
+    private val theme = MutableStateFlow(ThemeMode.System)
+    override val themeMode: Flow<ThemeMode> = theme
+    override suspend fun setThemeMode(mode: ThemeMode) { theme.value = mode }
+    private val playerFollows = MutableStateFlow(false)
+    override val playerFollowsTheme: Flow<Boolean> = playerFollows
+    override suspend fun setPlayerFollowsTheme(enabled: Boolean) { playerFollows.value = enabled }
     val doneNow: Boolean get() = done.value
 }
 

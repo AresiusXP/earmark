@@ -17,6 +17,7 @@ import xyz.aresius.audiobooks.core.auth.InputProblem
 import xyz.aresius.audiobooks.core.auth.InputValidation
 import xyz.aresius.audiobooks.core.data.AppPreferences
 import xyz.aresius.audiobooks.core.data.MeRepository
+import xyz.aresius.audiobooks.core.design.ThemeMode
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiResult
 import xyz.aresius.audiobooks.core.network.Device
@@ -44,6 +45,10 @@ data class SettingsUiState(
     val versionName: String = "",
     /** Opt-in wallpaper colors (Android 12+); the app's own palette otherwise. */
     val dynamicColor: Boolean = false,
+    /** System (default), Light (paper) or Dark (ink), per device. */
+    val themeMode: ThemeMode = ThemeMode.System,
+    /** OFF (default): the full-screen player stays dark. */
+    val playerFollowsTheme: Boolean = false,
 ) {
     /** "BitTorrent even with a key" only makes sense once the user allowed BitTorrent. */
     val p2pSourceModeAvailable: Boolean get() = me?.settings?.p2pEnabled == true
@@ -58,7 +63,11 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
     private val local = MutableStateFlow(SettingsUiState(versionName = buildInfo.versionName))
 
-    val state: StateFlow<SettingsUiState> = combine(meRepository.me, local, prefs.dynamicColor) { me, l, dynamic -> l.copy(me = me, dynamicColor = dynamic) }
+    private val appearance = combine(prefs.dynamicColor, prefs.themeMode, prefs.playerFollowsTheme, ::Triple)
+
+    val state: StateFlow<SettingsUiState> = combine(meRepository.me, local, appearance) { me, l, (dynamic, mode, playerFollows) ->
+        l.copy(me = me, dynamicColor = dynamic, themeMode = mode, playerFollowsTheme = playerFollows)
+    }
         .stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
 
     init {
@@ -156,6 +165,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch { prefs.setDynamicColor(enabled) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch { prefs.setThemeMode(mode) }
+    }
+
+    fun setPlayerFollowsTheme(enabled: Boolean) {
+        viewModelScope.launch { prefs.setPlayerFollowsTheme(enabled) }
     }
 
     fun signOut() {

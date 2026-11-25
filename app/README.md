@@ -49,7 +49,7 @@ core/auth     Session + SessionStore (Tink AES-GCM, Android Keystore master key,
               or any host in debug builds; also enforced by the network security config)
 core/qr       QrCode: small pure-Kotlin QR encoder (byte mode, level M, versions 1-10; QrCodeTest decodes it with ZXing)
 core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Catalog/Library/Me/Debrid/Admin/Release repositories,
-              AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends), NetworkEvents
+              AppPreferences (DataStore: server, onboarding, theme choice System/Light/Dark, wallpaper colors, "player follows the theme"), SessionCleanup (wipes everything of an account when its session ends), NetworkEvents
               (ConnectivityManager callback: "a network is back", used to refresh a saved copy), PreparePrefetcher (see "Polish")
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
 core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
@@ -61,7 +61,7 @@ core/download  offline downloads (Phase 3b), see below; feature/download = its U
 core/torrent   TorrentEngine (contract) + LibTorrentEngine (libtorrent4j, Phase 4): metadata fetch, selective download, TorrentPolicy (opt-in, VPN, Wi-Fi,
                battery, seeding), TorrentSettings (DataStore), AndroidDeviceStateMonitor, TorrentService (foreground, dataSync) + resume worker,
                TorrentPaths (zip-slip), TorrentStore (resume data in the no-backup dir). Binding: di/TorrentModule. Details: DESIGN.md "BitTorrent engine".
-core/design   "Reading room" theme: Color, Type (Fraunces + Hanken Grotesk), Shape, Motion, WavyProgressBar, CoverColors (Palette), components
+core/design   "Reading room" theme (light/dark by the in-app choice, `ThemeMode`; the player is dark unless it follows the theme, see DESIGN.md "Theme choice and the player"): Color, Type (Fraunces + Hanken Grotesk), Shape, Motion, WavyProgressBar, CoverColors (Palette), components
 feature/*     one package per screen (player: PlayerScreen, MiniPlayer, sheets, Settings > Playback): XxxScreen + XxxViewModel (Hilt, StateFlow, Load<T> = loading / content / failed with retry)
               onboarding, discover, search, book, library, download (Downloads screen, DownloadButton), settings, admin (Users), debrid + bittorrent (shared by onboarding and Settings), update
 di/           Hilt modules; src/debug and src/release each provide the (debug-only) interceptors

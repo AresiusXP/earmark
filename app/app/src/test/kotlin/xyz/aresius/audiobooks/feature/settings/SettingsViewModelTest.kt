@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import xyz.aresius.audiobooks.core.auth.BuildInfo
 import xyz.aresius.audiobooks.core.auth.InputProblem
+import xyz.aresius.audiobooks.core.design.ThemeMode
 import xyz.aresius.audiobooks.core.network.AudiobooksJson
 import xyz.aresius.audiobooks.core.network.Me
 import xyz.aresius.audiobooks.feature.common.Load
@@ -124,6 +125,40 @@ class SettingsViewModelTest {
         assertTrue(vm.state.awaitState { it.dynamicColor }.dynamicColor)
         vm.setDynamicColor(false)
         assertFalse(vm.state.awaitState { !it.dynamicColor }.dynamicColor)
+    }
+
+    @Test fun themeIsSystemUntilTheUserPicksAndEveryPickIsStored() = runBlocking<Unit> {
+        val vm = vm()
+        assertEquals(ThemeMode.System, vm.state.value.themeMode)
+        assertEquals(ThemeMode.System, app.prefs.themeMode.first())
+        vm.setThemeMode(ThemeMode.Light)
+        assertEquals(ThemeMode.Light, vm.state.awaitState { it.themeMode == ThemeMode.Light }.themeMode)
+        assertEquals(ThemeMode.Light, app.prefs.themeMode.first())
+        vm.setThemeMode(ThemeMode.Dark)
+        assertEquals(ThemeMode.Dark, vm.state.awaitState { it.themeMode == ThemeMode.Dark }.themeMode)
+        vm.setThemeMode(ThemeMode.System)
+        assertEquals(ThemeMode.System, vm.state.awaitState { it.themeMode == ThemeMode.System }.themeMode)
+    }
+
+    @Test fun thePlayerStaysDarkUntilTheUserLetsItFollowTheTheme() = runBlocking<Unit> {
+        val vm = vm()
+        assertFalse(vm.state.value.playerFollowsTheme)
+        assertFalse(app.prefs.playerFollowsTheme.first())
+        vm.setPlayerFollowsTheme(true)
+        assertTrue(vm.state.awaitState { it.playerFollowsTheme }.playerFollowsTheme)
+        vm.setPlayerFollowsTheme(false)
+        assertFalse(vm.state.awaitState { !it.playerFollowsTheme }.playerFollowsTheme)
+    }
+
+    @Test fun signOutKeepsTheDeviceThemeChoice() = runBlocking<Unit> {
+        val vm = vm()
+        vm.setThemeMode(ThemeMode.Light)
+        vm.state.awaitState { it.themeMode == ThemeMode.Light }
+        server.on("DELETE", "/v1/me/devices/d1", FakeServer.empty())
+        vm.signOut()
+        val end = System.nanoTime() + 3_000_000_000
+        while (app.sessions.load() != null && System.nanoTime() < end) Thread.sleep(10)
+        assertEquals(ThemeMode.Light, app.prefs.themeMode.first())
     }
 
     @Test fun signOutClearsTheSession() = runBlocking<Unit> {

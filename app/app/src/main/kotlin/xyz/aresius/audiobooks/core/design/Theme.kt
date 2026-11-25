@@ -16,6 +16,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 
+/** Whether the active theme is the dark (ink) one: the in-app choice resolved against the system setting, not the system setting itself. */
+val LocalDarkTheme = compositionLocalOf { false }
+
+/** Settings > Appearance > "Player follows the theme" (default off: the full-screen player is always dark). */
+val LocalPlayerFollowsTheme = compositionLocalOf { false }
+
 val LocalAudiobooksExtras = compositionLocalOf { PaperPalette.extras(dark = false) }
 
 /** The extras of the active theme: `MaterialTheme.extras.accentText`. */
@@ -26,13 +32,14 @@ val MaterialTheme.extras: AudiobooksExtras
 val DynamicColorSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 /**
- * Own light (paper) and dark (ink) schemes following the system setting. Wallpaper-derived dynamic color is OFF unless the user turns it
+ * Own light (paper) and dark (ink) schemes; the caller resolves [darkTheme] from the in-app [ThemeMode] (default: the system setting). Wallpaper-derived dynamic color is OFF unless the user turns it
  * on in Settings ([dynamicColor]); the extras (accent text, mustard) then derive from the dynamic scheme.
  */
 @Composable
 fun AudiobooksTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
+    playerFollowsTheme: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -48,7 +55,7 @@ fun AudiobooksTheme(
             palette.extras(darkTheme)
         }
     }
-    CompositionLocalProvider(LocalAudiobooksExtras provides extras) {
+    CompositionLocalProvider(LocalAudiobooksExtras provides extras, LocalDarkTheme provides darkTheme, LocalPlayerFollowsTheme provides playerFollowsTheme) {
         // The expressive motion scheme is not public in material3 1.4: spring motion lives in Motion.kt instead.
         MaterialTheme(
             colorScheme = scheme,
@@ -59,9 +66,9 @@ fun AudiobooksTheme(
     }
 }
 
-/** Theme + background fill, for previews. */
+/** Theme + background fill, for previews (each preview has a paper and an ink variant: `uiMode = UI_MODE_NIGHT_YES`). */
 @Composable
-fun AudiobooksPreviewSurface(darkTheme: Boolean = false, content: @Composable () -> Unit) {
+fun AudiobooksPreviewSurface(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     AudiobooksTheme(darkTheme = darkTheme) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
     }

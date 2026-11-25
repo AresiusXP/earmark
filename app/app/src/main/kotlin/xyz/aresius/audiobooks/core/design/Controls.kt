@@ -2,7 +2,12 @@ package xyz.aresius.audiobooks.core.design
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -49,6 +54,49 @@ fun PillChip(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     )
+}
+
+/**
+ * One choice out of a few (System / Light / Dark): a hairline-outlined pill split in equal segments, the chosen one filled with the accent
+ * tint (`primaryContainer`, AA with its label). A radio group for accessibility services.
+ */
+@Composable
+fun <T> SegmentedChoice(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier
+            .fillMaxWidth()
+            .border(1.5.dp, scheme.outline, PillShape)
+            .padding(1.5.dp)
+            .clip(PillShape)
+            .selectableGroup(),
+    ) {
+        options.forEach { (value, label) ->
+            val isSelected = value == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 44.dp)
+                    .background(if (isSelected) scheme.primaryContainer else Color.Transparent)
+                    .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onSelect(value) })
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isSelected) scheme.onPrimaryContainer else scheme.onSurface,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
 }
 
 enum class BadgeStyle {
@@ -166,7 +214,8 @@ fun CompactButton(
     }
 }
 
-@Preview
+@Preview(name = "Paper")
+@Preview(name = "Ink", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun ControlsPreview() = AudiobooksPreviewSurface {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -182,5 +231,6 @@ private fun ControlsPreview() = AudiobooksPreviewSurface {
         PrimaryButton("Continue", onClick = {}, loading = true)
         SecondaryButton("Skip", onClick = {})
         CompactButton("Download this release", onClick = {})
+        SegmentedChoice(listOf("a" to "System", "b" to "Light", "c" to "Dark"), selected = "b", onSelect = {})
     }
 }
