@@ -9,7 +9,7 @@ Roboto/Inter, wallpaper dynamic color is OFF (opt-in switch in Settings > Appear
 **No blue, no green, no purple gradient anywhere.** Status "ok" is ink + a check icon + the word (never green); "cached" is mustard;
 errors are a deeper crimson that is always accompanied by an icon and words.
 
-## Color (`Color.kt`, own `ColorScheme`, follows the system light/dark setting)
+## Color (`Color.kt`, own `ColorScheme`; light or dark by the in-app theme choice, see "Theme choice")
 | | light (paper) | dark (ink) |
 |---|---|---|
 | background / surface / surfaceVariant | `#F6F0E6` / `#FBF7EF` / `#EADFCF` | `#14110F` / `#1C1815` / `#2A2420` |
@@ -21,7 +21,23 @@ errors are a deeper crimson that is always accompanied by an icon and words.
 
 Persimmon on paper is 3.7:1: filled persimmon is only paired with large labels (buttons are 20 sp bold) or icons, and small accent
 text uses `accentText`. `ContrastTest` checks WCAG AA (4.5:1 normal text, 3:1 large text and graphics) for every pair of both
-palettes, that no cold hue sneaks in, and that cover-derived colors keep AA for any cover.
+palettes, that no cold hue sneaks in, and that cover-derived colors keep AA for any cover, for the dark AND the light player (text, muted text,
+accent and the accent's label on the page and on the tonal panels).
+
+## Theme choice and the player (`Theme.kt`, `ThemeMode.kt`)
+* **Settings > Appearance > Theme: System (default) / Light (paper) / Dark (ink)**, a `SegmentedChoice` (hairline-outlined pill, chosen segment in the accent
+  tint). Stored per DEVICE in `AppPreferences` (DataStore; survives sign-out). `MainActivity` resolves it against the phone's setting and passes
+  `darkTheme` to `AudiobooksTheme`: the whole app recomposes at once, no activity restart. `LocalDarkTheme` is the resolved value for screens (glow vs
+  shadow); never call `isSystemInDarkTheme()` in a screen. `enableEdgeToEdge(SystemBarStyle.auto(...) { dark })` and the window background follow it, so bar
+  icons are dark on paper and light on ink whatever the phone says. Onboarding does not offer the choice (a fresh install is System) and uses the stored one.
+* **Cold start never flashes the wrong theme**: the splash is the persimmon brand color with the paper mark in light AND dark, and stays up until the
+  preference is read (`AppViewModel.appearance` is `null` until then); the first frame is already in the chosen theme.
+* **The full-screen player is deliberately dark** (cover-derived ink background, light text), also on a light app theme: it is the "lights down" mood of
+  `design-player.jpg`. Settings > Appearance > **Player follows the theme** (default OFF) lets it use the light palette instead when the app theme is light:
+  a cover-derived paper tone (the cover's swatch desaturated and lifted toward the paper, never darkened), ink text, the same AA contrast, a softer glow
+  (alpha 0.20 instead of 0.30). With the Dark theme the player is dark either way. Status/navigation bar icons follow the player's own tone and go back when it closes.
+* Media/download notifications are system-styled (MediaStyle, monochrome small icon), so they follow the phone, not the in-app choice.
+* Previews come in a Paper and an Ink variant (`@Preview(name = "Ink", uiMode = UI_MODE_NIGHT_YES)`; `AudiobooksPreviewSurface` follows it).
 
 ## Cover-derived color (`CoverColors.kt`)
 The book detail (and later the player) takes background and tonal accents from the cover with `androidx.palette` (dominant swatch,
@@ -53,8 +69,8 @@ relaxes flat when paused; optional ticks and seek by tap/drag).
   outlined pills for speed, sleep timer and bookmark).
 * Navigation bar with text labels and a pill indicator in the accent tint.
 * Empty and error states are typographic: a short, witty serif line, one quiet sentence, no illustration.
-* App icon: persimmon rounded square with an open-book/waveform mark (adaptive, with a monochrome layer); the splash shows the same mark
-  on paper/ink.
+* App icon: persimmon rounded square with an open-book/waveform mark (adaptive, with a monochrome layer); the splash shows the paper mark on
+  persimmon in both themes (neutral, so it is right whatever the theme choice is).
 
 ## Buttons, chips and time (polish)
 * **Buttons**: a card has at most one loud action, the filled persimmon `PrimaryButton` (20 sp bold, 56 dp). Everything else in a card is a `CompactButton`:

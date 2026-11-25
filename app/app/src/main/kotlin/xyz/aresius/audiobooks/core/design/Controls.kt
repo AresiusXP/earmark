@@ -71,8 +71,9 @@ fun <T> SegmentedChoice(
     Row(
         modifier
             .fillMaxWidth()
-            .clip(PillShape)
             .border(1.5.dp, scheme.outline, PillShape)
+            .padding(1.5.dp)
+            .clip(PillShape)
             .selectableGroup(),
     ) {
         options.forEach { (value, label) ->

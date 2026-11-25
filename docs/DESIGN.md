@@ -476,7 +476,7 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
   also on resume from a saved position), bookmarks (local first, mirrored to `/bookmarks` with a generated `client_id` so a retried create never duplicates; offline-safe; the server adds the
   book to the library when needed).
 * **Release choice.** `ReleaseChooser`: remembered choice per book > best ranked release the user can stream, cached first > best with local files.
-* **UI.** Player (always dark, cover-derived colors, `docs/design/design-player.jpg`), mini player above the bottom bar, Discover hero and Library
+* **UI.** Player (dark by default, cover-derived colors, `docs/design/design-player.jpg`; light only with Settings > Appearance > "Player follows the theme", see `app/DESIGN.md`), mini player above the bottom bar, Discover hero and Library
   rows play, Book detail shows the chosen release, its files, the catalog chapters and the needs-key / preparing / failed states, with Play and the
   Download button (per book and per release, `feature/download`) side by side; Library rows carry the "Downloaded" badge and the play button.
 * **Downloads link.** The player reads files through `LocalFiles` (`DownloadedLocalFiles`, bound in `di/LocalFilesModule`) and tells core/download which
