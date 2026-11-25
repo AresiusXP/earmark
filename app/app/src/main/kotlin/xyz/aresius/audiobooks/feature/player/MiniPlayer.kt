@@ -61,7 +61,7 @@ private fun MiniPlayerContent(state: PlayerState, onOpen: () -> Unit, onToggle: 
                 Text(book?.title.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (phase == PlayerPhase.Ready) {
+            if (phase == PlayerPhase.Ready && !state.restored) {
                 SkipButton(seconds = (state.skipBackMs / 1000).toInt(), forward = false, onClick = onSkipBack, size = 44.dp)
             }
             PlayPauseButton(playing = state.playing, busy = state.buffering || phase == PlayerPhase.Loading || phase is PlayerPhase.Preparing, onClick = onToggle, size = 48.dp)

@@ -101,6 +101,8 @@ fun PlayerScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit, onOpenSetting
             LightStatusBarIcons(false)
             AskForNotificationPermission()
             LaunchedEffect(state.hasBook) { if (!state.hasBook) onBack() }
+            // The mini player restored after a restart opens here: the book is loaded now (paused), not before the user asks for it.
+            LaunchedEffect(state.restored) { if (state.restored) viewModel.prepareRestored() }
             // The player is always dark: Text and Icon without a colour must follow its scheme, not the (light) app theme around it.
             CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
                 PlayerContent(state, bookmarks, viewModel, glow = cover?.glow, onBack, onOpenBook, onOpenSettings)
