@@ -177,7 +177,11 @@ func (a *app) failure(in prepIn, k prepKey, err error) (prepResult, error) {
 		if errors.As(err, &ra) {
 			d = ra.RetryAfterDuration()
 		}
-		return cooldownResult(a.trk.setCooldown(fp, name, d)), nil
+		left, ok := a.trk.setCooldown(fp, name, d)
+		if !ok {
+			return prepResult{}, &budgetError{left} // the cooldown table is full of running ones
+		}
+		return cooldownResult(left), nil
 	case errors.Is(err, debrid.ErrFailed):
 		reason := failReason(err)
 		a.trk.update(k, func(s *prepState) { s.failedAt = a.now(); s.failReason = reason; s.inAccount = true })
