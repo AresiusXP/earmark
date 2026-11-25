@@ -36,6 +36,9 @@ import xyz.aresius.audiobooks.core.network.CreatedInvite
 import xyz.aresius.audiobooks.core.network.DebridListResponse
 import xyz.aresius.audiobooks.core.network.DebridStatus
 import xyz.aresius.audiobooks.core.network.Device
+import xyz.aresius.audiobooks.core.network.DurationEntry
+import xyz.aresius.audiobooks.core.network.DurationsRequest
+import xyz.aresius.audiobooks.core.network.DurationsResponse
 import xyz.aresius.audiobooks.core.network.DevicesResponse
 import xyz.aresius.audiobooks.core.network.GoogleJoinRequest
 import xyz.aresius.audiobooks.core.network.GoogleLink
@@ -83,6 +86,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private val debridKeys = HashMap<String, DebridStatus>()
     private val library = LinkedHashMap<String, LibraryEntry>()
     private val bookmarks = HashMap<String, MutableList<Bookmark>>()
+    private val reportedDurations = HashMap<String, MutableMap<String, Long>>() // release hash -> path -> duration_ms (first writer wins)
     private val prepareCalls = HashMap<String, Int>()
     private val books = sampleBooks()
     private val downloads = DemoDownloads()
@@ -390,10 +394,12 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private fun bookRoutes(request: Request, path: List<String>): Response {
         val book = books.firstOrNull { it.asin == path.getOrNull(1) } ?: return error(request, 404, "not_found", "unknown book")
         return when (path.getOrNull(2)) {
-            null -> json(request, BookDetail(book, Instant.now().minusSeconds(600).toString(), releasesFor(book)))
+            // Per-user fields (`cached`, `usable`) are mixed in: the real server sends this page `private, no-store`.
+            null -> json(request, BookDetail(book, Instant.now().minusSeconds(600).toString(), releasesFor(book)), cacheControl = "private, no-store")
             "chapters" ->
                 if (book.asin == DEMO_ASIN) json(request, Chapters(book.asin, DEMO_PARTS * FIXTURE_PART_MS, (0 until DEMO_PARTS).map { Chapter("Part ${it + 1}: ${listOf("Opening", "Middle", "Ending")[it]}", it * FIXTURE_PART_MS, FIXTURE_PART_MS) }))
-                else json(request, Chapters(book.asin, book.runtimeMin * 60_000L, (0 until 8).map { Chapter("Chapter ${it + 1}", it * book.runtimeMin * 7_500L, book.runtimeMin * 7_500L) }))
+                // The Audible edition carries branding at both ends (`intro_ms`/`outro_ms`); the marks are measured with it included.
+                else json(request, Chapters(book.asin, book.runtimeMin * 60_000L, (0 until 8).map { Chapter("Chapter ${it + 1}", it * book.runtimeMin * 7_500L, book.runtimeMin * 7_500L) }, AUDIBLE_INTRO_MS, AUDIBLE_OUTRO_MS), cacheControl = "private, max-age=300")
             else -> error(request, 404, "not_found", "no such route")
         }
     }
@@ -412,7 +418,12 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private fun release(book: Book, format: String, kbps: Int, size: Long, seeders: Int, cached: Map<String, Boolean>, usable: Usable): ReleaseView {
         val hash = (book.asin + format + kbps).hashCode().toUInt().toString(16).padStart(8, '0').repeat(5)
         val parts = if (book.asin == DEMO_ASIN) DEMO_PARTS else 6
-        val files = (1..parts).map { TorrentFile(it - 1, "${book.title}/Part ${it}.$format", if (book.asin == DEMO_ASIN) 0L else DemoDownloads.FILE_BYTES) }
+        val files = (1..parts).map { n ->
+            val path = "${book.title}/Part $n.$format"
+            // The demo book's m4b release is one a phone reported already (its parts are 60 s); everything else is learned by playing (POST durations).
+            val known = reportedDurations[hash]?.get(path) ?: FIXTURE_PART_MS.takeIf { book.asin == DEMO_ASIN && format == "m4b" }
+            TorrentFile(n - 1, path, if (book.asin == DEMO_ASIN) 0L else DemoDownloads.FILE_BYTES, known)
+        }
         return ReleaseView(
             infoHash = hash, title = "${book.authors.firstOrNull().orEmpty()} - ${book.title} [${format.uppercase()} ${kbps}kbps]", source = "demo", size = size, seeders = seeders,
             format = format, bitrateKbps = kbps, narrator = book.narrators.firstOrNull(), language = book.language, score = 0.9 - kbps / 1000.0, collection = false,
@@ -434,6 +445,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private fun releaseRoutes(request: Request, m: String, path: List<String>): Response {
         val hash = path.getOrNull(1).orEmpty()
         val release = books.flatMap { releasesFor(it) }.firstOrNull { it.infoHash == hash } ?: return error(request, 404, "not_found", "unknown release")
+        if (path.getOrNull(2) == "durations" && m == "POST") return reportDurations(request, release)
         if (debridKeys.values.none { it.status == "ok" }) return error(request, 403, "no_debrid_key", "add a debrid key first")
         val fixture = books.any { it.asin == DEMO_ASIN && releasesFor(it).any { r -> r.infoHash == hash } }
         if (!fixture) {
@@ -462,6 +474,21 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         }
     }
 
+    /** `POST /v1/releases/{hash}/durations`: paths of the release's audio files only, 1 s..48 h each, no duplicates, first writer wins. */
+    private fun reportDurations(request: Request, release: ReleaseView): Response {
+        val entries = body(request, DurationsRequest.serializer()).durations
+        val known = release.files.map { it.path }.toSet()
+        val paths = entries.map { it.path.replace('\\', '/') }
+        if (entries.isEmpty() || entries.size > 2000 || paths.toSet().size != paths.size || entries.any { it.durationMs !in 1_000L..172_800_000L }) {
+            return error(request, 400, "invalid_request", "durations must be 1-2000 distinct paths of 1 s to 48 h")
+        }
+        val stored = reportedDurations.getOrPut(release.infoHash) { HashMap() }
+        val accepted = entries.indices.filter { paths[it] in known }.map { i ->
+            DurationEntry(paths[i], stored.getOrPut(paths[i]) { entries[i].durationMs })
+        }
+        return json(request, DurationsResponse(accepted, entries.size - accepted.size))
+    }
+
     // --- library ----------------------------------------------------------------------------------------------
 
     private fun libraryRoutes(request: Request, m: String, path: List<String>): Response {
@@ -478,7 +505,11 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
                 val b = body(request, LibraryEntryWrite.serializer())
                 val old = library[asin]
                 val entry = if (old != null && old.updatedAt > b.updatedAt) old
-                else LibraryEntry(book, b.status, b.releaseHash, b.positionMs ?: old?.positionMs ?: 0, b.filePath, b.filePositionMs ?: 0, b.speed ?: 1.0, b.updatedAt)
+                else LibraryEntry(
+                    book, b.status, b.releaseHash, b.positionMs ?: old?.positionMs ?: 0, b.filePath, b.filePositionMs ?: 0, b.speed ?: 1.0, b.updatedAt,
+                    // Set by the write that turns the status to finished, kept while it stays finished, cleared otherwise.
+                    finishedAt = if (b.status != LibraryStatus.FINISHED) null else old?.finishedAt?.takeIf { old.status == LibraryStatus.FINISHED } ?: Instant.now().toString(),
+                )
                 library[asin] = entry
                 json(request, entry)
             }
@@ -495,9 +526,16 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         return when {
             path.size == 4 && m == "GET" -> json(request, BookmarksResponse(list.sortedBy { it.positionMs }))
             path.size == 4 && m == "POST" -> {
-                if (asin !in library) return error(request, 404, "not_found", "the book is not in the library")
+                val book = books.firstOrNull { it.asin == asin } ?: return error(request, 404, "not_found", "unknown book")
                 val b = body(request, CreateBookmarkRequest.serializer())
-                val bookmark = Bookmark("bm-${UUID.randomUUID().toString().take(8)}", b.positionMs, b.note, Instant.now().toString())
+                if (b.positionMs < 0 || (b.note?.length ?: 0) > 280 || (b.clientId != null && !validClientId(b.clientId))) {
+                    return error(request, 400, "invalid_request", "position_ms must be >= 0, note at most 280 characters, client_id 1-64 of A-Z a-z 0-9 - _")
+                }
+                // Idempotent with client_id: the EXISTING bookmark comes back, the new body is ignored.
+                b.clientId?.let { id -> list.firstOrNull { it.clientId == id } }?.let { return json(request, it) }
+                // The book need not be in the library: it is added as saved (updated_at 0, so any later write wins).
+                if (asin !in library) library[asin] = LibraryEntry(book, LibraryStatus.SAVED, updatedAt = 0)
+                val bookmark = Bookmark("bm-${UUID.randomUUID().toString().take(8)}", b.positionMs, b.note, Instant.now().toString(), b.clientId)
                 list.add(bookmark)
                 json(request, bookmark)
             }
@@ -514,7 +552,10 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         books.take(3).forEachIndexed { i, b ->
             val status = listOf(LibraryStatus.LISTENING, LibraryStatus.SAVED, LibraryStatus.FINISHED)[i]
             val pos = listOf(0.35, 0.0, 1.0)[i]
-            library[b.asin] = LibraryEntry(b, status, null, (b.runtimeMin * 60_000L * pos).toLong(), null, 0, 1.0, now - i * 3_600_000L)
+            library[b.asin] = LibraryEntry(
+                b, status, null, (b.runtimeMin * 60_000L * pos).toLong(), null, 0, 1.0, now - i * 3_600_000L,
+                finishedAt = if (status == LibraryStatus.FINISHED) Instant.ofEpochMilli(now - i * 3_600_000L).toString() else null,
+            )
         }
     }
 
@@ -541,8 +582,8 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         return AudiobooksJson.decodeFromString(serializer, buffer.readUtf8())
     }
 
-    private inline fun <reified T> json(request: Request, value: T, status: Int = 200): Response =
-        respond(request, status, AudiobooksJson.encodeToString(kotlinx.serialization.serializer<T>(), value).toResponseBody(JSON))
+    private inline fun <reified T> json(request: Request, value: T, status: Int = 200, cacheControl: String = "no-store"): Response =
+        respond(request, status, AudiobooksJson.encodeToString(kotlinx.serialization.serializer<T>(), value).toResponseBody(JSON), cacheControl = cacheControl)
 
     private fun text(request: Request, value: String) = respond(request, 200, value.toResponseBody("text/plain".toMediaType()))
 
@@ -551,13 +592,13 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private fun error(request: Request, status: Int, code: String, message: String, retryAfter: Int? = null): Response =
         respond(request, status, AudiobooksJson.encodeToString(ApiErrorBody.serializer(), ApiErrorBody(ApiErrorDetail(code, message))).toResponseBody(JSON), retryAfter)
 
-    private fun respond(request: Request, status: Int, body: okhttp3.ResponseBody, retryAfter: Int? = null): Response =
+    private fun respond(request: Request, status: Int, body: okhttp3.ResponseBody, retryAfter: Int? = null, cacheControl: String = "no-store"): Response =
         Response.Builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
             .code(status)
             .message(if (status in 200..299) "OK" else "Error")
-            .header("Cache-Control", "no-store")
+            .header("Cache-Control", cacheControl)
             .apply { if (retryAfter != null) header("Retry-After", retryAfter.toString()) }
             .body(body)
             .build()
@@ -575,6 +616,9 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         const val FIXTURE_PARTS = 3
         const val FIXTURE_PART_MS = 60_000L
         private const val DEMO_PARTS = 3
+        private const val AUDIBLE_INTRO_MS = 2_000L
+        private const val AUDIBLE_OUTRO_MS = 5_000L
+        private fun validClientId(id: String) = id.length in 1..64 && id.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_' }
         private const val PREPARE_POLLS = 4
         private const val PAGE_SIZE = 12
         private val WARM_HUES = floatArrayOf(8f, 16f, 24f, 34f, 42f, 350f, 335f, 12f)

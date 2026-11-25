@@ -35,7 +35,11 @@ class SettingsViewModelTest {
         runBlocking { app.me.set(AudiobooksJson.decodeFromString(Me.serializer(), me)) }
         server.onJson("GET", "/v1/me", me)
         server.onJson("GET", "/v1/me/devices", devices)
-        return SettingsViewModel(app.me, app.auth(), app.prefs, BuildInfo("0.3.0", 300, false))
+        return SettingsViewModel(app.me, app.auth(), app.prefs, BuildInfo("0.3.0", 300, false)).also {
+            // `state` is a combine().stateIn() pipeline that other threads (the answers of the first requests) feed too: it reaches a value a
+            // moment after the write. Reading `state.value` straight after a write is a race; wait for the value instead (see awaitState).
+            runBlocking { it.state.awaitState { s -> s.me != null } }
+        }
     }
 
     private fun patched(json: String, vararg replacements: Pair<String, String>) = replacements.fold(json) { acc, (a, b) -> acc.replace(a, b) }
@@ -84,12 +88,12 @@ class SettingsViewModelTest {
     @Test fun renameValidatesFirstThenPatches() = runBlocking<Unit> {
         val vm = vm()
         vm.rename("  ")
-        assertEquals(InputProblem.NameEmpty, vm.state.value.nameProblem)
+        assertEquals(InputProblem.NameEmpty, vm.state.awaitState { it.nameProblem != null }.nameProblem)
         assertTrue(server.requestsTo("PATCH", "/v1/me").isEmpty())
         server.onJson("PATCH", "/v1/me", patched(Samples.ME_ADMIN, "Ada" to "Ada L."))
         vm.rename(" Ada L. ")
         assertEquals("Ada L.", vm.state.awaitState { it.me?.displayName == "Ada L." }.me?.displayName)
-        assertNull(vm.state.value.nameProblem)
+        vm.state.awaitState { it.nameProblem == null }
         assertEquals("""{"display_name":"Ada L."}""", server.lastBody("PATCH", "/v1/me"))
     }
 
@@ -99,7 +103,7 @@ class SettingsViewModelTest {
         vm.createLinkCode()
         assertEquals("LINK-ONCE", vm.state.awaitState { it.linkCode != null }.linkCode?.linkCode)
         vm.dismissLinkCode()
-        assertNull(vm.state.value.linkCode)
+        vm.state.awaitState { it.linkCode == null }
     }
 
     @Test fun revokingADeviceReloadsTheList() = runBlocking<Unit> {

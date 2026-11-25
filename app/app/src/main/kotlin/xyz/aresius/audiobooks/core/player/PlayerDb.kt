@@ -9,6 +9,9 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 
 /**
  * Where a user stopped in a book: the local truth the player resumes from (written every few seconds). [dirty] = not yet confirmed by the
@@ -33,9 +36,12 @@ data class ProgressEntity(
 @Entity(tableName = "book_pref", primaryKeys = ["userId", "asin"])
 data class BookPrefEntity(val userId: String, val asin: String, val releaseHash: String, val provider: String?)
 
-/** A duration learned while playing; shared by every user of the phone (it describes a file, not a person). */
+/**
+ * A duration learned by preparing the file in the player; shared by every user of the phone (it describes a file, not a person).
+ * [reported]: sent to `POST /v1/releases/{hash}/durations` (or not worth sending: the server already had one, or refused it for good).
+ */
 @Entity(tableName = "file_duration", primaryKeys = ["releaseHash", "path"])
-data class FileDurationEntity(val releaseHash: String, val path: String, val durationMs: Long)
+data class FileDurationEntity(val releaseHash: String, val path: String, val durationMs: Long, val reported: Boolean = false)
 
 /**
  * A bookmark of one user. [serverId] is null until the server has it; [deleted] hides a bookmark whose delete still has to reach the
@@ -51,6 +57,8 @@ data class BookmarkEntity(
     val note: String?,
     val createdAtMs: Long,
     val deleted: Boolean = false,
+    /** The UUID sent as `client_id` (made when the bookmark is, kept across retries so a lost answer never makes a duplicate). */
+    val clientId: String? = null,
 )
 
 @Dao
@@ -82,6 +90,13 @@ interface PlayerDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putDuration(row: FileDurationEntity)
+
+    @Query("SELECT * FROM file_duration WHERE reported = 0 ORDER BY releaseHash, path")
+    suspend fun unreportedDurations(): List<FileDurationEntity>
+
+    /** Marks one learned duration as reported, only if it still holds [durationMs] (a newer measurement stays pending). */
+    @Query("UPDATE file_duration SET reported = 1 WHERE releaseHash = :hash AND path = :path AND durationMs = :durationMs")
+    suspend fun markReported(hash: String, path: String, durationMs: Long): Int
 
     @Query("SELECT * FROM bookmark WHERE userId = :userId AND asin = :asin AND deleted = 0 ORDER BY positionMs, id")
     fun observeBookmarks(userId: String, asin: String): kotlinx.coroutines.flow.Flow<List<BookmarkEntity>>
@@ -116,9 +131,22 @@ interface PlayerDao {
 
 @Database(
     entities = [ProgressEntity::class, BookPrefEntity::class, FileDurationEntity::class, BookmarkEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class PlayerDb : RoomDatabase() {
     abstract fun dao(): PlayerDao
+
+    companion object {
+        /**
+         * v2 (contract v1.1): a bookmark keeps its `client_id`, and a learned duration whether it was reported. Existing durations were learned
+         * by preparing files, so they stay unreported and go out once; existing bookmarks get their `client_id` when they are next sent.
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE `bookmark` ADD COLUMN `clientId` TEXT")
+                connection.execSQL("ALTER TABLE `file_duration` ADD COLUMN `reported` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+    }
 }

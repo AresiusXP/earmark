@@ -84,4 +84,48 @@ class LibraryRepositoryTest {
         app.library.remove("B000000001")
         assertEquals(1, app.library.entries.first().size)
     }
+
+    // --- contract v1.1: finished_at ---------------------------------------------------------------------------------
+
+    private val finishedAt = "2026-11-20T10:00:00Z"
+    private val finishedAtMs = java.time.Instant.parse(finishedAt).toEpochMilli()
+
+    @Test fun finishedAtComesFromTheServerAndDrivesLruAndAutoDelete() = runBlocking<Unit> {
+        // B1 was written last (updated_at 5000) but finished LONG ago; B2 is the other way round; B3 is not finished; B4 is an older server's entry.
+        server.onJson(
+            "GET", "/v1/me/library",
+            library(
+                Samples.libraryEntry("B000000001", "finished", updated = 5000, finishedAt = finishedAt),
+                Samples.libraryEntry("B000000002", "finished", updated = 1000, finishedAt = "2026-11-24T10:00:00Z"),
+                Samples.libraryEntry("B000000003", "listening", updated = 9000),
+                Samples.libraryEntry("B000000004", "finished", updated = 1_900_000_000_000),
+            ),
+        )
+        app.library.refresh()
+        val userId = app.sessions.load()!!.userId
+        val finished = dao.finishedAtMs(userId)
+        assertEquals(setOf("B000000001", "B000000002", "B000000004"), finished.keys)
+        assertEquals(finishedAtMs, finished["B000000001"], "finished_at beats updated_at")
+        assertEquals(1_900_000_000_000L, finished["B000000004"], "no finished_at (older server, or cached before v1.1): the last write")
+        assertEquals("B000000001", finished.minByOrNull { it.value }!!.key, "the LRU victim is the book finished longest ago, not the one written longest ago")
+        assertEquals(finishedAt, app.library.entry("B000000001").first()?.finishedAt)
+        assertNull(app.library.entry("B000000003").first()?.finishedAt)
+    }
+
+    @Test fun theLocalFinishKeepsTheCachedTimeUntilTheServerAnswers() = runBlocking<Unit> {
+        val userId = app.sessions.load()!!.userId
+        val book = Book(asin = "B1", title = "T")
+        val listening = xyz.aresius.audiobooks.core.network.LibraryEntry(book, "listening", null, 10, null, 0, 1.0, 1)
+        val finished = listening.copy(status = "finished")
+        dao.cacheLocalProgress(userId, listening, 100)
+        assertNull(dao.get(userId, "B1")?.finishedAtMs)
+        dao.cacheLocalProgress(userId, finished, 200)
+        assertEquals(200L, dao.get(userId, "B1")?.finishedAtMs, "finishing now")
+        dao.cacheLocalProgress(userId, finished.copy(updatedAt = 3), 900)
+        assertEquals(200L, dao.get(userId, "B1")?.finishedAtMs, "listening to the end again does not move it")
+        dao.cacheLocalProgress(userId, finished.copy(finishedAt = finishedAt), 950)
+        assertEquals(finishedAtMs, dao.get(userId, "B1")?.finishedAtMs, "the server's time wins when the entry carries it")
+        dao.cacheLocalProgress(userId, listening.copy(updatedAt = 5), 1000)
+        assertNull(dao.get(userId, "B1")?.finishedAtMs, "back to listening clears it")
+    }
 }

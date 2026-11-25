@@ -346,6 +346,8 @@ data class TorrentFile(
     val index: Int,
     val path: String,
     val size: Long = 0,
+    /** Audio length reported by a phone; only on the files of a book page, only when known (contract v1.1). Read only. */
+    @SerialName("duration_ms") val durationMs: Long? = null,
 )
 
 @Serializable
@@ -393,6 +395,9 @@ data class Chapters(
     val asin: String = "",
     @SerialName("runtime_ms") val runtimeMs: Long = 0,
     val chapters: List<Chapter> = emptyList(),
+    /** Audible branding at the start / end of the Audible edition (marks are measured with it included); null when unknown. */
+    @SerialName("intro_ms") val introMs: Long? = null,
+    @SerialName("outro_ms") val outroMs: Long? = null,
 )
 
 // --- releases ---------------------------------------------------------------------------------------------------
@@ -415,8 +420,25 @@ data class Prepare(
     }
 }
 
+/** Requests carry no `duration_ms`: the field is read only on a torrent file and `explicitNulls = false` leaves it out. */
 @Serializable
 data class TorrentFilesRequest(val files: List<TorrentFile>)
+
+@Serializable
+data class DurationEntry(
+    val path: String,
+    @SerialName("duration_ms") val durationMs: Long,
+)
+
+@Serializable
+data class DurationsRequest(val durations: List<DurationEntry>)
+
+/** [durations] are the STORED values (first writer wins) of the accepted entries; [ignored] counts the entries in no known audio file list. */
+@Serializable
+data class DurationsResponse(
+    val durations: List<DurationEntry> = emptyList(),
+    val ignored: Int = 0,
+)
 
 @Serializable
 data class TorrentFilesResponse(@SerialName("torrent_files") val torrentFiles: List<TorrentFile> = emptyList())
@@ -433,6 +455,8 @@ data class LibraryEntry(
     @SerialName("file_position_ms") val filePositionMs: Long = 0,
     val speed: Double = 1.0,
     @SerialName("updated_at") val updatedAt: Long = 0,
+    /** Server time (ISO-8601) at which the status became `finished`; null otherwise (and for answers of an older server). Read only. */
+    @SerialName("finished_at") val finishedAt: String? = null,
 )
 
 @Serializable
@@ -455,6 +479,7 @@ data class Bookmark(
     @SerialName("position_ms") val positionMs: Long = 0,
     val note: String? = null,
     @SerialName("created_at") val createdAt: String = "",
+    @SerialName("client_id") val clientId: String? = null,
 )
 
 @Serializable
@@ -464,4 +489,6 @@ data class BookmarksResponse(val bookmarks: List<Bookmark> = emptyList())
 data class CreateBookmarkRequest(
     @SerialName("position_ms") val positionMs: Long,
     val note: String? = null,
+    /** A UUID made once per bookmark: repeating the POST with it returns the existing bookmark instead of creating another. */
+    @SerialName("client_id") val clientId: String? = null,
 )

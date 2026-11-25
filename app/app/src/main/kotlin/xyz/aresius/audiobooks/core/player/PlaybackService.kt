@@ -36,7 +36,7 @@ import xyz.aresius.audiobooks.core.auth.SessionStore
 import xyz.aresius.audiobooks.core.data.LibraryDao
 import xyz.aresius.audiobooks.core.data.ReleaseRepository
 import xyz.aresius.audiobooks.core.download.DownloadsRepository
-import xyz.aresius.audiobooks.core.data.toEntity
+import xyz.aresius.audiobooks.core.data.cacheLocalProgress
 import xyz.aresius.audiobooks.core.network.AudiobooksJson
 import xyz.aresius.audiobooks.core.network.Book
 
@@ -58,6 +58,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var libraryDao: LibraryDao
     @Inject lateinit var sessions: SessionStore
     @Inject lateinit var scopes: PlayerScopes
+    @Inject lateinit var durationReporter: DurationReporter
 
     private var session: MediaSession? = null
     private var core: PlaybackCore? = null
@@ -88,9 +89,10 @@ class PlaybackService : MediaSessionService() {
             releases = releases,
             prefs = prefs,
             shake = AccelerometerShakeSource(this),
-            libraryCache = { userId, entry -> libraryDao.upsert(entry.toEntity(userId)) },
+            libraryCache = { userId, entry -> libraryDao.cacheLocalProgress(userId, entry, System.currentTimeMillis()) },
             chapterTitle = { c -> c.title.ifBlank { getString(R.string.player_chapter_n, c.index + 1) } },
             elapsed = SystemClock::elapsedRealtime,
+            durationReports = durationReporter,
             onStarted = { plan ->
                 if (plan.files.any { it.local == null }) scopes.io.launch { downloads.autoDownloadIfEnabled(plan.book, plan.release, plan.provider?.wire) }
             },

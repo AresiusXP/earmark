@@ -73,7 +73,6 @@ class BookViewModel @Inject constructor(
     private val local = MutableStateFlow(BookUiState())
     private val picked = MutableStateFlow<String?>(null)
     private val remembered = MutableStateFlow<String?>(null)
-    private var askedAgain = false
 
     val state: StateFlow<BookUiState> = combine(local, library.entry(asin), localFiles.hasDownloads(asin), picked, remembered) { l, entry, downloads, pick, last ->
         val releases = (l.detail as? Load.Content)?.value?.releases.orEmpty()
@@ -104,12 +103,15 @@ class BookViewModel @Inject constructor(
         viewModelScope.launch {
             val r = catalog.book(asin, refresh)
             local.update { it.copy(refreshing = false, detail = r.toLoad(it.detail)) }
-            // A cached page can predate the user's debrid key (the answer is per user): ask again once before saying "add a key".
-            if (!refresh && !askedAgain && (r as? ApiResult.Success)?.value?.releases?.let { rs -> rs.isNotEmpty() && rs.none { it.usable.debrid.isNotEmpty() } } == true) {
-                askedAgain = true
-                load(refresh = true)
-            }
         }
+    }
+
+    /**
+     * The screen came back (from Settings after adding a debrid key, from the player, from another app): `cached` and `usable` are per user and
+     * the server sends the page `no-store`, so ask again. [CatalogRepository] still answers a page that is only seconds old from its copy.
+     */
+    fun onResumed() {
+        if (local.value.detail is Load.Content) load(refresh = false)
     }
 
     /** Listen with this release (remembered once the book plays). */

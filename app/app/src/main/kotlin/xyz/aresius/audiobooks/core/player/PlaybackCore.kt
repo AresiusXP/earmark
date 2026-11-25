@@ -52,6 +52,8 @@ class PlaybackCore(
     private val sleepTimer: SleepTimerLogic = SleepTimerLogic(elapsed),
     /** Called once a book is ready to play (the downloads' "auto-download what I'm listening to" hooks in here). */
     private val onStarted: (PlayPlan) -> Unit = {},
+    /** Gets the durations learned by preparing files; flushed shortly after a new one and when playback pauses or closes. Null = never reported. */
+    private val durationReports: DurationReporter? = null,
 ) {
     private var plan: PlayPlan? = null
     private var timeline: BookTimeline? = null
@@ -61,6 +63,8 @@ class PlaybackCore(
     private var prepareJob: Job? = null
     private var lastChapter = -1
     private var pausedAt: Long? = null
+    private var reportJob: Job? = null
+    @Volatile private var learnedSinceReport = false
     private var lastPersist = 0L
     private var lastCacheWrite = 0L
     private var loadCounter = 0L
@@ -72,7 +76,10 @@ class PlaybackCore(
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (plan == null) return
-            if (isPlaying) ensureTicker() else persist(force = true)
+            if (isPlaying) ensureTicker() else {
+                persist(force = true)
+                reportDurationsNow()
+            }
             publish()
         }
 
@@ -279,8 +286,11 @@ class PlaybackCore(
             if (tl.files[i].durationMs == ms) continue
             tl = tl.withDuration(i, ms)
             val path = tl.files[i].path
-            io.launch { loader.learnDuration(p.release.infoHash, path, ms) }
+            val serverKnows = p.files.getOrNull(i)?.serverDurationMs != null
+            io.launch { loader.learnDuration(p.release.infoHash, path, ms, serverKnows) }
+            if (!serverKnows) learnedSinceReport = true
         }
+        if (learnedSinceReport) reportDurationsSoon()
         if (tl !== timeline) {
             timeline = tl
             chapters = ChapterMap.build(tl, p.chapters)
@@ -288,6 +298,25 @@ class PlaybackCore(
             reapplyView()
             publish()
         }
+    }
+
+    /** A few seconds after the last new duration (one request for what the player learned meanwhile); never waits for or blocks playback. */
+    private fun reportDurationsSoon() {
+        val reporter = durationReports ?: return
+        if (reportJob?.isActive == true) return
+        reportJob = io.launch {
+            delay(REPORT_DELAY_MS)
+            learnedSinceReport = false
+            reporter.flush()
+        }
+    }
+
+    private fun reportDurationsNow() {
+        val reporter = durationReports ?: return
+        if (!learnedSinceReport) return
+        learnedSinceReport = false
+        reportJob?.cancel()
+        io.launch { reporter.flush() }
     }
 
     private fun reapplyView() {
@@ -437,6 +466,7 @@ class PlaybackCore(
         loadJob?.cancel()
         prepareJob?.cancel()
         persist(force = true)
+        reportDurationsNow()
         tickJob?.cancel()
         sleepTimer.cancel()
         shake.stop()
@@ -452,6 +482,7 @@ class PlaybackCore(
 
     fun release() {
         persist(force = true)
+        reportDurationsNow()
         loadJob?.cancel()
         prepareJob?.cancel()
         tickJob?.cancel()
@@ -464,6 +495,7 @@ class PlaybackCore(
         const val FAST_TICK_MS = 200L
         const val PERSIST_EVERY_MS = 5_000L
         const val SYNC_EVERY_MS = 30_000L
+        const val REPORT_DELAY_MS = 20_000L
         const val DEFAULT_POLL_S = 3
     }
 }

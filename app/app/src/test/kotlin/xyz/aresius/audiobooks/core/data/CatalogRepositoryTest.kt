@@ -68,4 +68,34 @@ class CatalogRepositoryTest {
         server.on("GET", "/v1/books/B000000404", FakeServer.error(404, "not_found", "unknown"))
         assertEquals(ErrorCode.NotFound, (app.catalog.book("B000000404").errorOrNull as ApiError.Http).code)
     }
+
+    @Test fun aBookPageIsPerUserSoItIsOnlyReusedForSeconds() = runBlocking<Unit> {
+        val noKey = Samples.bookDetail(releases = Samples.release(usable = """{"debrid":[],"p2p":false}"""))
+        val withKey = Samples.bookDetail()
+        server.on("GET", "/v1/books/B000000001", FakeServer.json(noKey), FakeServer.json(withKey))
+        assertTrue(app.catalog.book("B000000001").valueOrNull!!.releases.single().usable.debrid.isEmpty())
+        app.now += 3_000
+        assertTrue(app.catalog.book("B000000001").valueOrNull!!.releases.single().usable.debrid.isEmpty(), "two screens opening the same book share one request")
+        assertEquals(1, server.requestsTo("GET", "/v1/books/B000000001").size)
+        // The user adds a debrid key in Settings and comes back: the page must not keep saying "no key".
+        app.now += 3_000
+        assertEquals(listOf("torbox"), app.catalog.book("B000000001").valueOrNull!!.releases.single().usable.debrid)
+        assertEquals(2, server.requestsTo("GET", "/v1/books/B000000001").size)
+    }
+
+    @Test fun anOldBookPageStillServesOfflineMarkedStale() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/books/B000000001", Samples.bookDetail())
+        app.catalog.book("B000000001")
+        app.now += 60 * 60_000
+        server.on("GET", "/v1/books/B000000001", FakeServer.error(503, "upstream_failed"))
+        assertTrue((app.catalog.book("B000000001") as ApiResult.Success).stale)
+    }
+
+    @Test fun theHttpClientsKeepNoCacheOfTheirOwn() {
+        val factory = xyz.aresius.audiobooks.core.network.HttpClientFactory(
+            app.sessions, xyz.aresius.audiobooks.core.network.SignedOutEvents(), xyz.aresius.audiobooks.core.network.NetworkTimeouts(), emptyList(),
+        )
+        assertEquals(null, factory.api().cache)
+        assertEquals(null, factory.plain().cache)
+    }
 }

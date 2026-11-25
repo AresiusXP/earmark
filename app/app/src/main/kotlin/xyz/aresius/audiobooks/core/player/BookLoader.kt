@@ -16,10 +16,21 @@ import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.Chapters
 import xyz.aresius.audiobooks.core.network.Provider
 import xyz.aresius.audiobooks.core.network.ReleaseView
+import xyz.aresius.audiobooks.core.network.TorrentFile
 import xyz.aresius.audiobooks.core.network.isNotFound
 
-/** One file to play: [local] (a complete copy on the phone) wins over streaming it by [index] from [PlayPlan.provider]. */
-data class PlayFile(val path: String, val index: Int?, val sizeBytes: Long, val durationMs: Long?, val local: File?) {
+/**
+ * One file to play: [local] (a complete copy on the phone) wins over streaming it by [index] from [PlayPlan.provider]. [durationMs] is what is
+ * known before the file is prepared: the length this phone learned, else the one the server has from other phones ([serverDurationMs]).
+ */
+data class PlayFile(
+    val path: String,
+    val index: Int?,
+    val sizeBytes: Long,
+    val durationMs: Long?,
+    val local: File?,
+    val serverDurationMs: Long? = null,
+) {
     fun playable(provider: Provider?): Boolean = local != null || (provider != null && index != null)
 }
 
@@ -72,18 +83,10 @@ class BookLoader(
         Provider.fromWire(me.me.value?.settings?.preferredProvider)
     }, System::currentTimeMillis)
 
-    /**
-     * The catalog answer is cached for a few minutes and carries per-user fields (`usable`): a key added a minute ago is not in it. So when
-     * the cached answer says "nothing is usable", the server is asked again before telling the user to add a key.
-     */
+    /** The book page carries per-user fields (`usable`); [CatalogRepository.book] only reuses an answer that is a few seconds old. */
     suspend fun load(asin: String, requestedHash: String?): LoadResult {
-        val first = loadWith(asin, requestedHash, refresh = false)
-        return if (first is LoadResult.Failure && first.kind == FailureKind.NeedsSource) loadWith(asin, requestedHash, refresh = true) else first
-    }
-
-    private suspend fun loadWith(asin: String, requestedHash: String?, refresh: Boolean): LoadResult {
         val userId = sessions.load()?.userId ?: return LoadResult.Failure(FailureKind.NotSignedIn)
-        val detail = when (val r = catalog.book(asin, refresh)) {
+        val detail = when (val r = catalog.book(asin)) {
             is ApiResult.Success -> r.value
             is ApiResult.Failure -> return LoadResult.Failure(if (r.error.isNotFound) FailureKind.NoReleases else FailureKind.Network)
         }
@@ -103,20 +106,34 @@ class BookLoader(
         return LoadResult.Ready(PlayPlan(userId, detail.book, release, choice.provider, files, chapters, resume))
     }
 
-    /** The files of [release] with what is known about each; empty when the server has no list yet (the provider's `prepare` gives one). */
+    /**
+     * The files of [release] with what is known about each; empty when the server has no list yet (the provider's `prepare` gives one).
+     * Initial durations, by PATH: what this phone learned by preparing the file, else `duration_ms` of the book page (`files`, then
+     * `torrent_files`: other phones reported it), else null (the timeline estimates it from the catalog runtime).
+     */
     suspend fun filesOf(asin: String, release: ReleaseView): List<PlayFile> {
         val listed = release.files.ifEmpty { release.torrentFiles }
-        val durations = dao.durations(release.infoHash).associate { it.path to it.durationMs }
         val debridIndex = release.files.associate { it.path to it.index }
-        return listed.map { f -> PlayFile(f.path, debridIndex[f.path], f.size, durations[f.path], localFiles.localFile(asin, release.infoHash, f.path)) }
+        return playFiles(asin, release, listed) { f -> debridIndex[f.path] }
     }
 
     /** The plan's files once `prepare` has delivered the provider's list (the server had none). */
-    suspend fun withProviderFiles(plan: PlayPlan, files: List<xyz.aresius.audiobooks.core.network.TorrentFile>): PlayPlan {
-        val durations = dao.durations(plan.release.infoHash).associate { it.path to it.durationMs }
-        return plan.copy(
-            files = files.map { f -> PlayFile(f.path, f.index, f.size, durations[f.path], localFiles.localFile(plan.book.asin, plan.release.infoHash, f.path)) },
-        )
+    suspend fun withProviderFiles(plan: PlayPlan, files: List<TorrentFile>): PlayPlan =
+        plan.copy(files = playFiles(plan.book.asin, plan.release, files) { f -> f.index })
+
+    private suspend fun playFiles(asin: String, release: ReleaseView, listed: List<TorrentFile>, index: (TorrentFile) -> Int?): List<PlayFile> {
+        val learned = dao.durations(release.infoHash).associate { it.path to it.durationMs }
+        val server = serverDurations(release)
+        return listed.map { f ->
+            val fromServer = server[f.path] ?: f.durationMs
+            PlayFile(f.path, index(f), f.size, learned[f.path] ?: fromServer, localFiles.localFile(asin, release.infoHash, f.path), fromServer)
+        }
+    }
+
+    private fun serverDurations(release: ReleaseView): Map<String, Long> {
+        val out = HashMap<String, Long>()
+        for (f in release.files + release.torrentFiles) f.durationMs?.takeIf { it > 0 }?.let { out.putIfAbsent(f.path, it) }
+        return out
     }
 
     /** Remembers the release the user plays for this book. */
@@ -124,8 +141,14 @@ class BookLoader(
         dao.putPref(BookPrefEntity(userId, asin, release.infoHash, provider?.wire))
     }
 
-    suspend fun learnDuration(releaseHash: String, path: String, durationMs: Long) {
-        dao.putDuration(FileDurationEntity(releaseHash, path, durationMs))
+    /**
+     * Stores a duration ExoPlayer measured by preparing the file. [serverKnows]: the server already has a duration for the path (first
+     * writer wins there), so there is nothing to report. A row that already holds this value keeps its `reported` flag.
+     */
+    suspend fun learnDuration(releaseHash: String, path: String, durationMs: Long, serverKnows: Boolean = false) {
+        val old = dao.durations(releaseHash).firstOrNull { it.path == path }
+        if (old != null && old.durationMs == durationMs) return
+        dao.putDuration(FileDurationEntity(releaseHash, path, durationMs, reported = serverKnows))
     }
 
     private suspend fun chapters(asin: String): Chapters? {

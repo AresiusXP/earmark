@@ -47,15 +47,15 @@ class ChapterMap(val chapters: List<BookChapter>, val source: ChapterSource) {
         const val MAX_RUNTIME_MISMATCH = 0.02
 
         /**
-         * Audible's chapter marks (book positions) when they fit the files; else one chapter per file. They fit when there are any and the
-         * Audible runtime is within [MAX_RUNTIME_MISMATCH] of the files' total (an estimate counts: it is derived from the catalog runtime).
-         * The marks are used as they are (not stretched): a different intro or outro shifts everything, and which end is not knowable.
+         * Audible's chapter marks (book positions) when they fit the files; else one chapter per file. See [align] for the rule. The marks are
+         * never stretched: they are moved by the length of the branding the release cut at the start (and by nothing else).
          */
         fun build(timeline: BookTimeline, audible: Chapters?): ChapterMap {
             val marks = audible?.chapters.orEmpty()
             val total = timeline.totalMs
-            if (marks.isNotEmpty() && total > 0 && fits(timeline, audible!!, marks)) {
-                val usable = normalize(marks, total)
+            val shift = if (marks.isNotEmpty() && total > 0) align(total, audible!!, marks) else null
+            if (shift != null) {
+                val usable = normalize(marks.mapNotNull { it.shiftedBy(shift) }, total)
                 if (usable.isNotEmpty()) {
                     return ChapterMap(
                         usable.mapIndexed { i, c -> BookChapter(i, c.title.trim(), c.startMs, usable.getOrNull(i + 1)?.startMs ?: total) },
@@ -71,10 +71,35 @@ class ChapterMap(val chapters: List<BookChapter>, val source: ChapterSource) {
             ChapterSource.Files,
         )
 
-        private fun fits(timeline: BookTimeline, audible: Chapters, marks: List<Chapter>): Boolean {
+        /**
+         * How far the Audible marks move to fit a files timeline of [filesTotalMs], or null when they do not fit (then: one chapter per file).
+         *
+         * Audible's marks and `runtime_ms` include the branding ("This is Audible"): [Chapters.introMs] at the start, [Chapters.outroMs] at the end
+         * (absent = 0). A release may have cut either. The Audible total, minus the intro, minus the outro and minus both are the four lengths
+         * the files can have; the closest one to [filesTotalMs] wins (a tie prefers the plain total, so without branding data nothing
+         * changes). The marks fit when that candidate is within [MAX_RUNTIME_MISMATCH] (2 %) of the files total. The shift is the intro
+         * length when the winner has the intro cut, else 0: a mark at `s` becomes `s - intro`.
+         */
+        internal fun align(filesTotalMs: Long, audible: Chapters, marks: List<Chapter>): Long? {
             val audibleTotal = if (audible.runtimeMs > 0) audible.runtimeMs else marks.maxOf { it.startMs + it.lengthMs }
-            if (audibleTotal <= 0) return false
-            return kotlin.math.abs(audibleTotal - timeline.totalMs) <= MAX_RUNTIME_MISMATCH * timeline.totalMs
+            if (audibleTotal <= 0 || filesTotalMs <= 0) return null
+            val intro = (audible.introMs ?: 0).coerceAtLeast(0)
+            val outro = (audible.outroMs ?: 0).coerceAtLeast(0)
+            val candidates = buildList {
+                add(0L to audibleTotal)
+                if (intro > 0) add(intro to audibleTotal - intro)
+                if (outro > 0) add(0L to audibleTotal - outro)
+                if (intro > 0 && outro > 0) add(intro to audibleTotal - intro - outro)
+            }.filter { it.second > 0 }
+            val best = candidates.minByOrNull { kotlin.math.abs(it.second - filesTotalMs) } ?: return null
+            return if (kotlin.math.abs(best.second - filesTotalMs) <= MAX_RUNTIME_MISMATCH * filesTotalMs) best.first else null
+        }
+
+        /** The mark moved [shiftMs] earlier; null when all of it lay inside the removed intro. A mark that starts inside it starts at 0. */
+        private fun Chapter.shiftedBy(shiftMs: Long): Chapter? {
+            if (shiftMs <= 0) return this
+            if (lengthMs > 0 && startMs + lengthMs <= shiftMs) return null
+            return copy(startMs = (startMs - shiftMs).coerceAtLeast(0))
         }
 
         /** Sorted, strictly increasing starts inside the book; the first chapter starts at 0. */

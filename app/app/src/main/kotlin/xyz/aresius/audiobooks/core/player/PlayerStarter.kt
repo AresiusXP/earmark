@@ -9,7 +9,7 @@ import kotlinx.coroutines.launch
 import xyz.aresius.audiobooks.core.auth.SessionStore
 
 /**
- * App start for the player: sends progress and bookmarks that could not be sent last time, and wipes the player's data of an account
+ * App start for the player: sends progress, bookmarks and learned durations that could not be sent last time, and wipes the player's data of an account
  * whose session ended (like `SessionCleanup` does for the rest: nothing of an account stays on the phone).
  */
 @Singleton
@@ -18,6 +18,7 @@ class PlayerStarter @Inject constructor(
     private val dao: PlayerDao,
     private val sync: ProgressSync,
     private val bookmarks: BookmarkRepository,
+    private val durations: DurationReporter,
     private val hub: PlayerHub,
 ) {
     fun start(scope: CoroutineScope) {
@@ -31,6 +32,7 @@ class PlayerStarter @Inject constructor(
                     launch {
                         sync.flush(current)
                         bookmarks.sync(null)
+                        durations.flush()
                     }
                 }
                 previous = current

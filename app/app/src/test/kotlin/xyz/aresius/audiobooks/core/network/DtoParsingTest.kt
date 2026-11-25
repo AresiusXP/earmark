@@ -71,4 +71,42 @@ class DtoParsingTest {
         assertEquals(Provider.RealDebrid, Provider.fromWire("realdebrid"))
         assertNull(Provider.fromWire("alldebrid"))
     }
+
+    @Test fun contractV11FieldsAreReadAndTheirAbsenceIsTolerated() {
+        val c = json.decodeFromString(Chapters.serializer(), """{"asin":"B1","runtime_ms":1000,"intro_ms":2000,"outro_ms":5000,"chapters":[]}""")
+        assertEquals(2000L, c.introMs)
+        assertEquals(5000L, c.outroMs)
+        val old = json.decodeFromString(Chapters.serializer(), """{"asin":"B1","runtime_ms":1000,"chapters":[]}""")
+        assertNull(old.introMs)
+        assertNull(old.outroMs)
+        val files = json.decodeFromString(
+            ReleaseView.serializer(),
+            """{"info_hash":"${"a".repeat(40)}","files":[{"index":0,"path":"a.mp3","size":10,"duration_ms":61000},{"index":1,"path":"b.mp3","size":10}],"torrent_files":[{"index":0,"path":"a.mp3","size":10,"duration_ms":null}]}""",
+        )
+        assertEquals(61000L, files.files[0].durationMs)
+        assertNull(files.files[1].durationMs)
+        assertNull(files.torrentFiles.single().durationMs)
+        val entry = json.decodeFromString(LibraryEntry.serializer(), Samples.libraryEntry("B000000001", "finished", finishedAt = "2026-11-25T10:00:00Z"))
+        assertEquals("2026-11-25T10:00:00Z", entry.finishedAt)
+        assertNull(json.decodeFromString(LibraryEntry.serializer(), Samples.libraryEntry("B000000001")).finishedAt)
+        assertNull(json.decodeFromString(LibraryEntry.serializer(), """{"book":${Samples.book()},"status":"saved"}""").finishedAt)
+        val bm = json.decodeFromString(BookmarksResponse.serializer(), """{"bookmarks":[{"id":"b1","position_ms":5,"created_at":"2026-11-25T10:00:00Z","client_id":"abc-1"},{"id":"b2","position_ms":6,"created_at":"x"}]}""")
+        assertEquals("abc-1", bm.bookmarks[0].clientId)
+        assertNull(bm.bookmarks[1].clientId)
+    }
+
+    @Test fun durationsAreSentAsContractedAndTheAnswerIsTolerated() {
+        val body = json.encodeToString(DurationsRequest.serializer(), DurationsRequest(listOf(DurationEntry("A/1.mp3", 61000))))
+        assertEquals("""{"durations":[{"path":"A/1.mp3","duration_ms":61000}]}""", body)
+        val r = json.decodeFromString(DurationsResponse.serializer(), """{"durations":[{"path":"A/1.mp3","duration_ms":60500,"extra":1}],"ignored":2,"future":true}""")
+        assertEquals(60500L, r.durations.single().durationMs)
+        assertEquals(2, r.ignored)
+        assertEquals(DurationsResponse(), json.decodeFromString(DurationsResponse.serializer(), "{}"))
+    }
+
+    @Test fun requestsOmitWhatWasNotSet() {
+        assertEquals("""{"position_ms":5}""", json.encodeToString(CreateBookmarkRequest.serializer(), CreateBookmarkRequest(5)))
+        assertEquals("""{"position_ms":5,"note":"n","client_id":"c-1"}""", json.encodeToString(CreateBookmarkRequest.serializer(), CreateBookmarkRequest(5, "n", "c-1")))
+        assertEquals("""{"files":[{"index":0,"path":"a","size":1}]}""", json.encodeToString(TorrentFilesRequest.serializer(), TorrentFilesRequest(listOf(TorrentFile(0, "a", 1)))))
+    }
 }

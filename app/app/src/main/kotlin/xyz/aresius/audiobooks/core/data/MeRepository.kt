@@ -31,10 +31,24 @@ class MeRepository(
     private val _me = MutableStateFlow<Me?>(null)
     val me: StateFlow<Me?> = _me.asStateFlow()
 
-    /** After sign-in: the session answer already carries the user. */
-    suspend fun set(me: Me) {
+    private val lock = Any()
+    private var version = 0L
+
+    /** Installs [me] unless [onlyIfVersion] is given and something else was installed since; returns whether it was. */
+    private fun install(me: Me, onlyIfVersion: Long? = null): Boolean = synchronized(lock) {
+        if (onlyIfVersion != null && onlyIfVersion != version) return false
+        version++
         _me.value = me
-        cache.put(CacheEntryEntity(KEY, AudiobooksJson.encodeToString(Me.serializer(), me), clock()))
+        true
+    }
+
+    private fun versionNow(): Long = synchronized(lock) { version }
+
+    /** After sign-in: the session answer already carries the user. */
+    suspend fun set(me: Me) = store(me, install(me))
+
+    private suspend fun store(me: Me, installed: Boolean) {
+        if (installed) cache.put(CacheEntryEntity(KEY, AudiobooksJson.encodeToString(Me.serializer(), me), clock()))
     }
 
     /** Loads the last known user from the cache (cold start, offline). */
@@ -44,7 +58,14 @@ class MeRepository(
         _me.value = runCatching { AudiobooksJson.decodeFromString(Me.serializer(), json) }.getOrNull()
     }
 
-    suspend fun refresh(): ApiResult<Me> = safeApiCall { apiSource().getMe() }.also { if (it is ApiResult.Success) set(it.value) }
+    /**
+     * Reads the user again. An answer that was overtaken by a write (a settings PATCH, a rename) while it was on its way is older than what
+     * [me] holds, so it is dropped instead of undoing the write.
+     */
+    suspend fun refresh(): ApiResult<Me> {
+        val seen = versionNow()
+        return safeApiCall { apiSource().getMe() }.also { if (it is ApiResult.Success) store(it.value, install(it.value, seen)) }
+    }
 
     suspend fun update(request: UpdateMeRequest): ApiResult<Me> =
         safeApiCall { apiSource().updateMe(request) }.also { if (it is ApiResult.Success) set(it.value) }
@@ -66,7 +87,10 @@ class MeRepository(
     suspend fun createLinkCode(): ApiResult<LinkCodeResponse> = safeApiCall { apiSource().createLinkCode() }
 
     suspend fun clear() {
-        _me.value = null
+        synchronized(lock) {
+            version++
+            _me.value = null
+        }
     }
 
     private companion object {
