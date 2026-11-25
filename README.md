@@ -43,7 +43,7 @@ The addon below keeps working at the same host (the old `audiobooks.aresius.xyz`
   the book you opened are shown.
 * **Listen with the screen off**: every release is also a private **podcast feed**, so AntennaPod,
   Pocket Casts, Audiobookshelf or any podcast app can play it in the background and keep your progress.
-* **English and Dutch** book catalogs and release filtering.
+* **English, Dutch and Spanish** book catalogs and release filtering.
 * **Private by design**: your TorBox key is sealed (AES-256-GCM) into the install link; an instance
   password controls who can create links; no private trackers.
 
