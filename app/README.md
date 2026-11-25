@@ -14,7 +14,7 @@ cd app
 
 Toolchain: Gradle 9.9.1 (wrapper), AGP 9.5.1 (built-in Kotlin), Kotlin 2.4.21 + Compose compiler plugin (all warnings are errors), KSP,
 Hilt, Room, Retrofit + kotlinx-serialization, Coil 3, Palette, Tink, Media3 (ExoPlayer + session), WorkManager. compileSdk 37 (install `platforms;android-37.0`), targetSdk 35,
-minSdk 26. Versions live in `gradle/libs.versions.toml`. Strings: edit the table in `scripts/gen_strings.py` and run it (it writes English and
+minSdk 26. Versions live in `gradle/libs.versions.toml`. Strings: edit the table in `scripts/gen_strings.py` or a module in `scripts/strings/*.py` and run it (it writes English and
 Dutch together, so no key can miss a translation; CI checks they are in sync).
 
 `versionName` is `-PappVersion=X.Y.Z` or, by default, the repo version (`../.release-please-manifest.json`); `versionCode = X*10000 + Y*100 + Z`.
@@ -48,7 +48,8 @@ core/auth     Session + SessionStore (Tink AES-GCM, Android Keystore master key,
               or any host in debug builds; also enforced by the network security config)
 core/qr       QrCode: small pure-Kotlin QR encoder (byte mode, level M, versions 1-10; QrCodeTest decodes it with ZXing)
 core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Catalog/Library/Me/Debrid/Admin/Release repositories,
-              AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends)
+              AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends), NetworkEvents
+              (ConnectivityManager callback: "a network is back", used to refresh a saved copy), PreparePrefetcher (see "Polish")
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
 core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
               (chapters as the session playlist), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
@@ -105,6 +106,30 @@ The player consumes downloads through the `LocalFiles` interface (`core/download
 `di/LocalFilesModule`): a complete local copy always wins over streaming, file by file. The player in turn tells the storage rules which book it
 holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it, and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
 `ReleaseRepository` has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
+
+## Polish after the end-to-end test
+
+* **Saved copy of Discover** (`DiscoverViewModel`): the offline banner no longer waits for the 5-minute cache. Coming back to the app, reopening the tab
+  (`onResumed`) or a new network (`NetworkEvents`) triggers one refresh (debounced 1.5 s) when the page is a saved copy, an error, or older than 5 minutes;
+  an in-flight request is replaced, and the banner goes as soon as the answer is fresh. A fresh page is left alone.
+* **Continue listening hero**: when the player holds the hero's book (`DiscoverUiState.continueInPlayer`) the round button toggles play/pause in place
+  (pause icon while it plays, spinner while it opens) and the body opens the player; otherwise the button starts the book and the body opens the book page.
+* **Restored mini player** (`LastSessionRestorer`): at app start the newest listening book of the cached library (or the player's own newer progress row) is
+  published to `PlayerHub` as `PlayerState.restored` (phase Ready, stored position, estimated length): no service, no media session, no notification.
+  `PlaybackController.togglePlay` loads it (autoplay) and the full player loads it paused (`prepareRestored`). It follows library refreshes while untouched
+  and never comes back after the player was closed.
+* **Search** keeps its query in the `SavedStateHandle` (tab switches and process death); the results are searched again from it (catalog copy, 5 minutes).
+* **Release cards**: persimmon `PrimaryButton` "Listen with this release" (the chosen release shows a same-size outlined "Listening with this one"), outlined
+  `CompactButton` for Download, "Show files" in an overflow menu; facts, cache badges and "usable via" always sit in the same three rows.
+* **Downloads pause/resume**: `JobState.USER_PAUSED` (a plain string state, no schema change; not in `JobState.ACTIVE`, so no reconcile or restart re-enqueues
+  it). `DownloadsRepository.pause` marks the row, then cancels the work; `JobContext` refuses every state write of a still-running job on a paused row
+  (`JobPaused` -> `RunOutcome.Paused`), `resume` queues it again and the files continue with Range from their `.part`. Cancel still deletes everything.
+* **Player time labels**: "Book 1:23:45" / "-16:09:28 left" under the seek bar, "Chapter 4:12 of 18:30 · -14:18 left" under the chapter title; while
+  some lengths are estimates the book label starts with "~" and an info button (tap or long press) explains it (`TimeLeftLabel`).
+* **Getting your book ready…**: the Loading phase says so (hero, mini player, player, Book page); the mini player swaps its seek bar for a thin
+  indeterminate line while busy. The Book page starts `prepare` for the release Play would stream (`PreparePrefetcher`, via `prefetchTarget`): only a
+  debrid provider the user can use, only when the release is cached there (an uncached prepare is a real add that spends the key's budget), not for
+  BitTorrent or downloaded books, not for a book already in the player, at most once per release per 5 minutes; the answer is ignored.
 
 ## Contract v1.1 in the app
 

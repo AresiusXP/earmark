@@ -55,3 +55,15 @@ relaxes flat when paused; optional ticks and seek by tap/drag).
 * Empty and error states are typographic: a short, witty serif line, one quiet sentence, no illustration.
 * App icon: persimmon rounded square with an open-book/waveform mark (adaptive, with a monochrome layer); the splash shows the same mark
   on paper/ink.
+
+## Buttons, chips and time (polish)
+* **Buttons**: a card has at most one loud action, the filled persimmon `PrimaryButton` (20 sp bold, 56 dp). Everything else in a card is a `CompactButton`:
+  hairline outline, ink label, 14 sp medium, one line, 48 dp. Secondary full-size buttons (`SecondaryButton`) shrink their label to one line
+  instead of wrapping. Rare actions ("Show files") live in an overflow menu. The state of a card slot never changes its size: the chosen release shows an
+  outlined pill of the same height as the button it replaces.
+* **Chip rows** scroll; the chip at the edge is cut off on purpose, with a short fade into the background at the end so it reads as "more", and a picked
+  chip scrolls into view.
+* **Time**: elapsed and remaining are always labelled ("Book 1:23:45", "-16:09:28 left", "Chapter 4:12 of 18:30 · -14:18 left"). An approximate length
+  gets a "~" plus a small info button that explains it; an exact one is just clean.
+* **Waiting**: "Getting your book ready…" with the persimmon play button turning into a spinner and, in the mini player, a thin indeterminate line in
+  place of the wavy bar. No blocking dialogs.
