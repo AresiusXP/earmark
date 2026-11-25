@@ -284,6 +284,15 @@
     <string name="code_scan">Escanear código QR</string>
     <string name="input_code_invalid">Ese no es un código válido: tiene 26 letras y números (los espacios, guiones y mayúsculas no importan).</string>
     <string name="auth_scanner_unavailable">El escáner de QR no está disponible en este dispositivo. Pegá o escribí el código.</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_system">Sistema</string>
+    <string name="settings_theme_light">Claro</string>
+    <string name="settings_theme_dark">Oscuro</string>
+    <string name="settings_theme_system_help">Sigue el ajuste claro u oscuro de tu teléfono.</string>
+    <string name="settings_theme_light_help">Papel: cálido y claro, sin importar cómo esté configurado tu teléfono.</string>
+    <string name="settings_theme_dark_help">Tinta: oscuro, sin importar cómo esté configurado tu teléfono.</string>
+    <string name="settings_player_follows_theme">El reproductor sigue el tema</string>
+    <string name="settings_player_follows_theme_help">Desactivado: el reproductor de pantalla completa es siempre oscuro. Activado: se vuelve claro con el tema claro. Se guarda en este dispositivo.</string>
     <string name="downloads_title">Descargas</string>
     <string name="downloads_open">Descargas</string>
     <string name="downloads_empty_title">Todavía no hay nada en el estante</string>
