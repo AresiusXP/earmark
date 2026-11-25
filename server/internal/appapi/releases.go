@@ -15,6 +15,7 @@ import (
 
 	"github.com/AresiusXP/earmark/server/internal/debrid"
 	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/linkhosts"
 	"github.com/AresiusXP/earmark/server/internal/model"
 	"github.com/AresiusXP/earmark/server/internal/sources"
 )
@@ -259,7 +260,7 @@ func (a *app) download(w http.ResponseWriter, r *http.Request) {
 			loc, cerr := a.allow.Check(provider, res.URL)
 			if cerr != nil {
 				a.log.Warn("provider link rejected by the host allowlist", "provider", provider)
-				return prepResult{}, errBadLink
+				return prepResult{}, linkhosts.ErrBadLink
 			}
 			res.URL = loc
 			a.links.put(fp, provider, hash, idx, loc)
@@ -269,7 +270,7 @@ func (a *app) download(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, errFileNotFound):
 		WriteError(w, http.StatusNotFound, "not_found", "no such file in this release")
-	case errors.Is(err, errBadLink):
+	case errors.Is(err, linkhosts.ErrBadLink):
 		WriteError(w, http.StatusBadGateway, "upstream_failed", "the provider answered an unexpected download host")
 	case err != nil:
 		a.prepareFail(w, err)

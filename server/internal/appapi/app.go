@@ -10,6 +10,7 @@ import (
 	"github.com/AresiusXP/earmark/server/internal/appupdate"
 	"github.com/AresiusXP/earmark/server/internal/debrid"
 	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/linkhosts"
 	"github.com/AresiusXP/earmark/server/internal/metadata"
 	"github.com/AresiusXP/earmark/server/internal/model"
 	"github.com/AresiusXP/earmark/server/internal/service"
@@ -55,7 +56,7 @@ type AppDeps struct {
 	// MaxWork and MaxWorkPerKey bound the in-flight provider work (prepare, download and HEAD
 	// flights) overall and per key fingerprint; excess requests get 429 rate_limited. 0 = defaults.
 	MaxWork, MaxWorkPerKey int
-	// LinkHosts adds CDN host suffixes per provider to the built-in allowlist (see linkhosts.go).
+	// LinkHosts adds CDN host suffixes per provider to the built-in allowlist (see internal/linkhosts).
 	LinkHosts map[string][]string
 	Clock     func() time.Time
 	Logger    *slog.Logger
@@ -67,7 +68,7 @@ type app struct {
 	d     AppDeps
 	log   *slog.Logger
 	now   func() time.Time
-	allow LinkAllowlist
+	allow linkhosts.Allowlist
 	links *linkCache
 	trk   *tracker
 	bud   *budget
@@ -95,7 +96,7 @@ func (a *API) MountApp(d AppDeps) {
 		d.Logger = a.log
 	}
 	ap := &app{
-		API: a, d: d, log: d.Logger, now: d.Clock, allow: NewLinkAllowlist(d.LinkHosts),
+		API: a, d: d, log: d.Logger, now: d.Clock, allow: linkhosts.New(d.LinkHosts),
 		links: newLinkCache(d.Clock), trk: newTracker(d.Clock), bud: newBudget(d.AddsPerHour, d.Clock),
 		work: newWorkGate(d.MaxWork, d.MaxWorkPerKey), appDL: make(chan struct{}, maxAppDownloads),
 		updateCap: accounts.NewRateCap(5, 20, d.Clock), apkCap: accounts.NewRateCap(2, 20, d.Clock),

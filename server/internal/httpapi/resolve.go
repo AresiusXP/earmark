@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/AresiusXP/earmark/server/internal/debrid"
@@ -78,15 +77,16 @@ func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
 		outcome("pending")
 		s.servePlaceholder(w, r)
 	case err == nil:
-		u, perr := url.Parse(res.URL)
-		if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			s.log.Error("resolve returned an unusable url", "provider", provider)
+		// Same host allowlist as the app download route: the client follows the redirect unseen.
+		loc, cerr := s.allow.Check(provider, res.URL)
+		if cerr != nil {
+			s.log.Warn("resolve: provider link rejected by the host allowlist", "provider", label)
 			outcome("error")
 			writeError(w, http.StatusBadGateway, "provider error")
 			return
 		}
 		outcome("redirect")
-		w.Header().Set("Location", res.URL)
+		w.Header().Set("Location", loc)
 		w.WriteHeader(http.StatusFound)
 	case errors.Is(err, debrid.ErrBadKey):
 		s.log.Warn("resolve: debrid key rejected", "provider", provider)

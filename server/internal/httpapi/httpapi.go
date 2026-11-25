@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/AresiusXP/earmark/server/internal/linkhosts"
 	"github.com/AresiusXP/earmark/server/internal/service"
 	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
@@ -40,6 +41,8 @@ type Deps struct {
 	// V1 serves every path under /v1/ (the app API, see internal/appapi). It sits outside the
 	// Stremio CORS policy: no Access-Control-Allow-Origin is sent for it. nil = /v1 is a 404.
 	V1 http.Handler
+	// LinkHosts adds CDN host suffixes per provider to the allowlist of /resolve redirects (DEBRID_LINK_HOSTS).
+	LinkHosts map[string][]string
 }
 
 type server struct {
@@ -56,6 +59,7 @@ type server struct {
 	main       *http.ServeMux
 	resolveMux *http.ServeMux
 	v1         http.Handler
+	allow      linkhosts.Allowlist
 }
 
 // New builds the addon handler.
@@ -69,6 +73,7 @@ func New(d Deps) http.Handler {
 		version:   d.Version,
 		limiter:   newBucket(30, 30, time.Minute),
 		v1:        d.V1,
+		allow:     linkhosts.New(d.LinkHosts),
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.NewTextHandler(io.Discard, nil))

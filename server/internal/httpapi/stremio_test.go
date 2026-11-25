@@ -562,7 +562,7 @@ func TestLogsNeverContainSecrets(t *testing.T) {
 	e := newEnv(t, "")
 	tok := e.defaultToken(t)
 	e.api.resolve = func(userconfig.Config, string, string, int) (debrid.ResolveResult, error) {
-		return debrid.ResolveResult{URL: "https://cdn.example/secret-download-link"}, nil
+		return debrid.ResolveResult{URL: "https://nexus-1.weur.tb-cdn.st/secret-download-link"}, nil
 	}
 	e.get("/resolve/" + tok + "/torbox/" + testHash + "/1")
 	e.get("/" + tok + "/manifest.json")
