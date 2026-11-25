@@ -103,6 +103,11 @@ class PolicyGateTest {
                 }
             }
         }
+        // Liveness first: on a slow or busy machine the flipper below can hold the (unfair) lock for the whole run, so let the starters
+        // run at least once while the policy allows before the flipping starts. This is about the test making progress, not about safety.
+        gate.update(PolicyDecision.Allowed, session::apply)
+        val deadline = System.nanoTime() + 10_000_000_000L
+        while (session.resumes.isEmpty() && System.nanoTime() < deadline) Thread.sleep(1)
         val decisions = listOf(PolicyDecision.Allowed, blocked, PolicyDecision.Allowed, PolicyDecision.Disabled)
         repeat(3000) { gate.update(decisions[it % decisions.size], session::apply) }
         gate.update(blocked, session::apply)
