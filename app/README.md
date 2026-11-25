@@ -52,7 +52,7 @@ core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Cat
               AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends)
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
 core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
-              (chapters as the session playlist), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
+              (chapters as the session playlist), TrustedControllers (the exported session's gate: own uid / platform-trusted / allowlisted packages verified against their uid = full, platform-uid media keys = keys only, everyone else refused; custom commands re-checked), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
               ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository (client_id),
               DurationReporter (POST durations), SleepTimerLogic,
               PlayerHub (state) + PlaybackController (commands), PlayerPreferences (skip lengths, smart rewind)

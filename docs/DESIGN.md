@@ -446,7 +446,7 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
 * **Service.** `PlaybackService` (Media3 `MediaSessionService`, foreground `mediaPlayback`, wake + Wi-Fi lock while playing) owns one
   ExoPlayer; `PlaybackCore` is its brain (load, ticker, sleep timer, smart rewind, persistence, errors). The UI never touches the player: it
   reads `PlayerHub` (a `StateFlow<PlayerState>`, same process) and sends commands through a `MediaController` (`PlaybackController`; book-level
-  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close).
+  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close). The service is exported (lock screen, Bluetooth, Android Auto must bind), so `onConnect` is a trust gate (`TrustedControllers`, the pattern of Echoes' `core/auto`): this app (same uid), platform-trusted controllers and the system uid, and the allowlisted packages (System UI, Bluetooth stack, Android Auto, Assistant, Wear OS) whose package name matches their uid get everything; a media-button/legacy caller under a platform uid gets the playback keys only; every other app is refused. The custom commands are checked again in `onCustomCommand`.
 * **One timeline per book.** `BookTimeline(files, catalog runtime)` maps book position <-> (file, offset); a file's initial duration is what this
   phone measured, else `duration_ms` of the book page (matched by path), else estimated (rest of the runtime by size) until ExoPlayer has prepared
   the file; then it is learned and stored (`file_duration`) and, when the server had none, reported once in a batch (`POST /v1/releases/{hash}/durations`). One ExoPlayer item
