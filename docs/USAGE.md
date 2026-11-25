@@ -2,7 +2,7 @@
 
 This is the guide for **listeners**. How the addon is built is in [DESIGN.md](DESIGN.md).
 
-The addon finds audiobook torrents, checks which ones your debrid service (TorBox) already has,
+The addon finds audiobooks on public torrent indexes, checks which ones your debrid service (TorBox) already has,
 and plays them from the debrid service. You can listen in two ways:
 
 | | Stremio | Podcast app |
@@ -16,8 +16,8 @@ Use Stremio to **find** a book and a podcast app to **listen**.
 
 ## 1. Install the addon
 
-1. Open `https://<your-instance>/configure` in a browser (for the homelab:
-   <https://earmark.aresius.xyz/configure>).
+1. Open `https://<your-instance>/configure` in a browser (for example `https://earmark.example.com/configure`;
+   use the address of the instance you or someone you know runs).
 2. Enter the **instance password** (set by whoever runs the instance), your **TorBox API key**
    (TorBox → Settings → API), the Audible region, and your languages (English and/or Nederlands).
    Your key is checked with TorBox and then sealed into the install link. It is never shown again and
@@ -118,7 +118,7 @@ Tips and limits:
 
 * Environment variables: `DATABASE_URL`, `CONFIG_SECRET` (at least 32 bytes), `PUBLIC_URL`,
   `INSTANCE_PASSWORD` (required unless `ALLOW_OPEN_CONFIG=true`), `PORT`, `ADMIN_PORT` (Prometheus
-  metrics, never exposed by the Ingress), `ABB_BASE_URLS` (`off` disables AudioBook Bay), `LOG_LEVEL`.
+  metrics, never exposed by the Ingress), `ABB_BASE_URLS` (mirrors of one of the scraped indexes; `off` disables it), `LOG_LEVEL`.
 * `scripts/smoke.sh` runs the whole flow against the real APIs with a TorBox key.
-* The addon only uses public indexes, never private trackers, and only talks to the debrid service on
+* The addon only uses public torrent indexes, never private trackers, and only talks to the debrid service on
   behalf of the person whose key is sealed in the link.

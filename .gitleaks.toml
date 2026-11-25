@@ -1,0 +1,17 @@
+title = "Earmark gitleaks config"
+
+[extend]
+useDefault = true
+
+# The server tests (and the app unit/instrumented tests) use obviously fake keys and tokens as fixtures,
+# which the entropy-based `generic-api-key` rule flags. Allowlisted for that ONE rule and only in those paths:
+# every other rule (cloud keys, private keys, tokens, ...) still scans test files, and every rule still scans
+# production code, workflows, charts and docs.
+[[allowlists]]
+description = "Fake fixtures in tests (generic-api-key only)"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^server/.*_test\.go$''',
+  '''^app/.*/src/test/.*''',
+  '''^app/.*/src/androidTest/.*''',
+]

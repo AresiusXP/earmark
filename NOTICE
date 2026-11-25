@@ -1,0 +1,16 @@
+Earmark
+Copyright 2026 Patricio Danos
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes and redistributes third-party software under their own licenses.
+See THIRD_PARTY_NOTICES.md for the list of components and their licenses.
+
+----------------------------------------------------------------------------
+Attribution required by bundled Apache-2.0 components (server image):
+
+Prometheus client libraries (client_golang, client_model, common, procfs)
+Copyright 2012-2015 The Prometheus Authors
+This product includes software developed at SoundCloud Ltd. (http://soundcloud.com/).
+Includes perks (https://github.com/beorn7/perks), Copyright 2013-2015 Blake Mizerany, Bjoern Rabenstein,
+and Go support for Protocol Buffers (http://github.com/golang/protobuf/), Copyright 2010 The Go Authors.
