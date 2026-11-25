@@ -71,6 +71,9 @@ interface AudiobooksApi {
 
     @POST("v1/releases/{hash}/torrent-files") suspend fun reportTorrentFiles(@Path("hash") hash: String, @Body body: TorrentFilesRequest): TorrentFilesResponse
 
+    /** Durations a phone learned by decoding (first writer wins on the server, see `DurationReporter`). */
+    @POST("v1/releases/{hash}/durations") suspend fun reportDurations(@Path("hash") hash: String, @Body body: DurationsRequest): DurationsResponse
+
     // library
     @GET("v1/me/library") suspend fun listLibrary(@Query("status") status: String? = null): LibraryResponse
     @GET("v1/me/library/{asin}") suspend fun getLibraryEntry(@Path("asin") asin: String): LibraryEntry
