@@ -1,0 +1,225 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "207e636afeaeb8ad0b032d43b8d03ea0",
+    "entities": [
+      {
+        "tableName": "download_book",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `asin` TEXT NOT NULL, `releaseHash` TEXT NOT NULL, `source` TEXT NOT NULL, `magnet` TEXT NOT NULL, `bookJson` TEXT NOT NULL, `sizeHint` INTEGER NOT NULL, `collection` INTEGER NOT NULL, `state` TEXT NOT NULL, `failReason` TEXT, `failMessage` TEXT, `retryAfterSec` INTEGER, `pauseReason` TEXT, `preparePercent` INTEGER, `slowReason` TEXT, `unmeteredOnly` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, `preparingSinceMs` INTEGER, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, PRIMARY KEY(`userId`, `asin`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asin",
+            "columnName": "asin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseHash",
+            "columnName": "releaseHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "magnet",
+            "columnName": "magnet",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookJson",
+            "columnName": "bookJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeHint",
+            "columnName": "sizeHint",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "collection",
+            "columnName": "collection",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failReason",
+            "columnName": "failReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "failMessage",
+            "columnName": "failMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "retryAfterSec",
+            "columnName": "retryAfterSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pauseReason",
+            "columnName": "pauseReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "preparePercent",
+            "columnName": "preparePercent",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "slowReason",
+            "columnName": "slowReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unmeteredOnly",
+            "columnName": "unmeteredOnly",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preparingSinceMs",
+            "columnName": "preparingSinceMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "asin"
+          ]
+        }
+      },
+      {
+        "tableName": "download_file",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `asin` TEXT NOT NULL, `releaseHash` TEXT NOT NULL, `path` TEXT NOT NULL, `localPath` TEXT NOT NULL, `ordinal` INTEGER NOT NULL, `providerIndex` INTEGER NOT NULL, `expectedSize` INTEGER NOT NULL, `bytesDone` INTEGER NOT NULL, `size` INTEGER NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`userId`, `asin`, `releaseHash`, `path`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asin",
+            "columnName": "asin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseHash",
+            "columnName": "releaseHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localPath",
+            "columnName": "localPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ordinal",
+            "columnName": "ordinal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerIndex",
+            "columnName": "providerIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedSize",
+            "columnName": "expectedSize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bytesDone",
+            "columnName": "bytesDone",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "asin",
+            "releaseHash",
+            "path"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '207e636afeaeb8ad0b032d43b8d03ea0')"
+    ]
+  }
+}

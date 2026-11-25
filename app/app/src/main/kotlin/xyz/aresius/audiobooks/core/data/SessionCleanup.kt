@@ -8,6 +8,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import xyz.aresius.audiobooks.core.auth.SessionStore
 
+/** Another feature's data of the signed-in account (downloads, ...) that must go with the session; registered through a Hilt multibinding. */
+fun interface SessionWipeHook {
+    suspend fun wipe()
+}
+
 /**
  * Nothing of an account stays on the phone once its session is gone (sign-out, revoked device, rejected refresh) or another user signs in:
  * cached answers, the library copy, the cached profile, and the "onboarding done" flag (the next sign-in goes through the steps again).
@@ -19,10 +24,11 @@ class SessionCleanup(
     private val library: LibraryDao,
     private val me: MeRepository,
     private val prefs: AppPreferences,
+    private val hooks: Set<SessionWipeHook> = emptySet(),
 ) {
     @Inject
-    constructor(sessions: SessionStore, db: AudiobooksDb, me: MeRepository, prefs: AppPreferences) :
-        this(sessions, db.cacheDao(), db.libraryDao(), me, prefs)
+    constructor(sessions: SessionStore, db: AudiobooksDb, me: MeRepository, prefs: AppPreferences, hooks: @JvmSuppressWildcards Set<SessionWipeHook>) :
+        this(sessions, db.cacheDao(), db.libraryDao(), me, prefs, hooks)
 
     fun start(scope: CoroutineScope) {
         scope.launch {
@@ -48,5 +54,14 @@ class SessionCleanup(
         library.clear()
         me.clear()
         prefs.setOnboardingDone(false)
+        hooks.forEach { hook ->
+            try {
+                hook.wipe()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // One feature failing to clean up must not stop the others.
+            }
+        }
     }
 }

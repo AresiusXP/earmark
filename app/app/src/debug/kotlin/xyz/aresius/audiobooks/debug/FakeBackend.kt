@@ -49,7 +49,6 @@ import xyz.aresius.audiobooks.core.network.LibraryStatus
 import xyz.aresius.audiobooks.core.network.LinkCodeResponse
 import xyz.aresius.audiobooks.core.network.LinkRequest
 import xyz.aresius.audiobooks.core.network.Me
-import xyz.aresius.audiobooks.core.network.Prepare
 import xyz.aresius.audiobooks.core.network.PutDebridKeyRequest
 import xyz.aresius.audiobooks.core.network.ReleaseView
 import xyz.aresius.audiobooks.core.network.Roles
@@ -80,6 +79,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private val debridKeys = HashMap<String, DebridStatus>()
     private val library = LinkedHashMap<String, LibraryEntry>()
     private val books = sampleBooks()
+    private val downloads = DemoDownloads()
 
     init {
         invites[CodeFormat.normalize(DEMO_INVITE)] = Invite("inv-demo", "Demo invite", Instant.now().toString(), Instant.now().plusSeconds(72 * 3600).toString()) to DEMO_INVITE
@@ -98,6 +98,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private fun handle(request: Request): Response {
         val seg = request.url.pathSegments.filter { it.isNotEmpty() }
         val m = request.method
+        if (seg.firstOrNull() == "cdn") return downloads.cdn(request)
         if (seg.firstOrNull() == "covers") return cover(request, seg.getOrNull(1)?.substringBefore('.').orEmpty())
         if (seg == listOf("healthz")) return text(request, "ok")
         if (seg.size < 2 || seg[0] != "v1") return error(request, 404, "not_found", "no such route")
@@ -396,7 +397,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
 
     private fun release(book: Book, format: String, kbps: Int, size: Long, seeders: Int, cached: Map<String, Boolean>, usable: Usable): ReleaseView {
         val hash = (book.asin + format + kbps).hashCode().toUInt().toString(16).padStart(8, '0').repeat(5)
-        val files = (1..6).map { TorrentFile(it - 1, "${book.title}/Part ${it}.$format", size / 6) }
+        val files = (1..6).map { TorrentFile(it - 1, "${book.title}/Part ${it}.$format", DemoDownloads.FILE_BYTES) }
         return ReleaseView(
             infoHash = hash, title = "${book.authors.firstOrNull().orEmpty()} - ${book.title} [${format.uppercase()} ${kbps}kbps]", source = "demo", size = size, seeders = seeders,
             format = format, bitrateKbps = kbps, narrator = book.narrators.firstOrNull(), language = book.language, score = 0.9 - kbps / 1000.0, collection = false,
@@ -404,9 +405,14 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         )
     }
 
+    private fun demoFiles(hash: String): List<Pair<Int, String>> =
+        books.flatMap { releasesFor(it) }.firstOrNull { it.infoHash == hash }?.files?.map { it.index to it.path }.orEmpty()
+
     private fun releaseRoutes(request: Request, m: String, path: List<String>): Response = when {
         path.getOrNull(2) == "prepare" && m == "POST" ->
-            if (debridKeys.isEmpty()) error(request, 403, "no_debrid_key", "add a debrid key first") else json(request, Prepare(Prepare.PREPARING, 40))
+            downloads.prepare(request, path[1], demoFiles(path[1]), debridKeys.isNotEmpty())
+        path.getOrNull(2) == "files" && path.getOrNull(4) == "download" && m == "GET" ->
+            downloads.download(request, path[1], path[3].toIntOrNull() ?: 0, debridKeys.isNotEmpty())
         else -> error(request, 404, "not_found", "not implemented by the demo backend")
     }
 

@@ -61,6 +61,10 @@ import xyz.aresius.audiobooks.core.design.rememberCoverColors
 import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.ReleaseView
 import xyz.aresius.audiobooks.feature.common.Load
+import xyz.aresius.audiobooks.feature.download.DownloadButton
+import xyz.aresius.audiobooks.feature.download.DownloadControlsViewModel
+import xyz.aresius.audiobooks.feature.download.DownloadStatus
+import xyz.aresius.audiobooks.feature.download.ReleaseDownloadButton
 import xyz.aresius.audiobooks.feature.common.authorLine
 import xyz.aresius.audiobooks.feature.common.formatInstant
 import xyz.aresius.audiobooks.feature.common.formatRuntime
@@ -132,7 +136,7 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookV
                 is Load.Failed -> ErrorState(detail.error.message(), onRetry = { viewModel.load() })
                 is Load.Content -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
                     item {
-                        Hero(detail.value.book, inLibrary = state.libraryEntry != null, busy = state.libraryBusy, onToggleLibrary = viewModel::toggleLibrary, onPlayOrDownload = viewModel::onDownloadOrPlay)
+                        Hero(detail.value.book, detail.value.releases, inLibrary = state.libraryEntry != null, busy = state.libraryBusy, onToggleLibrary = viewModel::toggleLibrary, onPlay = viewModel::onDownloadOrPlay)
                     }
                     detail.value.book.description?.takeIf { it.isNotBlank() }?.let { description ->
                         item { Text(description, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = Spacing.screen)) }
@@ -151,7 +155,7 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookV
                         }
                     }
                     items(detail.value.releases, key = { it.infoHash }) { release ->
-                        ReleaseCard(release, onDownload = viewModel::onDownloadOrPlay, modifier = Modifier.padding(horizontal = Spacing.screen))
+                        ReleaseCard(release, book = detail.value.book, modifier = Modifier.padding(horizontal = Spacing.screen))
                     }
                     item { Box(Modifier.height(Spacing.l)) }
                 }
@@ -172,7 +176,8 @@ private fun BookLoading() {
 
 /** One strong hero: a big cover (soft glow in the dark theme, soft shadow in the light one), the serif title, then the facts. */
 @Composable
-private fun Hero(book: Book, inLibrary: Boolean, busy: Boolean, onToggleLibrary: () -> Unit, onPlayOrDownload: () -> Unit) {
+private fun Hero(book: Book, releases: List<ReleaseView>, inLibrary: Boolean, busy: Boolean, onToggleLibrary: () -> Unit, onPlay: () -> Unit) {
+    val downloads: DownloadControlsViewModel = hiltViewModel()
     val dark = isSystemInDarkTheme()
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
         Box(Modifier.size(224.dp).then(if (dark) Modifier else Modifier.coverShadow(CoverShape))) {
@@ -195,9 +200,10 @@ private fun Hero(book: Book, inLibrary: Boolean, busy: Boolean, onToggleLibrary:
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            PrimaryButton(stringResource(R.string.book_play), onClick = onPlayOrDownload, modifier = Modifier.weight(1f))
-            SecondaryButton(stringResource(R.string.book_download), onClick = onPlayOrDownload, modifier = Modifier.weight(1f))
+            PrimaryButton(stringResource(R.string.book_play), onClick = onPlay, modifier = Modifier.weight(1f))
+            DownloadButton(book, downloads.bestRelease(releases), modifier = Modifier.weight(1f))
         }
+        DownloadStatus(book.asin)
         SecondaryButton(
             text = stringResource(if (inLibrary) R.string.book_remove_from_library else R.string.book_add_to_library),
             onClick = onToggleLibrary,
@@ -224,7 +230,7 @@ private fun ReleasesHeader(count: Int, searchedAt: String?, stale: Boolean, refr
 }
 
 @Composable
-private fun ReleaseCard(release: ReleaseView, onDownload: () -> Unit, modifier: Modifier = Modifier) {
+private fun ReleaseCard(release: ReleaseView, book: Book, modifier: Modifier = Modifier) {
     Card(modifier.fillMaxWidth(), shape = CardShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Text(release.title, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
@@ -251,7 +257,7 @@ private fun ReleaseCard(release: ReleaseView, onDownload: () -> Unit, modifier: 
                     }
                 }
             }
-            TextButton(onClick = onDownload) { Text(stringResource(R.string.book_download), color = MaterialTheme.colorScheme.onSurface) }
+            ReleaseDownloadButton(book, release)
         }
     }
 }
