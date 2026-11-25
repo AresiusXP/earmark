@@ -56,6 +56,7 @@ interface AudiobooksApi {
     // catalog
     @GET("v1/search") suspend fun search(@Query("q") query: String): BookListResponse
     @GET("v1/discover") suspend fun discover(@Query("page") page: Int = 0): BookListResponse
+    @GET("v1/home") suspend fun home(): HomeResponse
     @GET("v1/books/{asin}") suspend fun getBook(@Path("asin") asin: String): BookDetail
     @GET("v1/books/{asin}/chapters") suspend fun getChapters(@Path("asin") asin: String): Chapters
 

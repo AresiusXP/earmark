@@ -342,6 +342,29 @@ data class Book(
 data class BookListResponse(val books: List<Book> = emptyList())
 
 @Serializable
+data class HomeShelfDto(val id: String, val kind: String = "", val arg: String? = null, val books: List<Book> = emptyList())
+
+@Serializable
+data class HomeResponse(val shelves: List<HomeShelfDto> = emptyList())
+
+enum class HomeShelfKind(val wire: String) {
+    NextInSeries("next_in_series"),
+    MoreFromAuthor("more_from_author"),
+    Bestsellers("bestsellers"),
+    Genre("genre"),
+    NewReleases("new_releases"),
+    Unknown(""),
+    ;
+
+    companion object {
+        fun fromWire(s: String): HomeShelfKind = entries.firstOrNull { it != Unknown && it.wire == s } ?: Unknown
+    }
+}
+
+/** A named shelf of the Discover screen; [arg] is the series, author or genre the title is about. */
+data class HomeShelf(val id: String, val kind: HomeShelfKind, val arg: String?, val books: List<Book>)
+
+@Serializable
 data class TorrentFile(
     val index: Int,
     val path: String,

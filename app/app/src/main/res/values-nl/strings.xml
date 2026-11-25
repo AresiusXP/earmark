@@ -103,7 +103,6 @@
     <string name="discover_title">Ontdek</string>
     <string name="discover_empty_title">Stil op de planken</string>
     <string name="discover_empty_message">Er kwamen geen boeken terug. Trek omlaag om het opnieuw te proberen.</string>
-    <string name="discover_load_more_failed">Meer laden mislukt. Tik om opnieuw te proberen.</string>
     <string name="search_title">Zoeken</string>
     <string name="search_hint">Titel, auteur of verteller</string>
     <string name="search_clear">Wissen</string>
@@ -246,8 +245,16 @@
     <string name="greeting_night_anon">Nog wakker?</string>
     <string name="discover_continue">Verder luisteren</string>
     <string name="discover_time_left">nog %1$s</string>
-    <string name="discover_shelf_first">Het beluisteren waard</string>
-    <string name="discover_shelf_more">Meer om te ontdekken</string>
+    <string name="discover_shelf_next_in_series">Verder in %1$s</string>
+    <string name="discover_shelf_more_from_author">Meer van %1$s</string>
+    <string name="discover_shelf_bestsellers">Bestsellers</string>
+    <string name="discover_shelf_new_releases">Nieuw verschenen</string>
+    <string name="discover_genre_thriller">Mysterie &amp; thrillers</string>
+    <string name="discover_genre_scifi">Sciencefiction &amp; fantasy</string>
+    <string name="discover_genre_romance">Romantiek</string>
+    <string name="discover_genre_biography">Biografieën &amp; memoires</string>
+    <string name="discover_genre_history">Geschiedenis</string>
+    <string name="discover_genre_business">Zakelijk &amp; carrière</string>
     <string name="settings_appearance">Uiterlijk</string>
     <string name="settings_dynamic_color">Kleuren van je achtergrond</string>
     <string name="settings_dynamic_color_help">Gebruik de kleuren van je achtergrond in plaats van het eigen kleurenpalet van de app. Standaard uit.</string>

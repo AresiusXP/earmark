@@ -103,7 +103,6 @@
     <string name="discover_title">Descubrir</string>
     <string name="discover_empty_title">Silencio en los estantes</string>
     <string name="discover_empty_message">No volvió ningún libro. Deslizá hacia abajo para reintentar.</string>
-    <string name="discover_load_more_failed">No se pudo cargar más. Tocá para reintentar.</string>
     <string name="search_title">Buscar</string>
     <string name="search_hint">Título, autor o narrador</string>
     <string name="search_clear">Borrar</string>
@@ -246,8 +245,16 @@
     <string name="greeting_night_anon">¿Sin sueño?</string>
     <string name="discover_continue">Seguir escuchando</string>
     <string name="discover_time_left">Quedan %1$s</string>
-    <string name="discover_shelf_first">Vale la pena escucharlo</string>
-    <string name="discover_shelf_more">Más para explorar</string>
+    <string name="discover_shelf_next_in_series">Sigue en %1$s</string>
+    <string name="discover_shelf_more_from_author">Más de %1$s</string>
+    <string name="discover_shelf_bestsellers">Los más vendidos</string>
+    <string name="discover_shelf_new_releases">Novedades</string>
+    <string name="discover_genre_thriller">Misterio y suspense</string>
+    <string name="discover_genre_scifi">Ciencia ficción y fantasía</string>
+    <string name="discover_genre_romance">Romántica</string>
+    <string name="discover_genre_biography">Biografías y memorias</string>
+    <string name="discover_genre_history">Historia</string>
+    <string name="discover_genre_business">Negocios y profesiones</string>
     <string name="settings_appearance">Apariencia</string>
     <string name="settings_dynamic_color">Colores del fondo de pantalla</string>
     <string name="settings_dynamic_color_help">Usá los colores de tu fondo de pantalla en lugar de la paleta propia de la app. Desactivado por defecto.</string>

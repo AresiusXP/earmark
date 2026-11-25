@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiResult
 import xyz.aresius.audiobooks.core.network.ErrorCode
+import xyz.aresius.audiobooks.core.network.HomeShelfKind
 import xyz.aresius.audiobooks.core.network.errorOrNull
 import xyz.aresius.audiobooks.core.network.valueOrNull
 import xyz.aresius.audiobooks.testutil.FakeServer
@@ -23,23 +24,58 @@ class CatalogRepositoryTest {
     @AfterTest fun tearDown() = server.close()
 
     @Test fun aFreshCachedAnswerNeedsNoRequest() = runBlocking<Unit> {
-        server.onJson("GET", "/v1/discover", Samples.books("B000000001", "B000000002"))
-        assertEquals(2, app.catalog.discover(0).valueOrNull?.size)
+        server.onJson("GET", "/v1/home", Samples.homeOf("B000000001", "B000000002"))
+        assertEquals(2, app.catalog.home().valueOrNull?.single()?.books?.size)
         app.now += 60_000
-        val again = app.catalog.discover(0) as ApiResult.Success
-        assertEquals(2, again.value.size)
+        val again = app.catalog.home() as ApiResult.Success
+        assertEquals(2, again.value.single().books.size)
         assertFalse(again.stale)
-        assertEquals(1, server.requestsTo("GET", "/v1/discover").size)
+        assertEquals(1, server.requestsTo("GET", "/v1/home").size)
     }
 
     @Test fun anOldOrForcedAnswerAsksTheServerAgain() = runBlocking<Unit> {
-        server.onJson("GET", "/v1/discover", Samples.books("B000000001"))
-        app.catalog.discover(0)
+        server.onJson("GET", "/v1/home", Samples.homeOf("B000000001"))
+        app.catalog.home()
         app.now += 6 * 60_000
-        app.catalog.discover(0)
-        app.catalog.discover(0, refresh = true)
-        assertEquals(3, server.requestsTo("GET", "/v1/discover").size)
-        assertEquals("0", server.requestsTo("GET", "/v1/discover").first().url.queryParameter("page"))
+        app.catalog.home()
+        app.catalog.home(refresh = true)
+        assertEquals(3, server.requestsTo("GET", "/v1/home").size)
+    }
+
+    @Test fun homeMapsKindsAndSkipsUnknownKindsAndEmptyShelves() = runBlocking<Unit> {
+        server.onJson(
+            "GET", "/v1/home",
+            Samples.home(
+                Samples.shelf("a", "more_from_author", "Ann", "B000000001"),
+                Samples.shelf("b", "future_kind", null, "B000000002"),
+                Samples.shelf("c", "new_releases", null),
+                Samples.shelf("d", "genre", "thriller", "B000000003"),
+            ),
+        )
+        val shelves = app.catalog.home().valueOrNull!!
+        assertEquals(listOf("a", "d"), shelves.map { it.id })
+        assertEquals(listOf(HomeShelfKind.MoreFromAuthor, HomeShelfKind.Genre), shelves.map { it.kind })
+        assertEquals("thriller", shelves[1].arg)
+    }
+
+    @Test fun aServerWithoutHomeFallsBackToDiscoverAsBestsellers() = runBlocking<Unit> {
+        server.on("GET", "/v1/home", FakeServer.error(404, "not_found"))
+        server.onJson("GET", "/v1/discover", Samples.books("B000000001"))
+        val shelf = app.catalog.home().valueOrNull!!.single()
+        assertEquals(HomeShelfKind.Bestsellers, shelf.kind)
+        assertEquals("B000000001", shelf.books.single().asin)
+        assertEquals("0", server.requestsTo("GET", "/v1/discover").single().url.queryParameter("page"))
+    }
+
+    @Test fun aFailedHomeServesTheOldCopyMarkedStale() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/home", Samples.homeOf("B000000001"))
+        app.catalog.home()
+        app.now += 10 * 60_000
+        server.on("GET", "/v1/home", FakeServer.error(503, "upstream_failed"))
+        server.on("GET", "/v1/discover", FakeServer.error(503, "upstream_failed"))
+        val r = app.catalog.home() as ApiResult.Success
+        assertTrue(r.stale)
+        assertEquals("B000000001", r.value.single().books.single().asin)
     }
 
     @Test fun aFailureServesTheOldCopyMarkedStale() = runBlocking<Unit> {

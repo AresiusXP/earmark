@@ -103,7 +103,6 @@
     <string name="discover_title">Discover</string>
     <string name="discover_empty_title">Quiet on the shelves</string>
     <string name="discover_empty_message">No books came back. Pull down to try again.</string>
-    <string name="discover_load_more_failed">Couldn\'t load more. Tap to retry.</string>
     <string name="search_title">Search</string>
     <string name="search_hint">Title, author or narrator</string>
     <string name="search_clear">Clear</string>
@@ -246,8 +245,16 @@
     <string name="greeting_night_anon">Still up?</string>
     <string name="discover_continue">Continue listening</string>
     <string name="discover_time_left">%1$s left</string>
-    <string name="discover_shelf_first">Worth a listen</string>
-    <string name="discover_shelf_more">More to explore</string>
+    <string name="discover_shelf_next_in_series">Next in %1$s</string>
+    <string name="discover_shelf_more_from_author">More from %1$s</string>
+    <string name="discover_shelf_bestsellers">Best sellers</string>
+    <string name="discover_shelf_new_releases">New releases</string>
+    <string name="discover_genre_thriller">Mystery &amp; thrillers</string>
+    <string name="discover_genre_scifi">Science fiction &amp; fantasy</string>
+    <string name="discover_genre_romance">Romance</string>
+    <string name="discover_genre_biography">Biographies &amp; memoirs</string>
+    <string name="discover_genre_history">History</string>
+    <string name="discover_genre_business">Business &amp; careers</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_dynamic_color">Wallpaper colors</string>
     <string name="settings_dynamic_color_help">Use your wallpaper\'s colors instead of the app\'s own palette. Off by default.</string>

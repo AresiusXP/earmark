@@ -13,22 +13,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -40,8 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import xyz.aresius.audiobooks.R
 import xyz.aresius.audiobooks.core.design.LocalDarkTheme
 import xyz.aresius.audiobooks.core.design.ColorMath
@@ -56,6 +48,8 @@ import xyz.aresius.audiobooks.core.design.WavyProgressBar
 import xyz.aresius.audiobooks.core.design.coverShadow
 import xyz.aresius.audiobooks.core.design.extras
 import xyz.aresius.audiobooks.core.design.rememberCoverColors
+import xyz.aresius.audiobooks.core.network.HomeShelf
+import xyz.aresius.audiobooks.core.network.HomeShelfKind
 import xyz.aresius.audiobooks.core.network.LibraryEntry
 import xyz.aresius.audiobooks.feature.common.Load
 import xyz.aresius.audiobooks.feature.common.ShelfCover
@@ -96,15 +90,8 @@ fun DiscoverScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, onO
                 item { ErrorState(books.error.message(), onRetry = { viewModel.load() }) }
             }
             is Load.Content -> PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = { viewModel.load() }, modifier = Modifier.fillMaxSize()) {
-                val listState = rememberLazyListState()
-                val shelfList = shelves(books.value)
-                LaunchedEffect(listState, shelfList.size) {
-                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
-                        .distinctUntilChanged()
-                        .filter { it >= listState.layoutInfo.totalItemsCount - 2 }
-                        .collect { viewModel.loadMore() }
-                }
-                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = Spacing.l)) {
+                val shelfList = books.value.mapNotNull { shelf -> shelfTitleRes(shelf)?.let { shelf to it } }
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = Spacing.l)) {
                     item { Greeting(state) }
                     state.continueListening?.let { entry ->
                         item {
@@ -126,27 +113,38 @@ fun DiscoverScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, onO
                             )
                         }
                     }
-                    if (books.value.isEmpty()) {
+                    if (shelfList.isEmpty()) {
                         item { EmptyState(stringResource(R.string.discover_empty_title), message = stringResource(R.string.discover_empty_message)) }
                     }
-                    itemsIndexed(shelfList) { index, shelf ->
-                        Shelf(
-                            title = stringResource(if (index == 0) R.string.discover_shelf_first else R.string.discover_shelf_more),
-                            books = shelf,
-                            onBook = onBook,
-                        )
-                    }
-                    item {
-                        Row(Modifier.fillMaxWidth().padding(vertical = Spacing.s), horizontalArrangement = Arrangement.Center) {
-                            when {
-                                state.loadingMore -> CircularProgressIndicator(Modifier.padding(Spacing.s))
-                                state.loadMoreError != null -> TextButton(onClick = viewModel::loadMore) { Text(stringResource(R.string.discover_load_more_failed)) }
-                            }
-                        }
+                    items(shelfList, key = { it.first.id }) { (shelf, title) ->
+                        Shelf(title = stringResource(title.res, *title.args), books = shelf.books, onBook = onBook)
                     }
                 }
             }
         }
+    }
+}
+
+private class ShelfTitle(val res: Int, val args: Array<Any>)
+
+/** The title of a shelf, or null for one the app cannot name (unknown genre): such a shelf is not shown. */
+private fun shelfTitleRes(shelf: HomeShelf): ShelfTitle? {
+    val arg = shelf.arg.orEmpty()
+    return when (shelf.kind) {
+        HomeShelfKind.NextInSeries -> if (arg.isBlank()) null else ShelfTitle(R.string.discover_shelf_next_in_series, arrayOf(arg))
+        HomeShelfKind.MoreFromAuthor -> if (arg.isBlank()) null else ShelfTitle(R.string.discover_shelf_more_from_author, arrayOf(arg))
+        HomeShelfKind.Bestsellers -> ShelfTitle(R.string.discover_shelf_bestsellers, emptyArray())
+        HomeShelfKind.NewReleases -> ShelfTitle(R.string.discover_shelf_new_releases, emptyArray())
+        HomeShelfKind.Genre -> when (arg) {
+            "thriller" -> R.string.discover_genre_thriller
+            "scifi" -> R.string.discover_genre_scifi
+            "romance" -> R.string.discover_genre_romance
+            "biography" -> R.string.discover_genre_biography
+            "history" -> R.string.discover_genre_history
+            "business" -> R.string.discover_genre_business
+            else -> null
+        }?.let { ShelfTitle(it, emptyArray()) }
+        HomeShelfKind.Unknown -> null
     }
 }
 

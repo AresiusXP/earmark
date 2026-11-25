@@ -26,6 +26,8 @@ import xyz.aresius.audiobooks.core.network.BootstrapRequest
 import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.BookDetail
 import xyz.aresius.audiobooks.core.network.BookListResponse
+import xyz.aresius.audiobooks.core.network.HomeResponse
+import xyz.aresius.audiobooks.core.network.HomeShelfDto
 import xyz.aresius.audiobooks.core.network.Bookmark
 import xyz.aresius.audiobooks.core.network.BookmarksResponse
 import xyz.aresius.audiobooks.core.network.Chapter
@@ -122,6 +124,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
             "admin" -> adminRoutes(request, m, path)
             "search" -> search(request)
             "discover" -> discover(request)
+            "home" -> home(request)
             "books" -> bookRoutes(request, path)
             "releases" -> releaseRoutes(request, m, path)
             else -> error(request, 404, "not_found", "no such route")
@@ -383,6 +386,12 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         if (q.equals("error", ignoreCase = true)) return error(request, 503, "upstream_failed", "demo failure: search is down", retryAfter = 0)
         val hits = visibleBooks().filter { b -> listOf(b.title, b.authors.joinToString(), b.narrators.joinToString(), b.series.orEmpty()).any { it.contains(q, ignoreCase = true) } }
         return json(request, BookListResponse(hits))
+    }
+
+    private fun home(request: Request): Response {
+        val all = visibleBooks()
+        val shelves = listOf(HomeShelfDto("bestsellers", "bestsellers", null, all.take(PAGE_SIZE)), HomeShelfDto("new_releases", "new_releases", null, all.drop(PAGE_SIZE)))
+        return json(request, HomeResponse(shelves.filter { it.books.isNotEmpty() }))
     }
 
     private fun discover(request: Request): Response {

@@ -17,6 +17,7 @@ import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.BookDetail
 import xyz.aresius.audiobooks.core.network.Chapter
 import xyz.aresius.audiobooks.core.network.Chapters
+import xyz.aresius.audiobooks.core.network.HomeShelf
 import xyz.aresius.audiobooks.core.network.Provider
 import xyz.aresius.audiobooks.core.network.ReleaseView
 import xyz.aresius.audiobooks.core.network.TorrentFile
@@ -28,7 +29,7 @@ import xyz.aresius.audiobooks.testutil.testSession
 class BookLoaderTest {
     private class FakeCatalog(var detail: ApiResult<BookDetail>, var chapters: ApiResult<Chapters>, var fresh: ApiResult<BookDetail>? = null) : CatalogRepository {
         val refreshes = ArrayList<Boolean>()
-        override suspend fun discover(page: Int, refresh: Boolean) = ApiResult.Success(emptyList<Book>())
+        override suspend fun home(refresh: Boolean) = ApiResult.Success(emptyList<HomeShelf>())
         override suspend fun search(query: String, refresh: Boolean) = ApiResult.Success(emptyList<Book>())
         override suspend fun book(asin: String, refresh: Boolean): ApiResult<BookDetail> {
             refreshes.add(refresh)

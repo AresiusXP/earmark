@@ -14,8 +14,3 @@ fun greetingForHour(hour: Int, eveningFrom: Int = 18): Greeting = when {
 
 /** Spanish keeps "Buenas tardes" until 20:00 (dusk comes late in the Spanish-speaking world); other languages switch at 18:00. */
 fun eveningFromHour(language: String = Locale.getDefault().language): Int = if (language == "es") 20 else 18
-
-/** Splits a flat list into shelves of [size]; the last one may be shorter. */
-fun <T> shelves(items: List<T>, size: Int = SHELF_SIZE): List<List<T>> = items.chunked(size)
-
-const val SHELF_SIZE = 8

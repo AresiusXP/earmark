@@ -24,9 +24,8 @@ import xyz.aresius.audiobooks.core.data.LibraryRepository
 import xyz.aresius.audiobooks.core.data.MeRepository
 import xyz.aresius.audiobooks.core.data.NetworkEvents
 import xyz.aresius.audiobooks.core.data.NoNetworkEvents
-import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiResult
-import xyz.aresius.audiobooks.core.network.Book
+import xyz.aresius.audiobooks.core.network.HomeShelf
 import xyz.aresius.audiobooks.core.network.LibraryEntry
 import xyz.aresius.audiobooks.core.network.LibraryStatus
 import xyz.aresius.audiobooks.core.player.PlayerControls
@@ -34,12 +33,8 @@ import xyz.aresius.audiobooks.core.player.PlayerPhase
 import xyz.aresius.audiobooks.feature.common.Load
 
 data class DiscoverUiState(
-    val books: Load<List<Book>> = Load.Loading,
+    val books: Load<List<HomeShelf>> = Load.Loading,
     val refreshing: Boolean = false,
-    val loadingMore: Boolean = false,
-    /** False once a page came back empty. */
-    val canLoadMore: Boolean = true,
-    val loadMoreError: ApiError? = null,
     val greeting: Greeting = Greeting.Evening,
     /** The user's display name for the greeting; null until the profile is known. */
     val name: String? = null,
@@ -85,7 +80,6 @@ class DiscoverViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
 
-    private var nextPage = 0
     private var loadJob: Job? = null
     private var loadedAtMs = 0L
 
@@ -130,37 +124,16 @@ class DiscoverViewModel(
         loadJob?.cancel()
         local.update { it.copy(refreshing = true, greeting = greetingForHour(hourNow(), eveningFromHour()), books = if (it.books is Load.Content) it.books else Load.Loading) }
         loadJob = viewModelScope.launch {
-            val r = catalog.discover(0, refresh)
-            nextPage = 1
+            val r = catalog.home(refresh)
             if (r is ApiResult.Success && !r.stale) loadedAtMs = clock()
             local.update { s ->
                 when (r) {
                     is ApiResult.Success -> s.copy(
                         books = Load.Content(r.value, r.stale),
                         refreshing = false,
-                        canLoadMore = r.value.isNotEmpty() && !r.stale,
-                        loadMoreError = null,
                     )
                     is ApiResult.Failure -> s.copy(refreshing = false, books = if (s.books is Load.Content) s.books.copy(stale = true) else Load.Failed(r.error))
                 }
-            }
-        }
-    }
-
-    fun loadMore() {
-        val s = local.value
-        val current = (s.books as? Load.Content)?.value ?: return
-        if (s.loadingMore || s.refreshing || !s.canLoadMore) return
-        local.update { it.copy(loadingMore = true, loadMoreError = null) }
-        viewModelScope.launch {
-            when (val r = catalog.discover(nextPage)) {
-                is ApiResult.Success -> {
-                    nextPage++
-                    val known = current.mapTo(HashSet()) { it.asin }
-                    val fresh = r.value.filter { it.asin !in known }
-                    local.update { it.copy(loadingMore = false, books = Load.Content(current + fresh), canLoadMore = r.value.isNotEmpty()) }
-                }
-                is ApiResult.Failure -> local.update { it.copy(loadingMore = false, loadMoreError = r.error) }
             }
         }
     }

@@ -11,6 +11,14 @@ object Samples {
     fun book(asin: String = "B000000001", title: String = "Pride and Prejudice") =
         """{"asin":"$asin","title":"$title","authors":["Jane Austen"],"narrators":["Rosamund Pike"],"language":"english","runtime_min":660,"cover_url":"https://img.example/$asin.jpg"}"""
 
+    fun shelf(id: String, kind: String, arg: String?, vararg asins: String) =
+        """{"id":"$id","kind":"$kind",${arg?.let { "\"arg\":\"$it\"," } ?: ""}"books":[${asins.joinToString(",") { book(it, "Book $it") }}]}"""
+
+    fun home(vararg shelves: String) = """{"shelves":[${shelves.joinToString(",")}]}"""
+
+    /** A home answer with one bestsellers shelf of [asins]. */
+    fun homeOf(vararg asins: String) = home(shelf("bestsellers", "bestsellers", null, *asins))
+
     fun books(vararg asins: String) = """{"books":[${asins.joinToString(",") { book(it, "Book $it") }}]}"""
 
     fun release(hash: String = "a".repeat(40), usable: String = """{"debrid":["torbox"],"p2p":false}""", cached: String = """{"torbox":true}""") =
