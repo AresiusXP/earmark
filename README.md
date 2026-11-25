@@ -138,3 +138,8 @@ helm/                Helm chart
   what you stream: use it with content you have the right to listen to.
 * The addon talks to the debrid service on behalf of the person whose key is sealed in the link, and
   nothing is stored on the server except public book and release metadata.
+
+## License
+
+Earmark is licensed under the [Apache License 2.0](LICENSE), Copyright 2026 Patricio Danos.
+Third-party components keep their own licenses: see [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
