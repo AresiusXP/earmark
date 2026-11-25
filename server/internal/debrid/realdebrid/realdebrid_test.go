@@ -719,6 +719,68 @@ func TestFiles(t *testing.T) {
 	})
 }
 
+func TestStatusIsReadOnly(t *testing.T) {
+	sideEffects := func(f *fakeRD) int {
+		return f.count("POST /torrents/addMagnet") + f.count("POST /torrents/selectFiles/T") + f.count("POST /unrestrict/link")
+	}
+	ctx := context.Background()
+	t.Run("not in the account", func(t *testing.T) {
+		f, c := newFake(t)
+		if _, err := c.Status(ctx, testKey, hashA); !errors.Is(err, debrid.ErrNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+		if sideEffects(f) != 0 {
+			t.Fatal("Status added a torrent")
+		}
+	})
+	t.Run("waiting for the selection stays pending and is not selected", func(t *testing.T) {
+		f, c := newFake(t)
+		f.put(torrent{ID: "T", Hash: hashA, Status: "waiting_files_selection", Files: []file{audio(1, "a.mp3", 1)}})
+		st, err := c.Status(ctx, testKey, hashA)
+		if err != nil || st.State != debrid.StatePending {
+			t.Fatalf("Status = %+v, %v", st, err)
+		}
+		if sideEffects(f) != 0 || f.count("POST /torrents/selectFiles/T") != 0 {
+			t.Fatal("Status selected files")
+		}
+	})
+	t.Run("downloading reports progress", func(t *testing.T) {
+		f, c := newFake(t)
+		f.put(torrent{ID: "T", Hash: hashA, Status: "downloading", Progress: 42})
+		st, err := c.Status(ctx, testKey, hashA)
+		if err != nil || st.State != debrid.StatePending || st.Progress != 42 {
+			t.Fatalf("Status = %+v, %v", st, err)
+		}
+	})
+	t.Run("downloaded is ready with the selected files and requests no link", func(t *testing.T) {
+		f, c := newFake(t)
+		f.put(torrent{ID: "T", Hash: hashA, Status: "downloaded", Files: []file{
+			{ID: 1, Path: "/B/cover.jpg", Bytes: 9},
+			{ID: 2, Path: "/B/01.mp3", Bytes: 10, Selected: 1},
+		}, Links: []string{"https://real-debrid.com/d/x"}})
+		st, err := c.Status(ctx, testKey, strings.ToUpper(hashA))
+		if err != nil || st.State != debrid.StateReady || !equalFiles(st.Files, []model.File{{Index: 2, Path: "B/01.mp3", Size: 10}}) {
+			t.Fatalf("Status = %+v, %v", st, err)
+		}
+		if sideEffects(f) != 0 {
+			t.Fatal("Status unrestricted a link")
+		}
+	})
+	t.Run("failed, bad key, bad hash", func(t *testing.T) {
+		f, c := newFake(t)
+		f.put(torrent{ID: "T", Hash: hashA, Status: "magnet_error"})
+		if _, err := c.Status(ctx, testKey, hashA); !errors.Is(err, debrid.ErrFailed) {
+			t.Fatalf("err = %v", err)
+		}
+		if _, err := c.Status(ctx, "", hashA); !errors.Is(err, debrid.ErrBadKey) {
+			t.Fatalf("err = %v", err)
+		}
+		if _, err := c.Status(ctx, testKey, "xyz"); !errors.Is(err, debrid.ErrNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
 func equalFiles(a, b []model.File) bool {
 	if len(a) != len(b) {
 		return false

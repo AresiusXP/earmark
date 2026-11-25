@@ -254,7 +254,7 @@ func (a *app) download(w http.ResponseWriter, r *http.Request) {
 	pin := prepIn{userID: p.UserID, key: key, provider: prov, rel: *rel, fileIndex: idx, allowAdd: !head}
 	res, err := a.dl.do(r.Context(), strings.Join([]string{fp, provider, hash, strconv.Itoa(idx), mode}, "\x00"), flightTimeout, a.admit(fp), func(ctx context.Context) (prepResult, error) {
 		res, err := a.prepare(ctx, pin)
-		if err == nil && res.State == stateReady {
+		if err == nil && res.State == stateReady && !res.ReadyNoLink {
 			// Validated and cached inside the flight, so every waiter gets the same checked link.
 			loc, cerr := a.allow.Check(provider, res.URL)
 			if cerr != nil {
@@ -273,6 +273,8 @@ func (a *app) download(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadGateway, "upstream_failed", "the provider answered an unexpected download host")
 	case err != nil:
 		a.prepareFail(w, err)
+	case res.State == stateReady && res.ReadyNoLink:
+		w.WriteHeader(http.StatusOK) // HEAD: ready, a GET redirects; the link is not made read-only
 	case res.State == stateReady:
 		a.redirect(w, provider, res.URL)
 	case res.State == stateFailed:

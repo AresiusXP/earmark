@@ -770,3 +770,53 @@ func TestResolveEmptyLibraryAnswersItemNotFound(t *testing.T) {
 		t.Fatalf("res=%+v err=%v, want Pending (torrent added, not visible yet)", res, err)
 	}
 }
+
+func TestStatusIsReadOnly(t *testing.T) {
+	ctx := context.Background()
+	list := func(items ...string) route { return okData("[" + strings.Join(items, ",") + "]") }
+	status := func(t *testing.T, item string) (debrid.Status, error, *fakeTorBox) {
+		var routes map[string]route
+		if item == "" {
+			routes = map[string]route{"GET /v1/api/torrents/mylist": list()}
+		} else {
+			routes = map[string]route{"GET /v1/api/torrents/mylist": list(item)}
+		}
+		f, c := newFake(t, routes) // any other request (create, requestdl) is an "unexpected request" failure
+		st, err := c.Status(ctx, testKey, strings.ToUpper(hashA))
+		return st, err, f
+	}
+	t.Run("not in the account", func(t *testing.T) {
+		if _, err, _ := status(t, ""); !errors.Is(err, debrid.ErrNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("ready with files", func(t *testing.T) {
+		st, err, f := status(t, itemJSON(7, hashA, "cached", true, true, 1, twoFiles))
+		if err != nil || st.State != debrid.StateReady || len(st.Files) != 2 || st.Files[1].Index != 1 {
+			t.Fatalf("Status = %+v, %v", st, err)
+		}
+		if f.count("POST /v1/api/torrents/createtorrent")+f.count("GET /v1/api/torrents/requestdl") != 0 {
+			t.Fatal("Status created a torrent or asked for a link")
+		}
+	})
+	t.Run("downloading", func(t *testing.T) {
+		st, err, _ := status(t, itemJSON(7, hashA, "downloading", false, false, 0.5, `[]`))
+		if err != nil || st.State != debrid.StatePending || st.Progress != 50 {
+			t.Fatalf("Status = %+v, %v", st, err)
+		}
+	})
+	t.Run("failed", func(t *testing.T) {
+		if _, err, _ := status(t, itemJSON(7, hashA, "error", false, false, 0, `[]`)); !errors.Is(err, debrid.ErrFailed) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("bad key and bad hash", func(t *testing.T) {
+		_, c := newFake(t, map[string]route{})
+		if _, err := c.Status(ctx, "", hashA); !errors.Is(err, debrid.ErrBadKey) {
+			t.Fatalf("err = %v", err)
+		}
+		if _, err := c.Status(ctx, testKey, "xyz"); !errors.Is(err, debrid.ErrNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}

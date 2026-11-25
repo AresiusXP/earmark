@@ -59,6 +59,31 @@ type FileLister interface {
 	Files(ctx context.Context, key, hash string) ([]model.File, error)
 }
 
+// TorrentState is where a torrent of the user's account stands.
+type TorrentState string
+
+const (
+	// StatePending: queued, converting, downloading or waiting for a file selection.
+	StatePending TorrentState = "pending"
+	// StateReady: every file can be requested now.
+	StateReady TorrentState = "ready"
+)
+
+// Status is a read-only snapshot of one torrent in the user's account.
+type Status struct {
+	State    TorrentState
+	Progress int          // 0-100, meaningful while StatePending
+	Files    []model.File // downloadable files with the same indexes as Resolve; may be empty
+}
+
+// StatusReader is optionally implemented by providers that can report the state of a torrent in the
+// user's account WITHOUT any side effect: it never adds a torrent, never selects files and never
+// asks for a download link. A hash that is not in the account answers ErrNotFound, a torrent that
+// failed at the provider ErrFailed. HEAD requests rely on it.
+type StatusReader interface {
+	Status(ctx context.Context, key, hash string) (Status, error)
+}
+
 // Deleter is optionally implemented by providers that can remove a torrent from the user's
 // account (for example to retry a failed one). A hash that is not there is not an error.
 type Deleter interface {

@@ -566,7 +566,8 @@ paths:
       description: |
         Makes the release ready at the caller's debrid provider (adds the torrent with the caller's key when
         needed). Idempotent and cheap to poll: it never re-adds a torrent that is already queued. Uses the
-        provider's add budget per key; `429 rate_limited` when spent.
+        provider's add budget per key; `429 rate_limited` when spent, and also when too many provider calls
+        are in flight at once (overall or for the key). Prepare and download share one add per torrent and key.
       parameters:
         - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
       requestBody:
@@ -594,11 +595,15 @@ paths:
         `302` to the provider's short-lived CDN link for one file (`Location` is validated against an HTTPS
         allowlist of provider CDN hosts). The link must be used immediately, never stored. `202` with a
         `Prepare` body when the file is not ready yet; `403 no_debrid_key` / `bad_debrid_key`.
-        Supports `HEAD` without side effects (never adds a torrent; answers `202` when it cannot tell without
-        adding). The route serves streaming (a player opens it, follows the redirect, seeks with Range requests
+        Supports `HEAD` without side effects: it only uses read-only provider calls (never adds a torrent,
+        selects files, deletes or creates a link) and answers `302` only from the server's link cache, `200`
+        (empty body, no `Location`) when the provider reports the file ready (a `GET` then redirects), `202`
+        when it cannot tell without adding or the file is not ready, `502` for a failed release and `404` for
+        a file that is not in the torrent. The route serves streaming (a player opens it, follows the redirect, seeks with Range requests
         and reconnects) as well as downloading: the server caches the resolved link in memory per key for a few
         minutes, so repeated requests are cheap. Adding a torrent shares the per-key add budget of `prepare`
-        (`429 rate_limited`). A release that failed at the provider answers `502 upstream_failed` (the message
+        (`429 rate_limited`), and so does the number of provider calls in flight: too many at once overall or
+        for one debrid key (HEAD included) is `429 rate_limited` with `Retry-After`. A release that failed at the provider answers `502 upstream_failed` (the message
         names the reason); a file index that is not in the torrent answers `404`.
       parameters:
         - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
@@ -606,6 +611,7 @@ paths:
         - {name: provider, in: query, required: true, schema: {$ref: "#/components/schemas/Provider"}}
       responses:
         "302": {description: Redirect to the CDN., headers: {Location: {schema: {type: string, format: uri}}}}
+        "200": {description: "`HEAD` only: the provider reports the file ready; a `GET` redirects. No body, no `Location`."}
         "202": {description: Not ready., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
         "400": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}

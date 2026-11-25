@@ -3,6 +3,7 @@ package appapi
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,6 +40,9 @@ type prepResult struct {
 	Files       []model.File
 	RetryAfter  time.Duration
 	URL         string
+	// ReadyNoLink: ready as far as a read-only probe (HEAD) can tell; there is no URL because
+	// creating a link is not side-effect free.
+	ReadyNoLink bool
 }
 
 // budgetError: the key's cold-add budget is spent.
@@ -224,12 +228,14 @@ func (a *app) coldAdd(ctx context.Context, in prepIn) coldOut {
 	return coldOut{did: true, idx: in.fileIndex, pending: res, files: cachedFiles}
 }
 
-// peek answers a !allowAdd call (HEAD) with read-only knowledge only: the in-memory state of the
-// key, and a read-only provider listing (Files). It never calls Resolve (which adds torrents and
-// selects files), never spends budget and writes no availability. What it cannot prove read-only
-// is answered as "preparing" (202).
+// peek answers a !allowAdd call (HEAD) from read-only knowledge only: the in-memory state of the
+// key and the provider's read-only calls (debrid.StatusReader, else debrid.FileLister). It never
+// calls Resolve (which adds torrents, selects files and creates links), never spends budget, never
+// deletes and writes no availability. "ready" has no URL (creating the link is not read-only);
+// whatever cannot be proven read-only is "preparing" (202).
 func (a *app) peek(ctx context.Context, in prepIn) (prepResult, error) {
 	fp, name, hash := in.key.Fingerprint, in.provider.Name(), in.rel.InfoHash
+	apiKey := in.key.APIKey()
 	k := prepKey{fp, name, hash}
 	if left := a.trk.coolingDown(fp, name); left > 0 {
 		return cooldownResult(left), nil
@@ -238,16 +244,37 @@ func (a *app) peek(ctx context.Context, in prepIn) (prepResult, error) {
 	if !st.failedAt.IsZero() {
 		return prepResult{State: stateFailed, Reason: st.failReason}, nil // a HEAD never retries
 	}
-	if !st.inAccount {
-		if lister, ok := in.provider.(debrid.FileLister); ok {
-			_, err := lister.Files(ctx, in.key.APIKey(), hash)
-			switch {
-			case err == nil:
-				a.trk.update(k, func(s *prepState) { s.inAccount = true })
-			case errors.Is(err, debrid.ErrNotFound):
-			default:
-				return a.failure(in, k, err)
+	if st.readyUntil.After(a.now()) {
+		return prepResult{State: stateReady, ReadyNoLink: true}, nil // a prepare proved it a moment ago
+	}
+	switch p := in.provider.(type) {
+	case debrid.StatusReader:
+		s, err := p.Status(ctx, apiKey, hash)
+		switch {
+		case err == nil:
+			a.trk.update(k, func(s *prepState) { s.inAccount = true })
+			if s.State != debrid.StateReady {
+				return prepResult{State: statePreparing, Progress: s.Progress, HasProgress: true}, nil
 			}
+			if in.fileIndex != debrid.AutoFile && len(s.Files) > 0 && !slices.ContainsFunc(s.Files, func(f model.File) bool { return f.Index == in.fileIndex }) {
+				return prepResult{}, errFileNotFound
+			}
+			return prepResult{State: stateReady, ReadyNoLink: true}, nil
+		case errors.Is(err, debrid.ErrNotFound):
+			return prepResult{State: statePreparing}, nil
+		}
+		return a.failure(in, k, err)
+	case debrid.FileLister:
+		if st.inAccount {
+			break
+		}
+		_, err := p.Files(ctx, apiKey, hash)
+		switch {
+		case err == nil:
+			a.trk.update(k, func(s *prepState) { s.inAccount = true })
+		case errors.Is(err, debrid.ErrNotFound):
+		default:
+			return a.failure(in, k, err)
 		}
 	}
 	return prepResult{State: statePreparing}, nil

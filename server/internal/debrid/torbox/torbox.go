@@ -44,6 +44,7 @@ type Client struct {
 }
 
 var _ debrid.Provider = (*Client)(nil)
+var _ debrid.StatusReader = (*Client)(nil)
 
 // New returns a Client. An empty baseURL selects DefaultBaseURL, a nil hc a client with a 30s timeout.
 func New(baseURL string, hc *http.Client) *Client {
@@ -218,6 +219,31 @@ func (c *Client) Resolve(ctx context.Context, key string, req debrid.ResolveRequ
 		return debrid.ResolveResult{}, err
 	}
 	return debrid.ResolveResult{URL: link}, nil
+}
+
+// Status implements debrid.StatusReader: a read-only look at the account listing (mylist). It never
+// creates a torrent and never requests a download link.
+func (c *Client) Status(ctx context.Context, key, hash string) (debrid.Status, error) {
+	if key == "" {
+		return debrid.Status{}, debrid.ErrBadKey
+	}
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	if !hashRe.MatchString(hash) {
+		return debrid.Status{}, fmt.Errorf("torbox: status: invalid info hash: %w", debrid.ErrNotFound)
+	}
+	it, err := c.findInList(ctx, key, hash, false)
+	if err != nil {
+		return debrid.Status{}, err
+	}
+	switch {
+	case it == nil:
+		return debrid.Status{}, fmt.Errorf("torbox: torrent not in the account: %w", debrid.ErrNotFound)
+	case it.failed():
+		return debrid.Status{}, fmt.Errorf("torbox: torrent state %q: %w", it.DownloadState, debrid.ErrFailed)
+	case it.ready():
+		return debrid.Status{State: debrid.StateReady, Progress: 100, Files: toFiles(it.Files)}, nil
+	}
+	return debrid.Status{State: debrid.StatePending, Progress: it.percent()}, nil
 }
 
 // largestAudioFile returns the id of the largest audio file (ids default to the position).
