@@ -15,8 +15,13 @@ import (
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
 )
 
-// Catalog responses are per user but cheap to repeat; everything else stays no-store.
-const catalogCacheControl = "private, max-age=300"
+// Search, discover and chapters carry nothing per user: a client may repeat them cheaply. The book
+// page mixes in per-user fields (cached, usable), so it must be revalidated every time. Everything
+// else stays no-store.
+const (
+	catalogCacheControl = "private, max-age=300"
+	bookCacheControl    = "private, no-store"
+)
 
 const (
 	minQuery       = 2
@@ -246,7 +251,7 @@ func (a *app) book(w http.ResponseWriter, r *http.Request) {
 			Usable: usableDTO{Debrid: nonNil(providers), P2P: rel.Magnet != "" && p2p},
 		}
 	}
-	w.Header().Set("Cache-Control", catalogCacheControl)
+	w.Header().Set("Cache-Control", bookCacheControl)
 	WriteJSON(w, http.StatusOK, out)
 }
 

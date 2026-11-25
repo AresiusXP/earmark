@@ -260,7 +260,7 @@ func TestBookPageIsComputedForTheCaller(t *testing.T) {
 	page := func(s session) map[string]any {
 		r := e.req("GET", "/v1/books/"+duneASIN, s.access, nil)
 		r.status(t, 200)
-		if r.cacheControl() != "private, max-age=300" {
+		if r.cacheControl() != "private, no-store" { // per-user fields (cached, usable) are mixed in
 			t.Fatalf("Cache-Control = %q", r.cacheControl())
 		}
 		for _, k := range []string{aTB, aRD, bRD} {

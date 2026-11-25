@@ -252,8 +252,9 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     limited to 4 concurrent downloads (`503` + `Retry-After`) and is `no-store` like every other response (no override). `APP_UPDATE_MAX_BYTES`
     (default 200 MiB) is checked when the bundle is loaded: a larger APK (by `update.json` or on disk) means "no update", with a warning. The app compares `version_code` itself and verifies the sha256. The
     release pipeline that bakes the files into the image is Phase 5.
-  * **Caching headers**: `search`, `discover`, `books/{asin}` and `chapters` answer `private, max-age=300` on 200 only; everything else
-    (the APK included) `no-store`.
+  * **Caching headers**: `search`, `discover` and `chapters` answer `private, max-age=300` on 200 only; `books/{asin}` answers
+    `private, no-store` (it mixes the caller's `cached`/`usable` into shared data; contract v1.1, it used to be `max-age=300`, which
+    showed a stale cache state right after a key change or prepare); everything else (the APK included) `no-store`.
   * **Housekeeping**: `cmd/addon/cleanup.go` deletes `user_availability` rows older than 30 days at start and every 6 hours (context-aware;
     readers ignore anything older than the availability TTL anyway, this only bounds the table).
   * New env: `PREPARE_ADDS_PER_HOUR` (default 30), `APP_UPDATE_DIR` (default `/update`), `APP_UPDATE_MAX_BYTES` (default 209715200),

@@ -58,9 +58,11 @@ info:
     sign-in endpoints have a generous request-rate cap instead (never a failure lockout: their secrets are
     unguessable); over it they answer `429 rate_limited` with `Retry-After`.
 
-    **Caching.** All responses are `Cache-Control: no-store`, except catalog responses
-    (`search`, `discover`, `books` and `books/{asin}/chapters`) which are `private, max-age=300`.
-    The APK download is `no-store` too.
+    **Caching.** All responses are `Cache-Control: no-store`, except `search`, `discover` and
+    `books/{asin}/chapters` (nothing per user in them), which are `private, max-age=300` on a 200.
+    `GET /v1/books/{asin}` mixes per-user fields (`cached`, `usable`) into shared data, so it is
+    `private, no-store`: never serve it from a cache without asking the server. Errors and the APK
+    download are `no-store`.
 
     **Retry.** Clients retry `502`, `503` and `504` (a deploy replaces the single pod) and honour
     `Retry-After`.
@@ -543,6 +545,7 @@ paths:
       description: |
         The book and its ranked releases (looks for releases when none are known or the last search is
         stale). Per-user fields (`cached`, `usable`) are computed for the caller; the rest is shared.
+        The response is `Cache-Control: private, no-store`.
       parameters:
         - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
       responses:
