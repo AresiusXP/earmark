@@ -321,7 +321,7 @@ paths:
     patch:
       tags: [admin]
       operationId: adminUpdateUser
-      description: Disable or re-enable a user (disabling revokes every device). You cannot disable yourself or the last admin.
+      description: Disable or re-enable a user. A disabled user's access and refresh tokens stop working at once; the devices are kept, so re-enabling restores them. You cannot disable yourself or the last admin.
       parameters:
         - {name: userId, in: path, required: true, schema: {type: string}}
       requestBody:
