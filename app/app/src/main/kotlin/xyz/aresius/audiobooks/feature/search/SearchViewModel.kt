@@ -1,5 +1,6 @@
 package xyz.aresius.audiobooks.feature.search
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,12 +38,16 @@ data class SearchUiState(
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val catalog: CatalogRepository,
+    private val saved: SavedStateHandle,
 ) : ViewModel() {
-    private val query = MutableStateFlow("")
+    // The query is kept in the saved state: it survives leaving the tab and process death, and the results are searched again from it
+    // (the catalog's own copy answers within its 5 minutes, so a return to the tab shows the same list at once).
+    private val restored = saved.get<String>(KEY_QUERY).orEmpty().take(MAX_QUERY_KEPT)
+    private val query = MutableStateFlow(restored)
     private val retry = MutableStateFlow(0)
 
     private val results: StateFlow<SearchResultsState> = combine(
-        query.map { it.trim() }.debounce { if (it.length < MIN_LENGTH) 0L else DEBOUNCE_MS }.distinctUntilChanged(),
+        query.map { it.trim() }.debounce { if (it.length < MIN_LENGTH || it == restored.trim()) 0L else DEBOUNCE_MS }.distinctUntilChanged(),
         retry,
     ) { q, attempt -> q to attempt }
         .flatMapLatest { (q, attempt) ->
@@ -57,13 +62,20 @@ class SearchViewModel @Inject constructor(
                 }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchResultsState.Idle)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, initialResults(restored.trim()))
 
     val state: StateFlow<SearchUiState> = combine(query, results) { q, r -> SearchUiState(q, r) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchUiState())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchUiState(restored, initialResults(restored.trim())))
 
     fun onQueryChange(text: String) {
         query.value = text
+        saved[KEY_QUERY] = text.take(MAX_QUERY_KEPT)
+    }
+
+    private fun initialResults(q: String): SearchResultsState = when {
+        q.isEmpty() -> SearchResultsState.Idle
+        q.length < MIN_LENGTH -> SearchResultsState.TooShort
+        else -> SearchResultsState.Results(Load.Loading)
     }
 
     fun retry() {
@@ -72,6 +84,8 @@ class SearchViewModel @Inject constructor(
 
     companion object {
         /** `q` has `minLength: 2` and `maxLength: 120` in the contract. */
+        const val KEY_QUERY = "query"
+        private const val MAX_QUERY_KEPT = 200
         const val MIN_LENGTH = 2
         const val MAX_LENGTH = 120
         const val DEBOUNCE_MS = 400L
