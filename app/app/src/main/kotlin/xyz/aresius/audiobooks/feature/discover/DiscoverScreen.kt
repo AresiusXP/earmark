@@ -1,7 +1,6 @@
 package xyz.aresius.audiobooks.feature.discover
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import xyz.aresius.audiobooks.R
+import xyz.aresius.audiobooks.core.design.LocalDarkTheme
 import xyz.aresius.audiobooks.core.design.ColorMath
 import xyz.aresius.audiobooks.core.design.CoverImage
 import xyz.aresius.audiobooks.core.design.CoverShape
@@ -180,7 +180,7 @@ private fun Shelf(title: String, books: List<xyz.aresius.audiobooks.core.network
  */
 @Composable
 private fun ContinueListening(entry: LibraryEntry, positionMs: Long, playing: Boolean, busy: Boolean, onClick: () -> Unit, onPlay: () -> Unit) {
-    val dark = isSystemInDarkTheme()
+    val dark = LocalDarkTheme.current
     val cover by rememberCoverColors(entry.book.coverUrl)
     val progress = progressFraction(positionMs, entry.book.runtimeMin)
     val leftMin = (entry.book.runtimeMin - (positionMs / 60_000L).toInt()).coerceAtLeast(0)

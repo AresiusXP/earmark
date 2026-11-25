@@ -13,6 +13,10 @@ import kotlinx.coroutines.launch
 import xyz.aresius.audiobooks.core.auth.SessionStore
 import xyz.aresius.audiobooks.core.data.AppPreferences
 import xyz.aresius.audiobooks.core.data.MeRepository
+import xyz.aresius.audiobooks.core.design.ThemeMode
+
+/** What the Theme needs; `null` until DataStore answered (the splash stays up until then, so the wrong theme never shows). */
+data class Appearance(val themeMode: ThemeMode = ThemeMode.System, val dynamicColor: Boolean = false, val playerFollowsTheme: Boolean = false)
 
 sealed interface AppState {
     data object Loading : AppState
@@ -32,8 +36,9 @@ class AppViewModel @Inject constructor(
         if (session != null && done) AppState.Main else AppState.Onboarding
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AppState.Loading)
 
-    /** The opt-in Settings switch for wallpaper colors (default off). */
-    val dynamicColor: StateFlow<Boolean> = prefs.dynamicColor.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    /** Theme choice, wallpaper colors and the player switch, applied app-wide at once (no activity restart). */
+    val appearance: StateFlow<Appearance?> = combine(prefs.themeMode, prefs.dynamicColor, prefs.playerFollowsTheme, ::Appearance)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Shows the admin-only entry in Settings; the server still enforces it (403). */
     val isAdmin: StateFlow<Boolean> = me.me.map { it?.isAdmin == true }.stateIn(viewModelScope, SharingStarted.Eagerly, false)

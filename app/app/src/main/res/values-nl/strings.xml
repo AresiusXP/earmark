@@ -284,6 +284,15 @@
     <string name="code_scan">QR-code scannen</string>
     <string name="input_code_invalid">Dat is geen geldige code: hij heeft 26 letters en cijfers (spaties, streepjes en hoofdletters maken niet uit).</string>
     <string name="auth_scanner_unavailable">De QR-scanner is niet beschikbaar op dit apparaat. Plak of typ de code.</string>
+    <string name="settings_theme">Thema</string>
+    <string name="settings_theme_system">Systeem</string>
+    <string name="settings_theme_light">Licht</string>
+    <string name="settings_theme_dark">Donker</string>
+    <string name="settings_theme_system_help">Volgt de lichte of donkere instelling van je telefoon.</string>
+    <string name="settings_theme_light_help">Papier: warm en licht, wat je telefoon ook heeft ingesteld.</string>
+    <string name="settings_theme_dark_help">Inkt: donker, wat je telefoon ook heeft ingesteld.</string>
+    <string name="settings_player_follows_theme">Speler volgt het thema</string>
+    <string name="settings_player_follows_theme_help">Uit: de volledige spelerweergave is altijd donker. Aan: hij wordt licht bij het lichte thema. Opgeslagen op dit apparaat.</string>
     <string name="downloads_title">Downloads</string>
     <string name="downloads_open">Downloads</string>
     <string name="downloads_empty_title">Nog niets op de plank</string>

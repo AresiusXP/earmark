@@ -1,7 +1,7 @@
 <resources>
-    <!-- Splash (androidx.core:core-splashscreen): paper background, the persimmon app mark; then the app theme. -->
+    <!-- Splash (androidx.core:core-splashscreen): persimmon background with the paper mark in light AND dark, so it is right whatever the in-app theme choice is; then the app theme. -->
     <style name="Theme.Audiobooks" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/audiobooks_background</item>
+        <item name="windowSplashScreenBackground">@color/audiobooks_persimmon</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
         <item name="postSplashScreenTheme">@style/Theme.Audiobooks.App</item>
     </style>

@@ -68,6 +68,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import xyz.aresius.audiobooks.R
 import xyz.aresius.audiobooks.core.design.AudiobooksTheme
+import xyz.aresius.audiobooks.core.design.LocalDarkTheme
+import xyz.aresius.audiobooks.core.design.LocalPlayerFollowsTheme
+import xyz.aresius.audiobooks.core.design.playerIsDark
 import xyz.aresius.audiobooks.core.design.CoverImage
 import xyz.aresius.audiobooks.core.design.CoverShape
 import xyz.aresius.audiobooks.core.design.PrimaryButton
@@ -85,7 +88,8 @@ import xyz.aresius.audiobooks.feature.common.authorLine
 private enum class Sheet { Chapters, Speed, Sleep, Bookmarks }
 
 /**
- * The full-screen player: always dark, its background and accents taken from the cover. Big cover, serif title, small-caps author, the chapter
+ * The full-screen player: dark (cover-derived ink) unless Settings > Appearance > "Player follows the theme" is on and the theme is light (then a
+ * cover-derived paper tone with dark text, same AA contrast); its background and accents taken from the cover. Big cover, serif title, small-caps author, the chapter
  * line, a wavy seek bar over the WHOLE book with a tick at every chapter start, time elapsed and left, squircle skip buttons around a round
  * play button, and pills for speed, sleep timer and bookmarks. While the book opens, the provider prepares it, or something failed, the
  * controls give way to that state in words.
@@ -94,16 +98,17 @@ private enum class Sheet { Chapters, Speed, Sleep, Bookmarks }
 fun PlayerScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit, onOpenSettings: () -> Unit, viewModel: PlayerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
-    AudiobooksTheme(darkTheme = true) {
+    val playerDark = playerIsDark(appDark = LocalDarkTheme.current, followsTheme = LocalPlayerFollowsTheme.current)
+    AudiobooksTheme(darkTheme = playerDark) {
         val cover by rememberCoverColors(state.book?.coverUrl)
         val scheme = coverColorScheme(MaterialTheme.colorScheme, cover)
         MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-            LightStatusBarIcons(false)
+            PlayerBarIcons(darkIcons = !playerDark)
             AskForNotificationPermission()
             LaunchedEffect(state.hasBook) { if (!state.hasBook) onBack() }
             // The mini player restored after a restart opens here: the book is loaded now (paused), not before the user asks for it.
             LaunchedEffect(state.restored) { if (state.restored) viewModel.prepareRestored() }
-            // The player is always dark: Text and Icon without a colour must follow its scheme, not the (light) app theme around it.
+            // Text and Icon without a colour must follow the player's scheme, not the app theme around it (they differ by default).
             CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
                 PlayerContent(state, bookmarks, viewModel, glow = cover?.glow, onBack, onOpenBook, onOpenSettings)
             }
@@ -124,11 +129,12 @@ private fun PlayerContent(
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var menu by remember { mutableStateOf(false) }
     val book = state.book
+    val dark = LocalDarkTheme.current
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).drawBehind {
             if (glow != null) {
                 val center = Offset(size.width / 2, size.height * 0.28f)
-                drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.30f), Color.Transparent), center = center, radius = 300.dp.toPx()), radius = 300.dp.toPx(), center = center)
+                drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = if (dark) 0.30f else 0.20f), Color.Transparent), center = center, radius = 300.dp.toPx()), radius = 300.dp.toPx(), center = center)
             }
         },
     ) {
@@ -334,16 +340,21 @@ private fun FailedBlock(phase: PlayerPhase.Failed, onRetry: () -> Unit, onAddKey
     }
 }
 
-/** The status-bar icons stay light on the dark player and go back to the system's choice when it closes. */
+/** Status and navigation bar icons match the player's own tone (light icons on the dark player) and go back to the app theme's when it closes. */
 @Composable
-private fun LightStatusBarIcons(light: Boolean) {
+private fun PlayerBarIcons(darkIcons: Boolean) {
     val view = LocalView.current
-    DisposableEffect(light) {
+    DisposableEffect(darkIcons) {
         val window = (view.context as? Activity)?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        val previous = controller?.isAppearanceLightStatusBars
-        controller?.isAppearanceLightStatusBars = light
-        onDispose { if (previous != null) controller.isAppearanceLightStatusBars = previous }
+        val previousStatus = controller?.isAppearanceLightStatusBars
+        val previousNav = controller?.isAppearanceLightNavigationBars
+        controller?.isAppearanceLightStatusBars = darkIcons
+        controller?.isAppearanceLightNavigationBars = darkIcons
+        onDispose {
+            if (previousStatus != null) controller.isAppearanceLightStatusBars = previousStatus
+            if (previousNav != null) controller.isAppearanceLightNavigationBars = previousNav
+        }
     }
 }
 

@@ -57,7 +57,13 @@ object CoverColorDeriver {
             steps++
         }
         val muted = nudge(ColorMath.mix(on, bg, 0.30f), bg, on)
-        val accent = accentFor(vibrant ?: swatch, bg, on == paper)
+        var accent = accentFor(vibrant ?: swatch, bg, on == paper)
+        // A mid-tone accent can leave both ink and paper just under AA as its label: keep moving it the same way (away from the page's tone).
+        var tries = 0
+        while (labelContrast(accent, ink, paper) < TEXT_RATIO && tries < 40) {
+            accent = ColorMath.toHsl(accent).let { ColorMath.fromHsl(it.copy(l = (it.l + if (on == paper) 0.01f else -0.01f).coerceIn(0f, 1f))) }
+            tries++
+        }
         val onAccent = if (ColorMath.contrast(ink, accent) >= ColorMath.contrast(paper, accent)) ink else paper
         val tonal = ColorMath.mix(bg, on, 0.07f)
         return CoverColors(bg, on, muted, accent, onAccent, tonal, glow = swatch.copy(alpha = 0.34f))
@@ -81,6 +87,8 @@ object CoverColorDeriver {
         // Always terminates in a pass: the extremes (near-white on dark, near-black on light) have AA contrast on these backgrounds.
         return if (ColorMath.contrast(out, bg) >= TEXT_RATIO) out else nudge(out, bg, if (lighten) Color.White else Color.Black)
     }
+
+    private fun labelContrast(accent: Color, ink: Color, paper: Color) = maxOf(ColorMath.contrast(ink, accent), ColorMath.contrast(paper, accent))
 
     /** Moves [c] toward [target] (the text color) until it reads on [bg] with AA contrast. */
     private fun nudge(c: Color, bg: Color, target: Color): Color {

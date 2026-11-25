@@ -49,6 +49,8 @@ import xyz.aresius.audiobooks.core.design.PrimaryButton
 import xyz.aresius.audiobooks.core.design.ScreenTitle
 import xyz.aresius.audiobooks.core.design.Section
 import xyz.aresius.audiobooks.core.design.SecondaryButton
+import xyz.aresius.audiobooks.core.design.SegmentedChoice
+import xyz.aresius.audiobooks.core.design.ThemeMode
 import xyz.aresius.audiobooks.core.design.Spacing
 import xyz.aresius.audiobooks.core.network.Device
 import xyz.aresius.audiobooks.core.network.SETTINGS_FORMATS
@@ -164,8 +166,29 @@ fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, onDownloads: () -> Uni
                 }
             }
             Section(stringResource(R.string.settings_playback)) { PlaybackSection() }
-            if (DynamicColorSupported) {
-                Section(stringResource(R.string.settings_appearance)) {
+            Section(stringResource(R.string.settings_appearance)) {
+                Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.labelLarge)
+                SegmentedChoice(
+                    options = listOf(
+                        ThemeMode.System to stringResource(R.string.settings_theme_system),
+                        ThemeMode.Light to stringResource(R.string.settings_theme_light),
+                        ThemeMode.Dark to stringResource(R.string.settings_theme_dark),
+                    ),
+                    selected = state.themeMode,
+                    onSelect = viewModel::setThemeMode,
+                )
+                Text(
+                    stringResource(
+                        when (state.themeMode) {
+                            ThemeMode.System -> R.string.settings_theme_system_help
+                            ThemeMode.Light -> R.string.settings_theme_light_help
+                            ThemeMode.Dark -> R.string.settings_theme_dark_help
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (DynamicColorSupported) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.settings_dynamic_color), style = MaterialTheme.typography.titleSmall)
@@ -173,6 +196,13 @@ fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, onDownloads: () -> Uni
                         }
                         Switch(checked = state.dynamicColor, onCheckedChange = viewModel::setDynamicColor)
                     }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.settings_player_follows_theme), style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.settings_player_follows_theme_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = state.playerFollowsTheme, onCheckedChange = viewModel::setPlayerFollowsTheme)
                 }
             }
             Section(stringResource(R.string.settings_debrid)) { DebridSection() }

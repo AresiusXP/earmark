@@ -121,6 +121,47 @@ class ContrastTest {
         }
     }
 
+    /** The light player (Settings > "Player follows the theme"): cover-derived paper tones with ink text, for any cover. */
+    @Test fun theLightPlayerSurfacesKeepAaForAnyCover() {
+        val random = Random(7)
+        val edge = listOf(Color.Black, Color.White, Color(0xFFFF0000), Color(0xFF00FF00), Color(0xFF0000FF), Color(0xFFFFFF00), Color(0xFF808080), Color(0xFF1E1A17), Color(0xFFF6F0E6))
+        val covers = edge + List(500) { Color(random.nextFloat(), random.nextFloat(), random.nextFloat(), 1f) }
+        val ink = PaperPalette.onSurface
+        val paper = PaperPalette.background
+        covers.forEach { swatch ->
+            listOf(null, Color(random.nextFloat(), random.nextFloat(), random.nextFloat(), 1f)).forEach { vibrant ->
+                val c = CoverColorDeriver.derive(swatch, vibrant, dark = false, ink = ink, paper = paper)
+                // the player's surfaces: page, tonal panels (sheets, pills), the muted lines, the accent (wave, play button, links)
+                val pairs = listOf(
+                    Triple("text/background", c.onBackground, c.background) to 4.5,
+                    Triple("text/tonal", c.onBackground, c.tonalSurface) to 4.5,
+                    Triple("muted/background", c.muted, c.background) to 4.5,
+                    Triple("muted/tonal", c.muted, c.tonalSurface) to 4.5,
+                    Triple("accent/background", c.accent, c.background) to 4.5,
+                    Triple("accent/tonal", c.accent, c.tonalSurface) to 3.0,
+                    Triple("onAccent/accent", c.onAccent, c.accent) to 4.5,
+                )
+                pairs.forEach { (p, min) ->
+                    val ratio = ColorMath.contrast(p.second, p.third)
+                    assertTrue(ratio >= min, "light player ${p.first} ${"%.2f".format(ratio)} < $min on $swatch / $vibrant")
+                }
+                assertTrue(ColorMath.luminance(c.background) > 0.6, "light player stays paper-light on $swatch")
+                assertTrue(ColorMath.luminance(c.onBackground) < 0.1, "light player text stays ink-dark on $swatch")
+            }
+        }
+    }
+
+    @Test fun theLightDerivationLightensAndDesaturatesTowardPaperInsteadOfDarkeningTowardInk() {
+        val saturated = Color(0xFF8A1C1C)
+        val light = CoverColorDeriver.derive(saturated, null, dark = false, ink = PaperPalette.onSurface, paper = PaperPalette.background)
+        val dark = CoverColorDeriver.derive(saturated, null, dark = true, ink = InkPalette.background, paper = InkPalette.onSurface)
+        assertTrue(ColorMath.luminance(light.background) > ColorMath.luminance(saturated), "lighter than the cover")
+        assertTrue(ColorMath.luminance(dark.background) < ColorMath.luminance(saturated), "darker than the cover")
+        assertTrue(ColorMath.toHsl(light.background).s < ColorMath.toHsl(saturated).s, "desaturated")
+        assertTrue(ColorMath.contrast(light.background, PaperPalette.background) < 1.35, "close to the paper itself")
+        assertTrue(light.glow.alpha < 0.4f, "the glow stays subtle")
+    }
+
     @Test fun coverBackgroundsStayCloseToTheBaseSchemeTone() {
         val vividRed = Color(0xFFFF0000)
         val dark = CoverColorDeriver.derive(vividRed, null, true, InkPalette.background, InkPalette.onSurface)

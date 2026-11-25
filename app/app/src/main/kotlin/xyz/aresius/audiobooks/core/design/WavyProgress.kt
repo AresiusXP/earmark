@@ -130,7 +130,8 @@ fun WavyProgressBar(
     }
 }
 
-@Preview(widthDp = 360)
+@Preview(name = "Paper", widthDp = 360)
+@Preview(name = "Ink", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, widthDp = 360)
 @Composable
 private fun WavyProgressPreview() = AudiobooksPreviewSurface {
     androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth(), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {

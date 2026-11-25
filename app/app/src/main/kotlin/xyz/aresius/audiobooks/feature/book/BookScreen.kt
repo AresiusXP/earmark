@@ -3,7 +3,6 @@ package xyz.aresius.audiobooks.feature.book
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +56,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
+import xyz.aresius.audiobooks.core.design.LocalDarkTheme
 import xyz.aresius.audiobooks.core.design.Badge
 import xyz.aresius.audiobooks.core.design.BadgeStyle
 import xyz.aresius.audiobooks.core.design.CardShape
@@ -119,7 +119,7 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, onPlay: () -> Un
             viewModel.consumeError()
         }
     }
-    val dark = isSystemInDarkTheme()
+    val dark = LocalDarkTheme.current
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(
             if (dark && glow != null) {
@@ -206,7 +206,7 @@ private fun BookLoading() {
 private fun Hero(book: Book, releases: List<ReleaseView>, state: BookUiState, onToggleLibrary: () -> Unit, onPlay: () -> Unit, onOpenSettings: () -> Unit) {
     val downloads: DownloadControlsViewModel = hiltViewModel()
     val downloadRelease = state.chosen?.release?.takeIf { downloads.canDownload(it) } ?: downloads.bestRelease(releases)
-    val dark = isSystemInDarkTheme()
+    val dark = LocalDarkTheme.current
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
         Box(Modifier.size(224.dp).then(if (dark) Modifier else Modifier.coverShadow(CoverShape))) {
             CoverImage(book.coverUrl, Modifier.size(224.dp), shape = CoverShape, contentDescription = book.title, asin = book.asin)

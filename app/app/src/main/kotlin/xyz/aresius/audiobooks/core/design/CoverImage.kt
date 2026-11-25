@@ -56,7 +56,8 @@ fun CoverImage(
     }
 }
 
-@Preview
+@Preview(name = "Paper")
+@Preview(name = "Ink", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun CoverImagePreview() = AudiobooksPreviewSurface {
     CoverImage(null, Modifier.padding(16.dp).size(120.dp), shadow = true)

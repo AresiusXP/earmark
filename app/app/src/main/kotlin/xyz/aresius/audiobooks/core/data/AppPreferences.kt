@@ -14,6 +14,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import xyz.aresius.audiobooks.core.design.ThemeMode
 
 const val DEFAULT_SERVER_URL = "https://earmark.aresius.xyz"
 
@@ -32,6 +33,14 @@ interface AppPreferences {
     /** Opt-in wallpaper (dynamic) colors, Android 12+. OFF by default: the app has its own palette. */
     val dynamicColor: Flow<Boolean>
     suspend fun setDynamicColor(enabled: Boolean)
+
+    /** Light (paper), dark (ink) or follow the phone (default). Per device; survives sign-out. */
+    val themeMode: Flow<ThemeMode>
+    suspend fun setThemeMode(mode: ThemeMode)
+
+    /** OFF (default): the full-screen player is always dark. ON: it uses the light palette when the app theme is light. */
+    val playerFollowsTheme: Flow<Boolean>
+    suspend fun setPlayerFollowsTheme(enabled: Boolean)
 }
 
 private val Context.appDataStore: DataStore<Preferences> by preferencesDataStore("audiobooks_app")
@@ -57,7 +66,19 @@ class DataStoreAppPreferences(private val dataStore: DataStore<Preferences>) : A
         dataStore.edit { it[DYNAMIC_COLOR] = enabled }
     }
 
+    override val themeMode: Flow<ThemeMode> = dataStore.data.map { ThemeMode.fromKey(it[THEME_MODE]) }
+    override suspend fun setThemeMode(mode: ThemeMode) {
+        dataStore.edit { it[THEME_MODE] = mode.key }
+    }
+
+    override val playerFollowsTheme: Flow<Boolean> = dataStore.data.map { it[PLAYER_FOLLOWS_THEME] ?: false }
+    override suspend fun setPlayerFollowsTheme(enabled: Boolean) {
+        dataStore.edit { it[PLAYER_FOLLOWS_THEME] = enabled }
+    }
+
     private companion object {
+        val THEME_MODE = stringPreferencesKey("theme_mode")
+        val PLAYER_FOLLOWS_THEME = booleanPreferencesKey("player_follows_theme")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val SERVER_URL = stringPreferencesKey("server_url")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")

@@ -1,0 +1,10 @@
+# Settings > Appearance: theme choice (per device) and the player's theme.
+add("settings_theme", "Theme", "Thema")
+add("settings_theme_system", "System", "Systeem")
+add("settings_theme_light", "Light", "Licht")
+add("settings_theme_dark", "Dark", "Donker")
+add("settings_theme_system_help", "Follows your phone's light or dark setting.", "Volgt de lichte of donkere instelling van je telefoon.")
+add("settings_theme_light_help", "Paper: warm and light, whatever your phone is set to.", "Papier: warm en licht, wat je telefoon ook heeft ingesteld.")
+add("settings_theme_dark_help", "Ink: dark, whatever your phone is set to.", "Inkt: donker, wat je telefoon ook heeft ingesteld.")
+add("settings_player_follows_theme", "Player follows the theme", "Speler volgt het thema")
+add("settings_player_follows_theme_help", "Off: the full-screen player is always dark. On: it turns light with the Light theme. Saved on this device.", "Uit: de volledige spelerweergave is altijd donker. Aan: hij wordt licht bij het lichte thema. Opgeslagen op dit apparaat.")
