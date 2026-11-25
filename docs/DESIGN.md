@@ -351,3 +351,30 @@ provider index); consumers match by path, never by index.
 0 contract + design (this section, `api/openapi.yaml`) -> 1 server (users/invites/devices, per-user keys, `appapi`, Real-Debrid,
 library/progress/bookmarks, chapters, torrent-files) in parallel with 2 app skeleton -> 3 player + debrid downloads -> 4 BitTorrent
 -> 5 polish, Android Auto, release pipeline (APK baked into the server image at `/update`), retiring Stremio.
+
+## Delivery
+
+One version (`vX.Y.Z`, release-please, `.release-please-manifest.json`) for the server image, the Helm chart and the APK.
+Gradle reads that same manifest (`-PappVersion` overrides it), so `versionName` is the release and
+`versionCode = X*10000 + Y*100 + Z` (each component 0..99 without leading zeros; checked by `release.yml`, Gradle and
+`appupdate.VersionCode`). Steps and secrets: `docs/RELEASING.md`.
+
+* **`release.yml`** (push to main, or `workflow_dispatch` with an existing tag): `release-please` -> `apk` -> `images` -> `chart` -> `register`.
+  * `apk`: JDK 17, Android SDK, Gradle cache, `:app:assembleRelease -PappVersion=X.Y.Z` signed with the keystore decoded from the
+    secrets (kept in `RUNNER_TEMP`, deleted at the end), `apksigner verify` (refuses the debug key; pins the certificate when the
+    repository variable `ANDROID_CERT_SHA256` is set). Output: `audiobooks-X.Y.Z.apk` + `.sha256` uploaded to the GitHub release and,
+    as workflow artifact `apk` (5 days), `audiobooks.apk` + `update.json` in the format of `server/internal/appupdate`
+    (`version_name`, `version_code`, `sha256`, `size`, `notes` = release body capped at 4000, `released_at`).
+  * `images`: waits for `apk` but **never depends on its success** (fail-open). It downloads the artifact into `server/update/`,
+    re-checks version, sha256 and size, and bakes it in (`COPY update/ /update/`, `APP_UPDATE_DIR=/update`). A missing or inconsistent
+    bundle gives a warning annotation and a job summary line "NOT included"; the image is still built and the server reports
+    "no update bundled". The Dockerfile never uses `COPY . .`, and `server/update/*.apk|update.json` are git-ignored (only `.gitkeep`
+    is tracked).
+  * Recovery: `workflow_dispatch` with `tag`. `apk` rebuilds the APK of that tag; `images` skips an existing image tag (immutable)
+    unless `force_images` is ticked, which is how an image published without the APK gets it later. A tag that predates the
+    pipeline (its Dockerfile has no `COPY update/`) is built without the bundle.
+  * `chart` and `register` are unchanged: the chart version must equal the tag, publishing is idempotent, and `register` only moves
+    `targetRevision` in `argocd-apps` forward and skips pre-releases.
+* **CI** is path-filtered: `ci-app.yml` (app/, `api/openapi.yaml`, the manifest) runs the strings-generator consistency check,
+  unit tests, lint and `assembleDebug`; `ci-server.yml` (server/) and `ci-helm.yml` (helm/) do not run for app-only changes, and
+  vice versa.

@@ -1,17 +1,22 @@
 name: CI — App
 
+# Path-filtered: server-only changes do not run this (ci-server.yml has the mirror filter).
+# .release-please-manifest.json is the version Gradle reads, so a version bump is built too.
+
 on:
   push:
     branches: [main]
     paths:
       - "app/**"
       - "api/openapi.yaml"
+      - ".release-please-manifest.json"
       - ".github/workflows/ci-app.yml"
   pull_request:
     branches: [main]
     paths:
       - "app/**"
       - "api/openapi.yaml"
+      - ".release-please-manifest.json"
       - ".github/workflows/ci-app.yml"
 
 concurrency:
