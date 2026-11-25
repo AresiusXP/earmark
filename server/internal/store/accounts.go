@@ -19,7 +19,8 @@ var _ accounts.Store = (*Postgres)(nil)
 const usersLockKey int64 = 0x61626B5F75736572 // "abk_user"
 
 const userCols = `u.id::text, u.display_name, u.role, u.disabled, u.created_at, u.last_seen_at,
-	u.region, u.languages, u.prefer_format, u.preferred_provider, u.source_mode, u.p2p_enabled`
+	u.region, u.languages, u.prefer_format, u.preferred_provider, u.source_mode, u.p2p_enabled,
+	(SELECT g.email FROM google_identities g WHERE g.user_id = u.id)`
 
 func scanUser(row pgx.Row, extra ...any) (accounts.User, error) {
 	var (
@@ -28,7 +29,7 @@ func scanUser(row pgx.Row, extra ...any) (accounts.User, error) {
 	)
 	dst := append([]any{&u.ID, &u.DisplayName, &role, &u.Disabled, &u.CreatedAt, &u.LastSeenAt,
 		&u.Settings.Region, &u.Settings.Languages, &u.Settings.PreferFormat, &u.Settings.PreferredProvider,
-		&u.Settings.SourceMode, &u.Settings.P2PEnabled}, extra...)
+		&u.Settings.SourceMode, &u.Settings.P2PEnabled, &u.GoogleEmail}, extra...)
 	if err := row.Scan(dst...); err != nil {
 		return accounts.User{}, err
 	}
@@ -179,6 +180,12 @@ func (p *Postgres) DeleteInvite(ctx context.Context, actorID, id string) error {
 }
 
 func (p *Postgres) RedeemInvite(ctx context.Context, codeHash []byte, displayName, deviceName string, refreshHash []byte, now time.Time) (accounts.Registered, error) {
+	return p.redeemInvite(ctx, codeHash, nil, displayName, deviceName, refreshHash, now)
+}
+
+// redeemInvite marks the invite used, creates the user and its first device and, when g is set,
+// links the Google identity, all in one transaction.
+func (p *Postgres) redeemInvite(ctx context.Context, codeHash []byte, g *accounts.GoogleIdentity, displayName, deviceName string, refreshHash []byte, now time.Time) (accounts.Registered, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return accounts.Registered{}, fmt.Errorf("store: redeem invite: %w", err)
@@ -201,6 +208,12 @@ func (p *Postgres) RedeemInvite(ctx context.Context, codeHash []byte, displayNam
 	}
 	if _, err := tx.Exec(ctx, `UPDATE invites SET used_by = $2::uuid WHERE id = $1::uuid`, inviteID, reg.User.ID); err != nil {
 		return accounts.Registered{}, fmt.Errorf("store: redeem invite: %w", err)
+	}
+	if g != nil {
+		if err := insertGoogle(ctx, tx, reg.User.ID, *g, now); err != nil {
+			return accounts.Registered{}, err
+		}
+		reg.User.GoogleEmail = &g.Email
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return accounts.Registered{}, fmt.Errorf("store: redeem invite: %w", err)

@@ -38,8 +38,11 @@ type Config struct {
 	// ALLOW_OPEN_CONFIG): the first caller becomes admin.
 	InstancePassword string
 	Store            Store
-	Now              func() time.Time // tests
-	CacheTTL         time.Duration    // middleware cache; default and maximum 5 s
+	// Google enables Sign in with Google; nil leaves the feature off (every Google method
+	// answers ErrGoogleDisabled).
+	Google   GoogleVerifier
+	Now      func() time.Time // tests
+	CacheTTL time.Duration    // middleware cache; default and maximum 5 s
 }
 
 // Service is the accounts service. Safe for concurrent use.
@@ -48,6 +51,7 @@ type Service struct {
 	pwHash [32]byte
 	open   bool
 	store  Store
+	google GoogleVerifier
 	now    func() time.Time
 
 	// bootstrapFails guards the guessable instance password; inviteRate bounds invite creation.
@@ -94,7 +98,7 @@ func New(c Config) (*Service, error) {
 	}
 	s := &Service{
 		secret: key, pwHash: sha256.Sum256([]byte(c.InstancePassword)), open: c.InstancePassword == "",
-		store: c.Store, now: c.Now, cacheTTL: c.CacheTTL, cache: map[cacheKey]cacheEntry{},
+		store: c.Store, google: c.Google, now: c.Now, cacheTTL: c.CacheTTL, cache: map[cacheKey]cacheEntry{},
 	}
 	if s.now == nil {
 		s.now = time.Now

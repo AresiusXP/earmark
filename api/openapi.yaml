@@ -18,6 +18,19 @@ info:
     Every route except `/healthz`, `/v1/version`, `/v1/auth/*` and `/v1/app/update*` requires
     `Authorization: Bearer <access_token>`.
 
+    **Sign in with Google** is an ADDITIONAL sign-in method, available only when the server has
+    `GOOGLE_CLIENT_ID` set (`GET /v1/version` shows `google_enabled`; otherwise every Google route answers
+    `404` with code `google_disabled`). The app asks Android Credential Manager for a Google ID token and sends
+    it to the server, which only verifies who the caller is (no OAuth redirect flow). Flow: `GET /v1/auth/google/nonce`
+    (single use, 5 minutes) -> pass the nonce to Google -> send the ID token. Google never creates an account by
+    itself: a NEW user needs an admin invite (`POST /v1/auth/google/join` = invite + ID token); the first admin
+    still comes from the instance password and can then link Google (`POST /v1/me/google`). One Google identity
+    belongs to at most one user (`409 conflict` otherwise); `POST /v1/auth/google` with an identity that is not
+    linked answers `401 google_not_linked`. A disabled user cannot sign in with Google. Unlinking
+    (`DELETE /v1/me/google`) is always allowed: the caller is signed in on a device, and devices, link codes and
+    refresh tokens do not depend on Google. A nonce is spent as soon as its token verified, so a failure after that
+    (unknown invite, identity already linked) needs a fresh nonce and a fresh ID token.
+
     **Debrid keys belong to the user.** `PUT /v1/me/debrid/{provider}` stores the caller's own key
     (sealed on the server, never returned, never logged). Every action that talks to a debrid
     service (`prepare`, `download`, cache probes) uses only the key of the requesting user. Two
@@ -37,7 +50,7 @@ info:
     **Errors.** `{"error": {"code": "<snake_case>", "message": "<text>"}}`. The 401 produced by the
     auth middleware is `{"error": {"code": "unauthorized"}}`. Codes: `invalid_request`, `unauthorized`,
     `forbidden`, `not_found`, `conflict`, `rate_limited`, `no_debrid_key`, `bad_debrid_key`,
-    `debrid_unavailable`, `limit_reached`, `upstream_failed`. A request body is exactly one JSON value;
+    `debrid_unavailable`, `limit_reached`, `upstream_failed`, `google_disabled`, `google_not_linked`. A request body is exactly one JSON value;
     anything after it is `400 invalid_request`.
 
     **Rate caps.** Client IPs are invisible to the server, so limits are global. `POST /v1/auth/bootstrap`
@@ -55,7 +68,7 @@ servers:
     description: Production
 tags:
   - {name: meta, description: Liveness, version, app updates.}
-  - {name: auth, description: Bootstrap, join, link, refresh.}
+  - {name: auth, description: Bootstrap, join, link, refresh, Sign in with Google.}
   - {name: me, description: The caller's profile, settings and debrid keys.}
   - {name: admin, description: Users and invites (admin only).}
   - {name: catalog, description: Search, discover, books, chapters.}
@@ -83,11 +96,12 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [version, api_version, bootstrapped]
+                required: [version, api_version, bootstrapped, google_enabled]
                 properties:
                   version: {type: string, example: 0.4.0}
                   api_version: {type: integer, example: 1, description: Bumped on breaking changes to this contract.}
                   bootstrapped: {type: boolean, description: False until the first admin exists.}
+                  google_enabled: {type: boolean, description: "Sign in with Google is configured on this server (the app hides the button otherwise)."}
   /v1/app/update:
     get:
       tags: [meta]
@@ -181,6 +195,84 @@ paths:
         "200": {$ref: "#/components/responses/Session"}
         "401": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
+  /v1/auth/google/nonce:
+    get:
+      tags: [auth]
+      security: []
+      operationId: googleNonce
+      description: |
+        A server-signed, single-use nonce (valid 5 minutes) the app passes to Credential Manager so that the
+        ID token carries it. Stateless HMAC; single use is enforced in server memory when the token is verified.
+      responses:
+        "200":
+          description: The nonce.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nonce, expires_at]
+                properties:
+                  nonce: {type: string}
+                  expires_at: {type: string, format: date-time}
+        "404": {description: "`google_disabled`: Sign in with Google is not configured.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+  /v1/auth/google:
+    post:
+      tags: [auth]
+      security: []
+      operationId: googleSignIn
+      description: |
+        Signs a new device in as the user the Google identity (`sub`) is linked to. The ID token must be signed by
+        Google (RS256), have `iss` accounts.google.com, `aud` equal to the server's client ID, be unexpired,
+        have a verified email and carry a nonce from `GET /v1/auth/google/nonce` that was not used before.
+        `401 google_not_linked` when the identity is unknown (the app then offers joining with an invite);
+        `401 unauthorized` for an invalid token or a disabled user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token, device_name]
+              properties:
+                id_token: {type: string, writeOnly: true}
+                device_name: {$ref: "#/components/schemas/DeviceName"}
+      responses:
+        "200": {$ref: "#/components/responses/Session"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {description: "`google_not_linked`, or `unauthorized` (invalid token, disabled user).", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {description: "`upstream_failed`: Google's signing keys could not be fetched. Retry.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+  /v1/auth/google/join:
+    post:
+      tags: [auth]
+      security: []
+      operationId: googleJoin
+      description: |
+        Creates a NEW user from a single-use invite code and links the Google identity, atomically. The display
+        name defaults to the Google given name (control characters dropped, whitespace folded, at most 40
+        characters; falls back to the full name, the part of the email before the `@`, then `Listener`).
+        `409 conflict` when the identity is already linked to a user (the invite stays unused).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token, invite_code, device_name]
+              properties:
+                id_token: {type: string, writeOnly: true}
+                invite_code: {type: string, writeOnly: true}
+                display_name: {$ref: "#/components/schemas/DisplayName"}
+                device_name: {$ref: "#/components/schemas/DeviceName"}
+      responses:
+        "200": {$ref: "#/components/responses/Session"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {description: Invalid token, or unknown, used or expired invite., content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {description: "`upstream_failed`: Google's signing keys could not be fetched. Retry.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
   /v1/auth/refresh:
     post:
       tags: [auth]
@@ -222,6 +314,39 @@ paths:
       responses:
         "200": {description: The updated caller., content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
         "400": {$ref: "#/components/responses/Error"}
+  /v1/me/google:
+    post:
+      tags: [me]
+      operationId: linkGoogle
+      description: |
+        Links the Google identity of the ID token to the caller (same token rules as `POST /v1/auth/google`).
+        Linking the identity the caller already has is a no-op. `409 conflict` when another user holds the
+        identity, or when the caller has a different identity linked (unlink first).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token]
+              properties:
+                id_token: {type: string, writeOnly: true}
+      responses:
+        "200": {description: The updated caller., content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {description: "`upstream_failed`: Google's signing keys could not be fetched. Retry.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    delete:
+      tags: [me]
+      operationId: unlinkGoogle
+      description: Removes the caller's Google identity (idempotent). Always allowed; devices and link codes are unaffected.
+      responses:
+        "204": {description: Unlinked.}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
   /v1/me/devices:
     get:
       tags: [me]
@@ -673,12 +798,19 @@ components:
         p2p_enabled: {type: boolean}
     Me:
       type: object
-      required: [id, display_name, role, settings]
+      required: [id, display_name, role, settings, google]
       properties:
         id: {type: string}
         display_name: {$ref: "#/components/schemas/DisplayName"}
         role: {type: string, enum: [admin, user]}
         settings: {$ref: "#/components/schemas/Settings"}
+        google:
+          type: object
+          description: The linked Google account. `email` is shown only to the user itself (and to admins in the admin list).
+          required: [linked]
+          properties:
+            linked: {type: boolean}
+            email: {type: string, description: Present when linked.}
     Device:
       type: object
       required: [id, name, created_at, current]
@@ -700,7 +832,7 @@ components:
         shared_with_others: {type: boolean, description: Another user holds the same key (household). Informational.}
     AdminUser:
       type: object
-      required: [id, display_name, role, disabled, created_at, debrid]
+      required: [id, display_name, role, disabled, created_at, debrid, google_linked]
       properties:
         id: {type: string}
         display_name: {type: string}
@@ -709,6 +841,8 @@ components:
         created_at: {type: string, format: date-time}
         last_seen_at: {type: [string, "null"], format: date-time}
         device_count: {type: integer}
+        google_linked: {type: boolean}
+        google_email: {type: string, description: Present when a Google account is linked.}
         debrid:
           type: object
           description: Provider to "has a key" (never the key).

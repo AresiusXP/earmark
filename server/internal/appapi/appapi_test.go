@@ -16,6 +16,7 @@ import (
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/googleid/googleidtest"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/store"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/testpg"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
@@ -48,6 +49,7 @@ type env struct {
 	prov *fakeProvider
 	keys *userkeys.Service
 	clk  *clock
+	g    *googleidtest.Google // nil unless the env was built with Google on
 }
 
 type clock struct {
@@ -62,7 +64,11 @@ func (c *clock) Advance(d time.Duration) {
 	c.t = c.t.Add(d)
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvOpt(t, false) }
+
+// newEnvOpt builds the API on a fresh schema; google switches Sign in with Google on (real
+// verifier against a fake JWKS; env.g is the fake Google).
+func newEnvOpt(t *testing.T, google bool) *env {
 	t.Helper()
 	db, err := store.Open(context.Background(), testpg.URL(t))
 	if err != nil {
@@ -70,7 +76,13 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(db.Close)
 	clk := &clock{t: time.Now().UTC()}
-	acc, err := accounts.New(accounts.Config{Secret: secret, InstancePassword: "pw", Store: db, Now: clk.Now})
+	accCfg := accounts.Config{Secret: secret, InstancePassword: "pw", Store: db, Now: clk.Now}
+	var g *googleidtest.Google
+	if google {
+		g = googleidtest.New(t, secret, clk.Now)
+		accCfg.Google = g.V
+	}
+	acc, err := accounts.New(accCfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +92,7 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{t: t, api: New(Deps{Accounts: acc, Keys: keys, Version: "9.9.9", Logger: log}), prov: prov, keys: keys, clk: clk}
+	return &env{t: t, api: New(Deps{Accounts: acc, Keys: keys, Version: "9.9.9", Logger: log}), prov: prov, keys: keys, clk: clk, g: g}
 }
 
 type resp struct {
@@ -171,7 +183,7 @@ func (e *env) join(admin session, name string) session {
 func TestVersionAndBootstrap(t *testing.T) {
 	e := newEnv(t)
 	m := e.do("GET", "/v1/version", "", nil).json(t)
-	if m["version"] != "9.9.9" || m["api_version"] != float64(1) || m["bootstrapped"] != false {
+	if m["version"] != "9.9.9" || m["api_version"] != float64(1) || m["bootstrapped"] != false || m["google_enabled"] != false {
 		t.Fatalf("version = %v", m)
 	}
 
@@ -237,7 +249,7 @@ func TestAuthRequiredEverywhere(t *testing.T) {
 		{"DELETE", "/v1/me/devices/00000000-0000-4000-8000-000000000000"}, {"GET", "/v1/me/debrid"},
 		{"PUT", "/v1/me/debrid/torbox"}, {"POST", "/v1/me/debrid/torbox"}, {"DELETE", "/v1/me/debrid/torbox"},
 		{"GET", "/v1/admin/users"}, {"PATCH", "/v1/admin/users/x"}, {"GET", "/v1/admin/invites"}, {"POST", "/v1/admin/invites"},
-		{"DELETE", "/v1/admin/invites/x"},
+		{"DELETE", "/v1/admin/invites/x"}, {"POST", "/v1/me/google"}, {"DELETE", "/v1/me/google"},
 	}
 	for _, rt := range routes {
 		t.Run(rt.method+" "+rt.path, func(t *testing.T) {

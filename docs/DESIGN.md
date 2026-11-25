@@ -46,7 +46,8 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   `store` (Postgres), `metadata`, `sources`, `debrid/*`. `cmd/addon` wires them from env:
   `DATABASE_URL`, `CONFIG_SECRET` (>=32 bytes, rotating it invalidates every install URL),
   `PUBLIC_URL`, `INSTANCE_PASSWORD` (required unless `ALLOW_OPEN_CONFIG=true`), `PORT`,
-  `ADMIN_PORT` (metrics, never exposed by the Ingress), `LOG_LEVEL`.
+  `ADMIN_PORT` (metrics, never exposed by the Ingress), `LOG_LEVEL`, and optionally `GOOGLE_CLIENT_ID` (+ `GOOGLE_CLIENT_IDS`,
+  a comma list for a second audience; Sign in with Google, see Accounts notes; Helm: `googleClientId`, empty = off).
 * Video id = `abk:<ASIN>:<infohash>:<fileIndex>`; season = rank of the release at page time.
   File index `-1` (AutoFile) = "provider picks the largest audio file" and is never guessed.
 * `/resolve` answers 302 to the provider's signed CDN link (the API key never reaches the player);
@@ -123,6 +124,34 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     With `ALLOW_OPEN_CONFIG` and no `INSTANCE_PASSWORD`, bootstrap accepts any password (the operator asked for an open instance).
   * Request bodies of `/v1` are exactly one JSON value (<= 16 KiB): anything after it, even a stray `}`, is 400
     `invalid_request` (`appapi.decode`/`decodeOptional`; the legacy `/api/config` does the same).
+  * Sign in with Google (additional sign-in method; packages `googleid` (stdlib only verifier, `googleidtest` fake Google for
+    tests), `accounts/google.go`, `appapi/google.go`, `store/google.go`, migration `0010_google_identities.sql`; the migrator
+    applies every missing version independently, so gaps in the numbering are fine). Enabled only when `GOOGLE_CLIENT_ID`
+    (public web OAuth client ID, the audience; the app's Credential Manager request uses it as `serverClientId`) is set;
+    otherwise every Google route answers 404 `google_disabled` and `GET /v1/version` has `google_enabled:false`. The app
+    sends a Google ID token; the server only verifies identity (no OAuth redirect flow, no Google API access).
+    * Rules: Google never creates an account by itself. A new user = admin invite + ID token (`POST /v1/auth/google/join`,
+      invite redemption and identity link in ONE transaction: a taken identity fails the join and leaves the invite unused).
+      The first admin comes from the instance password and may then link Google (`POST /v1/me/google`). `google_identities(sub
+      PRIMARY KEY, user_id UNIQUE FK cascade, email, linked_at)`: one identity belongs to at most one user and a user has at
+      most one identity (409 otherwise; relinking the same identity is a no-op). A disabled user cannot sign in with Google
+      (401 `unauthorized`). `POST /v1/auth/google` with an unknown identity is 401 `google_not_linked`. Sign-in refreshes the
+      stored email. Unlinking is ALWAYS allowed: the caller is signed in on a device, and devices, link codes and refresh tokens
+      do not depend on Google, so Google is never the only way in (a user who revoked every device and unlinked Google needs a
+      new invite, as one who never linked it would). `Me.google` is `{linked, email?}` (email only for the user itself); the admin
+      list has `google_linked` and `google_email`. Display name of a Google join defaults to the given name, sanitised
+      (control/format characters dropped, whitespace folded, 40 characters), falling back to full name, email local part, `Listener`.
+    * Verification (`googleid.Verifier.Verify`): RS256 only (alg `none`/HS256 are refused before any key is looked up), key by
+      `kid` from `https://www.googleapis.com/oauth2/v3/certs` cached honouring `Cache-Control: max-age` clamped to 5 min - 24 h,
+      one refetch for an unknown `kid` at most once a minute, stale keys still serve known kids during a Google outage, RSA >= 2048
+      bits; `iss` is `https://accounts.google.com` or `accounts.google.com`, `aud` one of the configured IDs, `exp`/`iat` with 2 min
+      leeway, `email_verified` true (bool or "true"), `sub` set, and `nonce` a server nonce. A fetch failure is 502 `upstream_failed`.
+    * Nonces: `GET /v1/auth/google/nonce` returns `random(16) || expiry` + HMAC-SHA256 (HKDF label `audiobooks-google-nonce-v1`),
+      valid 5 min, stateless; single use is enforced by a bounded in-memory set (4096) filled ONLY after a token passed every other
+      check, so unauthenticated callers cannot burn nonces; a restart forgets it (a replay still needs a live Google token and an
+      unexpired nonce). The nonce is spent as soon as its token verified, so a later failure needs a new token. Tokens are never
+      logged and never echoed in errors.
+    * Limits: sign-in, join and link share a global request-rate cap of 5/s (burst 20), no failure lockout (see Limiters).
   * Debrid keys (`userkeys.Service`): `Put` validates with `Provider.Validate` first (rejected -> 400 `bad_debrid_key`,
     outage -> 502 `debrid_unavailable`, nothing stored), `Recheck` records ok|invalid|error without echoing provider
     text, `shared_with_others` is a fingerprint match computed in SQL, `GetForUse(userID, provider)` is the only way to
@@ -193,7 +222,7 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
   Optional interfaces in `debrid`: `FileLister` (`Files(ctx,key,hash)`, never adds) and `Deleter` (`Delete(ctx,key,hash)`).
 
 ### API shape (see `api/openapi.yaml`)
-`/v1/auth/*`, `/v1/me` (+ `/devices`, `/debrid/{provider}`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`
+`/v1/auth/*` (incl. `/v1/auth/google*`), `/v1/me` (+ `/devices`, `/debrid/{provider}`, `/google`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`
 (+ `/chapters` from Audnexus), `/v1/releases/{hash}/prepare|files/{index}/download|torrent-files`, `/v1/me/library`
 (+ bookmarks), `/v1/app/update*`. The `/v1` handlers live in `server/internal/appapi`; they call `service.API` (extended
 with per-user key arguments) and never touch the Stremio `userconfig`. Errors are `{"error":{"code","message"}}`.

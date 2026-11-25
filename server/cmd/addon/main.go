@@ -19,6 +19,7 @@ import (
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/realdebrid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/torbox"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/googleid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/httpapi"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
@@ -80,7 +81,16 @@ func run() error {
 		Providers: providers,
 		Logger:    logger,
 	})
-	acc, err := accounts.New(accounts.Config{Secret: cfg.ConfigSecret, InstancePassword: cfg.InstancePassword, Store: db})
+	accCfg := accounts.Config{Secret: cfg.ConfigSecret, InstancePassword: cfg.InstancePassword, Store: db}
+	if len(cfg.GoogleClientIDs) > 0 {
+		gv, err := googleid.New(googleid.Config{ClientIDs: cfg.GoogleClientIDs, Secret: cfg.ConfigSecret})
+		if err != nil {
+			return err
+		}
+		accCfg.Google = gv
+		logger.Info("Google sign-in enabled", "client_ids", len(cfg.GoogleClientIDs))
+	}
+	acc, err := accounts.New(accCfg)
 	if err != nil {
 		return err
 	}

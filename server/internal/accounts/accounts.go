@@ -35,6 +35,13 @@ var (
 	ErrLastAdmin           = errors.New("accounts: you cannot disable the last admin")
 	ErrInvalidToken        = errors.New("accounts: invalid access token")
 	ErrUnauthorized        = errors.New("accounts: unauthorized")
+
+	ErrGoogleDisabled      = errors.New("accounts: Google sign-in is not configured")
+	ErrGoogleToken         = errors.New("accounts: invalid Google ID token")
+	ErrGoogleUnavailable   = errors.New("accounts: Google keys unavailable")
+	ErrGoogleNotLinked     = errors.New("accounts: Google account is not linked to a user")
+	ErrGoogleTaken         = errors.New("accounts: Google account is already linked to another user")
+	ErrGoogleAlreadyLinked = errors.New("accounts: the user already has another Google account linked")
 )
 
 // ValidationError is a rejected input (HTTP 400); Msg is safe to show to the caller.
@@ -72,6 +79,8 @@ type User struct {
 	CreatedAt   time.Time
 	LastSeenAt  *time.Time
 	Settings    Settings
+	// GoogleEmail is the email of the linked Google account; nil when none is linked.
+	GoogleEmail *string
 }
 
 // AdminUser is a user as the admin list shows it.
@@ -82,6 +91,9 @@ type AdminUser struct {
 	// caller adds false entries for the rest. Never the key.
 	Debrid map[string]bool
 }
+
+// GoogleIdentity is a verified Google account (sub is the stable id; email is verified).
+type GoogleIdentity struct{ Sub, Email string }
 
 // Device is one signed-in device of a user.
 type Device struct {
@@ -158,6 +170,18 @@ type Store interface {
 	// AuthState returns the role when the device exists, is not revoked, belongs to userID and
 	// the user is enabled; ok is false otherwise. It also refreshes last_seen_at (best effort).
 	AuthState(ctx context.Context, userID, deviceID string, now time.Time) (role Role, ok bool, err error)
+
+	// GoogleSignIn creates a device for the user the Google identity is linked to and refreshes the
+	// stored email. ErrGoogleNotLinked for an unknown sub, ErrUnauthorized for a disabled user.
+	GoogleSignIn(ctx context.Context, g GoogleIdentity, deviceName string, refreshHash []byte, now time.Time) (Registered, error)
+	// RedeemInviteGoogle is RedeemInvite plus the link of the identity, in one transaction: when the
+	// sub is already linked (ErrGoogleTaken) nothing happens and the invite stays unused.
+	RedeemInviteGoogle(ctx context.Context, codeHash []byte, g GoogleIdentity, displayName, deviceName string, refreshHash []byte, now time.Time) (Registered, error)
+	// LinkGoogle links g to the user. Idempotent for the same sub; ErrGoogleTaken when another
+	// user holds the sub, ErrGoogleAlreadyLinked when this user holds a different one.
+	LinkGoogle(ctx context.Context, userID string, g GoogleIdentity, now time.Time) error
+	// UnlinkGoogle removes the user's identity (idempotent).
+	UnlinkGoogle(ctx context.Context, userID string) error
 
 	GetUser(ctx context.Context, id string) (User, error)
 	// UpdateUser applies mutate to the user row under a row lock and stores the result.

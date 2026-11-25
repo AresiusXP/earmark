@@ -68,6 +68,8 @@ func New(d Deps) *API {
 	m.HandleFunc("POST /v1/auth/link", a.link)
 	m.HandleFunc("POST /v1/auth/refresh", a.refresh)
 
+	a.registerGoogle(m, auth)
+
 	m.Handle("GET /v1/me", auth(http.HandlerFunc(a.getMe)))
 	m.Handle("PATCH /v1/me", auth(http.HandlerFunc(a.patchMe)))
 	m.Handle("GET /v1/me/devices", auth(http.HandlerFunc(a.listDevices)))
@@ -205,6 +207,18 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusConflict, "conflict", "you cannot disable yourself")
 	case errors.Is(err, accounts.ErrLastAdmin):
 		WriteError(w, http.StatusConflict, "conflict", "you cannot disable the last admin")
+	case errors.Is(err, accounts.ErrGoogleDisabled):
+		WriteError(w, http.StatusNotFound, "google_disabled", "Google sign-in is not enabled on this server")
+	case errors.Is(err, accounts.ErrGoogleToken):
+		WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid Google ID token")
+	case errors.Is(err, accounts.ErrGoogleNotLinked):
+		WriteError(w, http.StatusUnauthorized, "google_not_linked", "this Google account is not linked to a user, join with an invite code")
+	case errors.Is(err, accounts.ErrGoogleUnavailable):
+		WriteError(w, http.StatusBadGateway, "upstream_failed", "Google could not be reached, try again")
+	case errors.Is(err, accounts.ErrGoogleTaken):
+		WriteError(w, http.StatusConflict, "conflict", "this Google account is already linked to another user")
+	case errors.Is(err, accounts.ErrGoogleAlreadyLinked):
+		WriteError(w, http.StatusConflict, "conflict", "another Google account is already linked, unlink it first")
 	case errors.Is(err, accounts.ErrForbidden):
 		WriteError(w, http.StatusForbidden, "forbidden", "admin only")
 	case errors.Is(err, accounts.ErrNotFound):
