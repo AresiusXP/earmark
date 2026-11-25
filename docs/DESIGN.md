@@ -176,12 +176,14 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   * **Cache state per caller.** `cached[torbox]` comes from the shared `availability` table filled by a TorBox check made
     with the CALLER's own TorBox key (the TorBox cache is the same for every account); a caller without a working TorBox key
     gets no `torbox` entry (unknown). `cached[realdebrid]` is read only from `user_availability` by the caller's key
-    fingerprint. `service.SharedCache(provider)` (TorBox only) is the single switch: `setAvailability` ignores every other
-    provider, so the Stremio `Resolve` path no longer writes RD state into the shared table either (it used to; behaviour
-    change: RD streams in Stremio show "not cached" unless known another way). `usable.debrid` = providers whose stored key has status `ok`;
+    fingerprint. `service.SharedCache(provider)` (TorBox only) is the single switch for BOTH directions: `setAvailability` ignores every other
+    provider and so does the read (`sharedAvailability`, used by the Stremio `Book`/`Streams` path), so the Stremio `Resolve` path
+    neither writes nor reads RD state of the shared table (it used to; behaviour change: RD streams in Stremio show "not cached"
+    unless known another way). Migration `0011_availability_torbox_only.sql` deletes the legacy non-TorBox rows that older versions wrote. `usable.debrid` = providers whose stored key has status `ok`;
     `usable.p2p` = magnet present AND `settings.p2p_enabled` AND `source_mode != "debrid"`.
   * **Files.** `release_files` (debrid `files`) only ever holds TorBox indexes (first writer wins, RD lists are never
-    stored); `release_client_files` (`torrent_files`) is written once per hash and never replaced. Consequence: the book
+    stored; `Store.SaveFilesIfAbsent` checks and inserts in ONE statement under the per-hash advisory lock, so concurrent
+    writers store exactly one complete list; all three writers use it, `SaveFiles` (replace) is no longer called); `release_client_files` (`torrent_files`) is written once per hash and never replaced. Consequence: the book
     page `files` are TorBox-indexed; for Real-Debrid the exact indexes come from `prepare`'s `files` (live from the user's
     account via `FileLister`), and the app matches by path. A series pack is shown when this book's files are found in
     either list (`files` or `torrent_files`); each list is filtered to this book's files.
@@ -198,8 +200,19 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     called until the cooldown (provider's Retry-After, default 60 s, max 10 min) passes. `ErrFailed` = `failed` with
     `no_seeders` (status text says dead/stalled/seed) or `debrid_failed`; remembered 10 min (no provider call, no re-add), after
     that a prepare deletes the failed torrent (`Deleter`) and adds again on a new budget slot. File not in the torrent = `failed/not_found`.
+    **One cold add per (fingerprint, provider, hash)**: the account lookup (RD `Files` / TorBox cache check), the budget spend, the
+    failed-torrent retry and the provider's add call run in ONE flight (`app.cold`) shared by `prepare` and `download` of every file
+    index; the flight leader's own file is resolved by the add call, every other caller resolves its file afterwards (no add, no
+    budget) and shares the flight's early answers (cooldown, rejected key, failed, budget spent). Once the torrent is in the account
+    nobody enters it any more.
     A ready answer (with `files`) is reused for 5 min without asking the provider. RD records `user_availability` (true when ready,
-    false when a cold add came back pending). Concurrent calls of one key are coalesced (singleflight, detached 40 s context).
+    false when a cold add came back pending). Concurrent calls of one key are coalesced (`flights`: one goroutine per key on a detached context bounded by 40 s and
+    cancelled as soon as the last waiter has left, so abandoned work does not run on).
+    **Bounded work and state**: every prepare/download/HEAD flight takes a unit of the work gate (`workgate.go`: 32 overall, 4 per key
+    fingerprint; `AppDeps.MaxWork`/`MaxWorkPerKey`; joining a running flight is free); over it the request is `429 rate_limited` with
+    `Retry-After`/`retry_after_s` (5 s). The budget and cooldown maps hold 4096 fingerprints each and are HARD caps: when full of active
+    entries a NEW fingerprint is refused with the same 429 (never a silent eviction, which would reset that key's budget); the state map
+    evicts only its least recently used entry.
     Unknown hash: 404 unless a `magnet` is given; the magnet must be well-formed (<= 2048 bytes, no control chars, every
     `xt=urn:btih` equals the hash, hex or base32); the stored release is rebuilt from the hash + sanitised `dn` (`source = "app"`),
     never the client's trackers, and never overwrites an existing row.
@@ -209,14 +222,19 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     index) for 10 minutes (capped per provider in `maxLinkTTL`, 1 h each: neither documents a precise validity), only for
     successful allowlist-checked links (never 202/failed/errors), evicted when the key is rejected, bounded (2048 entries), never
     logged; keyed by fingerprint so accounts never share a link (a household with one key does, like the account). (2) Concurrent
-    requests of one key share one provider call. (3) `HEAD` never adds: a cached link answers 302; otherwise RD is asked read-only
-    (`Files`) and a torrent that is not in the account (TorBox: not remembered by this process) answers `202 preparing`; it does not
-    run the cache check (which stores state) and does not retry failed torrents. (4) `Location` must be https, default port, no
+    requests of one key share one provider call. (3) `HEAD` has no side effects: a cached link answers 302; otherwise only the in-memory state of the key and the provider's
+    read-only calls are used (optional `debrid.StatusReader`: RD `torrents/info` of the remembered id or the listing, TorBox `mylist`;
+    else `FileLister`), NEVER `Resolve` (it adds, and RD's selects files), the cache check (stores state), `Delete`, budget or
+    availability writes. A file the provider reports ready answers `200` (no `Location`: creating a link is not read-only; a `GET`
+    redirects), anything that cannot be proven read-only `202 preparing`, a failed torrent (also from memory, never retried) `502`, a
+    file missing from a ready torrent `404`. HEAD takes a work-gate unit like a GET. (4) `Location` must be https, default port, no
     userinfo and a host equal to / a subdomain of the provider table in `linkhosts.go` (TorBox `tb-cdn.st`, `torbox.app`, as in Echoes;
     RD `real-debrid.com`, `real-debrid.cloud`, `rdb.so`; extend with `DEBRID_LINK_HOSTS=realdebrid:cdn.example,...`), re-checked
     on every cached hit; anything else is `502 upstream_failed`, never a redirect. The response is `no-store`, an empty 302, and
     no log line carries a path, query or link. Status mapping beyond the contract: pending `202` + Prepare body (+ `Retry-After`
     in a cooldown), failed `502 upstream_failed` (message names the reason), file not in torrent `404`, add budget spent `429`.
+  * **Body decoding**: every `/v1` body goes through `readJSON`/`readJSONLimit` (one value, the second `Decode` must be `io.EOF`; never
+    `json.Decoder.More`, which lets a stray `}` through); the JWKS fetch uses `json.Unmarshal` for the same reason.
   * **torrent-files**: <= 2000 files, index unique >= 0, size >= 0, path normalised (`\` -> `/`, empty and `.` segments dropped), rejected
     when it has control chars/NUL, a `..` segment, invalid UTF-8 or > 512 bytes; body <= 2 MiB; stored once per hash; later calls
     get the stored list back; unknown release 404.
@@ -230,11 +248,17 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   * **App update** (`appupdate` + `appupdate.go`): modelled on Echoes: directory `APP_UPDATE_DIR` (default `/update`) with `update.json`
     (`version_name`, `version_code` = X*10000+Y*100+Z, `sha256`, `size`, `notes`, `released_at`) and `audiobooks.apk`, verified once at start
     (size + sha256; anything inconsistent = "no update", never an error). `GET /v1/app/update` (unauthenticated) answers
-    `{available, version, version_code, size, sha256, url}` with `url = PUBLIC_URL/v1/app/update/apk`; the APK route supports Range, is
-    limited to 4 concurrent downloads (`503` + `Retry-After`). The app compares `version_code` itself and verifies the sha256. The
+    `{available, version, version_code, size, sha256, url}` with `url = PUBLIC_URL/v1/app/update/apk`; the APK route supports Range (`206`, in the contract), is
+    limited to 4 concurrent downloads (`503` + `Retry-After`) and is `no-store` like every other response (no override). `APP_UPDATE_MAX_BYTES`
+    (default 200 MiB) is checked when the bundle is loaded: a larger APK (by `update.json` or on disk) means "no update", with a warning. The app compares `version_code` itself and verifies the sha256. The
     release pipeline that bakes the files into the image is Phase 5.
-  * **Caching headers**: `search`, `discover`, `books/{asin}` and `chapters` answer `private, max-age=300` on 200 only; everything else `no-store`.
-  * New env: `PREPARE_ADDS_PER_HOUR` (default 30), `APP_UPDATE_DIR` (default `/update`), `DEBRID_LINK_HOSTS` (extra CDN suffixes).
+  * **Caching headers**: `search`, `discover`, `books/{asin}` and `chapters` answer `private, max-age=300` on 200 only; everything else
+    (the APK included) `no-store`.
+  * **Housekeeping**: `cmd/addon/cleanup.go` deletes `user_availability` rows older than 30 days at start and every 6 hours (context-aware;
+    readers ignore anything older than the availability TTL anyway, this only bounds the table).
+  * New env: `PREPARE_ADDS_PER_HOUR` (default 30), `APP_UPDATE_DIR` (default `/update`), `APP_UPDATE_MAX_BYTES` (default 209715200),
+    `DEBRID_LINK_HOSTS` (extra CDN suffixes). Helm values (plain, rendered only when set): `prepareAddsPerHour`, `appUpdateDir`,
+    `appUpdateMaxBytes`, `debridLinkHosts`.
   * Tests: `appapi` unit tests with in-memory fakes (`relharness_test.go`: provider accounts per key, release/key stores, a log + body
     scan that fails the test when a key or link token leaks), Postgres tests for per-user isolation, LWW, limits, per-key availability,
     client files and the full HTTP stack (`catalog_pg_test.go`, `store/library_test.go`; run by `scripts/test-store.sh`).
@@ -293,7 +317,8 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
   guessed). Torrents are found by hash in `GET /torrents` (eventually consistent), so the id from `addMagnet` is remembered
   in memory per key fingerprint for 30 min to avoid duplicate adds. Requests are spaced 250 ms per key fingerprint and a
   429 blocks that key for `Retry-After` (fail-fast `ErrRateLimited`, no retries). The unrestricted URL must be https.
-  Optional interfaces in `debrid`: `FileLister` (`Files(ctx,key,hash)`, never adds) and `Deleter` (`Delete(ctx,key,hash)`).
+  Optional interfaces in `debrid`: `FileLister` (`Files(ctx,key,hash)`, never adds), `StatusReader` (`Status(ctx,key,hash)`: state,
+  progress and files of a torrent in the account, strictly read-only; TorBox implements it too) and `Deleter` (`Delete(ctx,key,hash)`).
 
 ### API shape (see `api/openapi.yaml`)
 `/v1/auth/*` (incl. `/v1/auth/google*`), `/v1/me` (+ `/devices`, `/debrid/{provider}`, `/google`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`

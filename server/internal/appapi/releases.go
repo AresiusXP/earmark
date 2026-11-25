@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base32"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -142,12 +141,20 @@ func (a *app) release(ctx context.Context, hash, magnet string) (model.Release, 
 
 func (a *app) writeErr(w http.ResponseWriter, e *httpErr) { WriteError(w, e.status, e.code, e.msg) }
 
+// admit makes a flight start only when the work gate has room for one more unit for the key.
+func (a *app) admit(fingerprint string) func() (func(), error) {
+	return func() (func(), error) { return a.work.acquire(fingerprint) }
+}
+
 // prepareFail answers an error of a.prepare.
 func (a *app) prepareFail(w http.ResponseWriter, err error) {
 	var be *budgetError
+	var busy *busyError
 	switch {
 	case errors.As(err, &be):
 		writeRateLimited(w, be.retryAfter)
+	case errors.As(err, &busy):
+		writeRateLimited(w, busy.retryAfter)
 	case errors.Is(err, errUpstream):
 		WriteError(w, http.StatusBadGateway, "debrid_unavailable", "the debrid service could not be reached, try again")
 	default:
@@ -184,11 +191,8 @@ func (a *app) prepareRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pin := prepIn{userID: p.UserID, key: key, provider: prov, rel: rel, fileIndex: debrid.AutoFile, allowAdd: true, wantFiles: true}
-	res, err := a.prep.do(r.Context(), key.Fingerprint+"\x00"+in.Provider+"\x00"+hash, func() (prepResult, error) {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), flightTimeout)
-		defer cancel()
-		return a.prepare(ctx, pin)
-	})
+	res, err := a.prep.do(r.Context(), key.Fingerprint+"\x00"+in.Provider+"\x00"+hash, flightTimeout, a.admit(key.Fingerprint),
+		func(ctx context.Context) (prepResult, error) { return a.prepare(ctx, pin) })
 	if err != nil {
 		if errors.Is(err, errFileNotFound) {
 			WriteJSON(w, http.StatusOK, toPrepareDTO(prepResult{State: stateFailed, Reason: reasonNotFound}))
@@ -248,11 +252,9 @@ func (a *app) download(w http.ResponseWriter, r *http.Request) {
 		mode = "head"
 	}
 	pin := prepIn{userID: p.UserID, key: key, provider: prov, rel: *rel, fileIndex: idx, allowAdd: !head}
-	res, err := a.dl.do(r.Context(), strings.Join([]string{fp, provider, hash, strconv.Itoa(idx), mode}, "\x00"), func() (prepResult, error) {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), flightTimeout)
-		defer cancel()
+	res, err := a.dl.do(r.Context(), strings.Join([]string{fp, provider, hash, strconv.Itoa(idx), mode}, "\x00"), flightTimeout, a.admit(fp), func(ctx context.Context) (prepResult, error) {
 		res, err := a.prepare(ctx, pin)
-		if err == nil && res.State == stateReady {
+		if err == nil && res.State == stateReady && !res.ReadyNoLink {
 			// Validated and cached inside the flight, so every waiter gets the same checked link.
 			loc, cerr := a.allow.Check(provider, res.URL)
 			if cerr != nil {
@@ -271,6 +273,8 @@ func (a *app) download(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadGateway, "upstream_failed", "the provider answered an unexpected download host")
 	case err != nil:
 		a.prepareFail(w, err)
+	case res.State == stateReady && res.ReadyNoLink:
+		w.WriteHeader(http.StatusOK) // HEAD: ready, a GET redirects; the link is not made read-only
 	case res.State == stateReady:
 		a.redirect(w, provider, res.URL)
 	case res.State == stateFailed:
@@ -329,7 +333,6 @@ func (a *app) torrentFiles(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid info hash")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxTorrentFilesBody)
 	var in struct {
 		Files []struct {
 			Index *int   `json:"index"`
@@ -337,8 +340,7 @@ func (a *app) torrentFiles(w http.ResponseWriter, r *http.Request) {
 			Size  *int64 `json:"size"`
 		} `json:"files"`
 	}
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&in); err != nil || dec.More() {
+	if err := readJSONLimit(w, r, &in, maxTorrentFilesBody, false); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 		return
 	}

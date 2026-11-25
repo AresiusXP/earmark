@@ -193,10 +193,10 @@ func TestTrackerCooldownAndExpiry(t *testing.T) {
 	if tr.coolingDown("fp", "realdebrid") != 0 {
 		t.Fatal("cooling by default")
 	}
-	if d := tr.setCooldown("fp", "realdebrid", 0); d != defaultCooldown {
+	if d, ok := tr.setCooldown("fp", "realdebrid", 0); !ok || d != defaultCooldown {
 		t.Fatalf("default = %v", d)
 	}
-	if d := tr.setCooldown("fp", "realdebrid", time.Hour); d != maxCooldown {
+	if d, ok := tr.setCooldown("fp", "realdebrid", time.Hour); !ok || d != maxCooldown {
 		t.Fatalf("capped = %v", d)
 	}
 	if tr.coolingDown("fp", "torbox") != 0 || tr.coolingDown("other", "realdebrid") != 0 {

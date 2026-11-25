@@ -153,12 +153,15 @@ func (s *fakeStore) MarkReleasesSearched(_ context.Context, asin string, at time
 	return nil
 }
 
-func (s *fakeStore) SaveFiles(_ context.Context, hash string, files []model.File) error {
+func (s *fakeStore) SaveFilesIfAbsent(_ context.Context, hash string, files []model.File) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.saveFilesCalls++
+	if len(files) == 0 || len(s.files[hash]) > 0 {
+		return false, nil
+	}
 	s.files[hash] = append([]model.File(nil), files...)
-	return nil
+	return true, nil
 }
 
 func (s *fakeStore) Files(_ context.Context, hashes []string) (map[string][]model.File, error) {

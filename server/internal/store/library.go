@@ -379,3 +379,14 @@ func (p *Postgres) SetUserAvailability(ctx context.Context, fingerprint, provide
 	}
 	return nil
 }
+
+// PruneUserAvailability deletes the per-key cache states checked before olderThan and returns how
+// many went. They are only a hint (a stale one is ignored on read anyway), so the table must not
+// grow with every key and release ever probed.
+func (p *Postgres) PruneUserAvailability(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := p.pool.Exec(ctx, `DELETE FROM user_availability WHERE checked_at < $1`, olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("store: prune user availability: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

@@ -437,3 +437,26 @@ func TestReleaseByHash(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestPruneUserAvailability(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	h1, h2, h3 := hash(0x71), hash(0x72), hash(0x73)
+	for h, age := range map[string]time.Duration{h1: 31 * 24 * time.Hour, h2: 29 * 24 * time.Hour, h3: 90 * 24 * time.Hour} {
+		if err := s.SetUserAvailability(ctx, "fp", "realdebrid", h, true, now.Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.PruneUserAvailability(ctx, now.Add(-30*24*time.Hour))
+	if err != nil || n != 2 {
+		t.Fatalf("pruned %d, %v; want 2", n, err)
+	}
+	got, err := s.GetUserAvailability(ctx, "fp", "realdebrid", []string{h1, h2, h3}, time.Time{})
+	if err != nil || len(got) != 1 || !got[h2] {
+		t.Fatalf("remaining = %v, %v; want only %s", got, err, h2)
+	}
+	if n, _ := s.PruneUserAvailability(ctx, now.Add(-30*24*time.Hour)); n != 0 {
+		t.Fatalf("second prune removed %d", n)
+	}
+}

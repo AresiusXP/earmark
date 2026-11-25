@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -526,6 +527,71 @@ func TestFiles(t *testing.T) {
 	}
 }
 
+func TestSaveFilesIfAbsentFirstWriterWins(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	h := hash(0x61)
+	if err := s.UpsertReleases(ctx, []model.Release{sampleRelease(h, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.SaveFilesIfAbsent(ctx, h, nil); ok || err != nil {
+		t.Fatalf("empty list: %v %v", ok, err)
+	}
+	if ok, err := s.SaveFilesIfAbsent(ctx, h, []model.File{{Index: 1, Path: "x"}, {Index: 1, Path: "y"}}); ok || err == nil {
+		t.Fatalf("duplicate index accepted: %v %v", ok, err)
+	}
+	if got, _ := s.Files(ctx, []string{h}); len(got) != 0 {
+		t.Fatalf("a failed write left rows: %v", got)
+	}
+	if _, err := s.SaveFilesIfAbsent(ctx, hash(0x62), []model.File{{Index: 0, Path: "p"}}); !errors.Is(err, service.ErrNotFound) {
+		t.Fatalf("unknown release err = %v", err)
+	}
+
+	// Concurrent first writers with different lists: exactly one list is stored, whole.
+	lists := make([][]model.File, 8)
+	for i := range lists {
+		for j := 0; j <= i; j++ {
+			lists[i] = append(lists[i], model.File{Index: j * 10, Path: "w" + string(rune('a'+i)) + ".mp3", Size: int64(i)})
+		}
+	}
+	var wg sync.WaitGroup
+	var winners atomic.Int32
+	for _, l := range lists {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := s.SaveFilesIfAbsent(ctx, h, l)
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				winners.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if winners.Load() != 1 {
+		t.Fatalf("winners = %d, want 1", winners.Load())
+	}
+	got, _ := s.Files(ctx, []string{h})
+	stored := got[h]
+	matched := false
+	for _, l := range lists {
+		if reflect.DeepEqual(stored, l) {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Fatalf("stored list is a mix of writers: %+v", stored)
+	}
+	if ok, err := s.SaveFilesIfAbsent(ctx, h, []model.File{{Index: 0, Path: "late.mp3"}}); ok || err != nil {
+		t.Fatalf("late writer: %v %v", ok, err)
+	}
+	if again, _ := s.Files(ctx, []string{h}); !reflect.DeepEqual(again[h], stored) {
+		t.Fatal("stored list changed")
+	}
+}
+
 func TestAvailability(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
@@ -727,5 +793,52 @@ func TestUpsertReleasesClampsSeeders(t *testing.T) {
 		if err := s.pool.QueryRow(ctx, "SELECT seeders FROM releases WHERE info_hash=$1", h).Scan(&got); err != nil || got != want {
 			t.Errorf("%s: seeders = %d, %v; want %d", h[:6], got, err, want)
 		}
+	}
+}
+
+// Real-Debrid rows written to the shared availability table before the "only TorBox is shared"
+// rule must be gone after migration 0011; TorBox rows stay.
+func TestMigrationDropsLegacyNonTorBoxAvailability(t *testing.T) {
+	url := newSchemaURL(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	ms, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `CREATE TABLE schema_migrations (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.version >= 11 {
+			continue
+		}
+		if _, err := conn.Exec(ctx, m.sql); err != nil {
+			t.Fatalf("%s: %v", m.name, err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, m.version, m.name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := hash(0x51)
+	for _, p := range []string{"torbox", "realdebrid", "premiumize"} {
+		if _, err := conn.Exec(ctx, `INSERT INTO availability (provider, info_hash, cached) VALUES ($1, $2, true)`, p, h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if n := count(t, s, `SELECT count(*) FROM availability`); n != 1 {
+		t.Fatalf("availability rows = %d, want only the TorBox row", n)
+	}
+	if n := count(t, s, `SELECT count(*) FROM availability WHERE provider = 'torbox'`); n != 1 {
+		t.Fatal("the TorBox row must survive")
 	}
 }

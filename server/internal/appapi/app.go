@@ -29,7 +29,8 @@ type ReleaseStore interface {
 	InsertReleaseIfAbsent(ctx context.Context, r model.Release) (bool, error)
 	SaveClientFiles(ctx context.Context, infoHash string, files []model.File) ([]model.File, bool, error)
 	Files(ctx context.Context, infoHashes []string) (map[string][]model.File, error)
-	SaveFiles(ctx context.Context, infoHash string, files []model.File) error
+	// SaveFilesIfAbsent: first writer wins, atomically (provider indexes are never replaced).
+	SaveFilesIfAbsent(ctx context.Context, infoHash string, files []model.File) (bool, error)
 	// SetAvailability is only ever called for shared-cache providers (TorBox).
 	SetAvailability(ctx context.Context, provider string, entries []service.Availability) error
 	SetUserAvailability(ctx context.Context, fingerprint, provider, infoHash string, cached bool, at time.Time) error
@@ -47,6 +48,9 @@ type AppDeps struct {
 	PublicURL string
 	// AddsPerHour is the cold-add budget per key fingerprint (0 = DefaultAddsPerHour).
 	AddsPerHour int
+	// MaxWork and MaxWorkPerKey bound the in-flight provider work (prepare, download and HEAD
+	// flights) overall and per key fingerprint; excess requests get 429 rate_limited. 0 = defaults.
+	MaxWork, MaxWorkPerKey int
 	// LinkHosts adds CDN host suffixes per provider to the built-in allowlist (see linkhosts.go).
 	LinkHosts map[string][]string
 	Clock     func() time.Time
@@ -65,6 +69,9 @@ type app struct {
 	bud   *budget
 	prep  flights[prepResult]
 	dl    flights[prepResult]
+	// cold is the cold-add step of one (fingerprint, provider, hash), shared by prepare and download.
+	cold flights[coldOut]
+	work *workGate
 	// appDL bounds concurrent APK downloads (the route is unauthenticated).
 	appDL chan struct{}
 }
@@ -84,7 +91,7 @@ func (a *API) MountApp(d AppDeps) {
 	ap := &app{
 		API: a, d: d, log: d.Logger, now: d.Clock, allow: NewLinkAllowlist(d.LinkHosts),
 		links: newLinkCache(d.Clock), trk: newTracker(d.Clock), bud: newBudget(d.AddsPerHour, d.Clock),
-		appDL: make(chan struct{}, maxAppDownloads),
+		work: newWorkGate(d.MaxWork, d.MaxWorkPerKey), appDL: make(chan struct{}, maxAppDownloads),
 	}
 	a.Extend(func(r Router) {
 		m, auth := r.Mux, r.Auth

@@ -448,11 +448,14 @@ func (s *Service) availability(ctx context.Context, keys map[string]string, prov
 			if len(have[h]) > 0 {
 				continue
 			}
-			if err := s.d.Store.SaveFiles(ctx, h, files); err != nil {
+			stored, err := s.d.Store.SaveFilesIfAbsent(ctx, h, files)
+			if err != nil {
 				s.log.Warn("store files failed", "err", err)
 				continue
 			}
-			have[h] = files
+			if stored {
+				have[h] = files
+			}
 		}
 		for h, cached := range r.known {
 			if out[h] == nil {
@@ -477,7 +480,7 @@ func (s *Service) checkProvider(ctx context.Context, name, key string, hashes []
 		return r
 	}
 	now := s.now()
-	fresh, err := s.d.Store.GetAvailability(ctx, name, hashes, now.Add(-s.d.AvailabilityTTL))
+	fresh, err := s.sharedAvailability(ctx, name, hashes, now.Add(-s.d.AvailabilityTTL))
 	if err != nil {
 		s.log.Warn("read availability failed", "provider", name, "err", err)
 		fresh = nil

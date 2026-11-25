@@ -23,11 +23,21 @@ func SharedCache(provider string) bool { return slices.Contains(sharedCacheProvi
 // AudioFiles keeps the audio files in natural path order, at most max of them (0 = all).
 func AudioFiles(files []model.File, max int) []model.File { return audioFiles(files, max) }
 
+// setAvailability and sharedAvailability are the only users of the shared `availability` table:
+// both ignore every provider that is not a shared-cache provider, so a stale row of another
+// provider (written before the rule existed) is never read and never written.
 func (s *Service) setAvailability(ctx context.Context, provider string, entries []Availability) error {
-	if !slices.Contains(sharedCacheProviders, provider) {
+	if !SharedCache(provider) {
 		return nil
 	}
 	return s.d.Store.SetAvailability(ctx, provider, entries)
+}
+
+func (s *Service) sharedAvailability(ctx context.Context, provider string, hashes []string, newerThan time.Time) (map[string]Availability, error) {
+	if !SharedCache(provider) {
+		return nil, nil
+	}
+	return s.d.Store.GetAvailability(ctx, provider, hashes, newerThan)
 }
 
 // Prefs are the catalog preferences of one user (settings of the /v1 API).

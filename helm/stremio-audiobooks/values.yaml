@@ -46,6 +46,17 @@ allowOpenConfig: false
 # audiobooks.aresius.xyz: 34828481793-g6n5cm2psogtrga580g41tmgab4h264p.apps.googleusercontent.com
 googleClientId: ""
 
+# /v1 release routes (plain values, rendered only when set; the server has defaults).
+# PREPARE_ADDS_PER_HOUR: cold torrent adds per debrid key and hour for prepare/download (default 30, 1-10000).
+prepareAddsPerHour: ""
+# DEBRID_LINK_HOSTS: extra CDN host suffixes allowed in download redirects, "provider:suffix,provider:suffix"
+# (providers torbox and realdebrid), e.g. "realdebrid:cdn.example,torbox:tb.example".
+debridLinkHosts: ""
+# APP_UPDATE_DIR: directory with update.json + audiobooks.apk (default /update, baked into the image).
+appUpdateDir: ""
+# APP_UPDATE_MAX_BYTES: largest APK the server will bundle (default 209715200 = 200 MiB); a bigger one disables updates.
+appUpdateMaxBytes: ""
+
 extraEnv: []
 
 service:

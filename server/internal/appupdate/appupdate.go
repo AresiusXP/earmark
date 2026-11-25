@@ -29,6 +29,9 @@ const (
 	MetaFile = "update.json"
 	APKFile  = "audiobooks.apk"
 
+	// DefaultMaxBytes is the largest APK accepted at start-up (env APP_UPDATE_MAX_BYTES).
+	DefaultMaxBytes = 200 << 20
+
 	maxMetaBytes = 256 << 10
 	maxNotes     = 4000
 )
@@ -81,13 +84,22 @@ func VersionCode(name string) (int, bool) {
 // directory, a file or a checksum is missing or wrong it logs why (a warning, except for the plain
 // "no bundle" case) and returns a Service that reports nothing available.
 func Load(dir string, logger *slog.Logger) *Service {
+	return LoadWithLimit(dir, DefaultMaxBytes, logger)
+}
+
+// LoadWithLimit is Load with a maximum APK size: a bundle whose APK is larger (by update.json or
+// on disk; maxBytes <= 0 means DefaultMaxBytes) is reported unusable before it is hashed.
+func LoadWithLimit(dir string, maxBytes int64, logger *slog.Logger) *Service {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxBytes
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if dir == "" {
 		dir = DefaultDir
 	}
-	info, f, err := load(dir)
+	info, f, err := load(dir, maxBytes)
 	switch {
 	case err == nil:
 		logger.Info("app update bundled", "version", info.VersionName, "version_code", info.VersionCode, "size", info.Size)
@@ -102,7 +114,7 @@ func Load(dir string, logger *slog.Logger) *Service {
 
 var errNoBundle = errors.New("no update.json")
 
-func load(dir string) (Info, *os.File, error) {
+func load(dir string, maxBytes int64) (Info, *os.File, error) {
 	mf, err := os.Open(filepath.Join(dir, MetaFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return Info{}, nil, errNoBundle
@@ -126,6 +138,9 @@ func load(dir string) (Info, *os.File, error) {
 		return Info{}, nil, fmt.Errorf("%s: %w", MetaFile, err)
 	}
 
+	if info.Size > maxBytes {
+		return Info{}, nil, fmt.Errorf("%s is %d bytes, more than the limit of %d (APP_UPDATE_MAX_BYTES)", APKFile, info.Size, maxBytes)
+	}
 	f, err := os.Open(filepath.Join(dir, APKFile))
 	if err != nil {
 		return Info{}, nil, fmt.Errorf("open %s: %w", APKFile, err)
@@ -134,6 +149,10 @@ func load(dir string) (Info, *os.File, error) {
 	if err != nil {
 		_ = f.Close()
 		return Info{}, nil, err
+	}
+	if st.Size() > maxBytes {
+		_ = f.Close()
+		return Info{}, nil, fmt.Errorf("%s is %d bytes, more than the limit of %d (APP_UPDATE_MAX_BYTES)", APKFile, st.Size(), maxBytes)
 	}
 	if !st.Mode().IsRegular() || st.Size() != info.Size {
 		_ = f.Close()

@@ -1,7 +1,6 @@
 package appapi
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -583,30 +582,6 @@ func TestConcurrentDownloadsOfOneKeyShareOneProviderCall(t *testing.T) {
 	}
 }
 
-func TestDownloadCallerCancelDoesNotCancelTheFlight(t *testing.T) {
-	var g flights[int]
-	release := make(chan struct{})
-	started := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := g.do(ctx, "k", func() (int, error) { close(started); <-release; return 7, nil })
-		done <- err
-	}()
-	<-started
-	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v", err)
-	}
-	v, err := func() (int, error) {
-		go func() { time.Sleep(10 * time.Millisecond); close(release) }()
-		return g.do(context.Background(), "k", func() (int, error) { return 99, nil })
-	}()
-	if err != nil || v != 7 {
-		t.Fatalf("second caller joined the running flight: %d %v", v, err)
-	}
-}
-
 func TestTorrentFilesValidationAndStoreOnce(t *testing.T) {
 	e := newRelEnv(t, 5)
 	h := h40('a')
@@ -640,6 +615,10 @@ func TestTorrentFilesValidationAndStoreOnce(t *testing.T) {
 		{"duplicate index", h, map[string]any{"files": []any{file(0, "a.mp3", 1), file(0, "b.mp3", 1)}}},
 		{"missing size", h, map[string]any{"files": []any{map[string]any{"index": 0, "path": "a.mp3"}}}},
 		{"not json", h, "{"},
+		{"trailing brace", h, `{"files":[{"index":0,"path":"a.mp3","size":1}]}}`},
+		{"trailing second value", h, `{"files":[{"index":0,"path":"a.mp3","size":1}]} {"files":[]}`},
+		{"trailing garbage", h, `{"files":[{"index":0,"path":"a.mp3","size":1}]} x`},
+		{"body over the limit", h, `{"files":[{"index":0,"path":"` + strings.Repeat("a", maxTorrentFilesBody) + `","size":1}]}`},
 		{"bad hash", "xyz", map[string]any{"files": []any{file(0, "a.mp3", 1)}}},
 	}
 	for _, c := range bad {

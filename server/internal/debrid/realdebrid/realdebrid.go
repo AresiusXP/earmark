@@ -90,6 +90,8 @@ var (
 	_ debrid.Provider   = (*Client)(nil)
 	_ debrid.FileLister = (*Client)(nil)
 	_ debrid.Deleter    = (*Client)(nil)
+
+	_ debrid.StatusReader = (*Client)(nil)
 )
 
 // New returns a Client. An empty baseURL selects DefaultBaseURL, a nil hc a client with a 30s timeout.
@@ -393,6 +395,38 @@ func (c *Client) Files(ctx context.Context, key, hash string) ([]model.File, err
 		return toFiles(sel), nil
 	}
 	return toFiles(t.Files), nil
+}
+
+// Status implements debrid.StatusReader. It only reads (GET /torrents/info of the remembered id,
+// else the account listing): it never adds, never selects files and never unrestricts a link.
+// "downloaded" is ready; every other status (including waiting for the file selection, which only
+// Resolve may do) is pending.
+func (c *Client) Status(ctx context.Context, key, hash string) (debrid.Status, error) {
+	if key == "" {
+		return debrid.Status{}, debrid.ErrBadKey
+	}
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	if !hashRe.MatchString(hash) {
+		return debrid.Status{}, fmt.Errorf("realdebrid: status: invalid info hash: %w", debrid.ErrNotFound)
+	}
+	t, err := c.locate(ctx, key, hash)
+	if err != nil {
+		return debrid.Status{}, err
+	}
+	if t == nil {
+		return debrid.Status{}, fmt.Errorf("realdebrid: torrent not in the account: %w", debrid.ErrNotFound)
+	}
+	switch {
+	case failedStatus(t.Status):
+		return debrid.Status{}, fmt.Errorf("realdebrid: torrent status %q: %w", t.Status, debrid.ErrFailed)
+	case t.Status == "downloaded":
+		files := toFiles(t.Files)
+		if sel := t.selected(); len(sel) > 0 {
+			files = toFiles(sel)
+		}
+		return debrid.Status{State: debrid.StateReady, Progress: 100, Files: files}, nil
+	}
+	return debrid.Status{State: debrid.StatePending, Progress: t.percent()}, nil
 }
 
 // Delete implements debrid.Deleter: it removes the torrent with this hash from the account
