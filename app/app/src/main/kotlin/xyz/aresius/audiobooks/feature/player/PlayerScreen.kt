@@ -35,9 +35,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,7 +101,10 @@ fun PlayerScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit, onOpenSetting
             LightStatusBarIcons(false)
             AskForNotificationPermission()
             LaunchedEffect(state.hasBook) { if (!state.hasBook) onBack() }
-            PlayerContent(state, bookmarks, viewModel, glow = cover?.glow, onBack, onOpenBook, onOpenSettings)
+            // The player is always dark: Text and Icon without a colour must follow its scheme, not the (light) app theme around it.
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+                PlayerContent(state, bookmarks, viewModel, glow = cover?.glow, onBack, onOpenBook, onOpenSettings)
+            }
         }
     }
 }
