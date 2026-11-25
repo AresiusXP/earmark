@@ -10,9 +10,11 @@ import (
 // Codes use Crockford base32 (no I, L, O, U), shown in groups of four ("K7QD-9XMP-...").
 const codeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
+// Every secret that is not an instance password carries at least 128 bits (26 chars = 130 bits),
+// so guessing is infeasible at any request rate and failures need not be counted.
 const (
-	inviteCodeLen = 16 // 80 bits
-	linkCodeLen   = 12 // 60 bits; valid for 15 minutes behind a global failure limiter
+	inviteCodeLen = 26
+	linkCodeLen   = 26
 )
 
 func newCode(n int) (string, error) {

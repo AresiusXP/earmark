@@ -129,3 +129,46 @@ func TestLoadConfigSourceSwitches(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigGoogleClientIDs(t *testing.T) {
+	const a, b = "111-aaa.apps.googleusercontent.com", "222-bbb.apps.googleusercontent.com"
+	base := map[string]string{
+		"PUBLIC_URL": "https://audiobooks.example", "DATABASE_URL": "postgres://x",
+		"CONFIG_SECRET": strings.Repeat("s", 32), "INSTANCE_PASSWORD": "pw",
+	}
+	load := func(single, list string) ([]string, error) {
+		m := map[string]string{}
+		for k, v := range base {
+			m[k] = v
+		}
+		m["GOOGLE_CLIENT_ID"], m["GOOGLE_CLIENT_IDS"] = single, list
+		c, err := loadConfig(env(m))
+		return c.GoogleClientIDs, err
+	}
+	for name, tc := range map[string]struct {
+		single, list string
+		want         []string
+	}{
+		"unset":              {"", "", nil},
+		"single":             {a, "", []string{a}},
+		"list only":          {"", a + "," + b, []string{a, b}},
+		"both, deduped":      {a, " " + b + " , " + a + ",", []string{a, b}},
+		"blank list entries": {"", ", ,", nil},
+	} {
+		got, err := load(tc.single, tc.list)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%s: got %v, %v; want %v", name, got, err, tc.want)
+		}
+	}
+	for name, tc := range map[string][2]string{
+		"not a client id": {"abc", ""},
+		"wrong suffix":    {"111-aaa.apps.example.com", ""},
+		"only the suffix": {".apps.googleusercontent.com", ""},
+		"bad list entry":  {a, b + ",oops"},
+		"space inside":    {"11 1.apps.googleusercontent.com", ""},
+	} {
+		if _, err := load(tc[0], tc[1]); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+}

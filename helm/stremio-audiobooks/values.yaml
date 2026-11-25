@@ -40,6 +40,12 @@ secrets:
 # debrid APIs with their own key. Keep false for a private instance.
 allowOpenConfig: false
 
+# Sign in with Google (an additional sign-in method for the app): the WEB OAuth client ID, used as the
+# audience of the ID tokens. Public, so a plain value, not a Secret. Empty = feature off (the Google
+# routes answer 404 google_disabled). More audiences: add GOOGLE_CLIENT_IDS (comma list) via extraEnv.
+# audiobooks.aresius.xyz: 34828481793-g6n5cm2psogtrga580g41tmgab4h264p.apps.googleusercontent.com
+googleClientId: ""
+
 extraEnv: []
 
 service:

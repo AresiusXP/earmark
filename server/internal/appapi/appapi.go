@@ -10,6 +10,7 @@ package appapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -66,6 +67,8 @@ func New(d Deps) *API {
 	m.HandleFunc("POST /v1/auth/join", a.join)
 	m.HandleFunc("POST /v1/auth/link", a.link)
 	m.HandleFunc("POST /v1/auth/refresh", a.refresh)
+
+	a.registerGoogle(m, auth)
 
 	m.Handle("GET /v1/me", auth(http.HandlerFunc(a.getMe)))
 	m.Handle("PATCH /v1/me", auth(http.HandlerFunc(a.patchMe)))
@@ -204,6 +207,18 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusConflict, "conflict", "you cannot disable yourself")
 	case errors.Is(err, accounts.ErrLastAdmin):
 		WriteError(w, http.StatusConflict, "conflict", "you cannot disable the last admin")
+	case errors.Is(err, accounts.ErrGoogleDisabled):
+		WriteError(w, http.StatusNotFound, "google_disabled", "Google sign-in is not enabled on this server")
+	case errors.Is(err, accounts.ErrGoogleToken):
+		WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid Google ID token")
+	case errors.Is(err, accounts.ErrGoogleNotLinked):
+		WriteError(w, http.StatusUnauthorized, "google_not_linked", "this Google account is not linked to a user, join with an invite code")
+	case errors.Is(err, accounts.ErrGoogleUnavailable):
+		WriteError(w, http.StatusBadGateway, "upstream_failed", "Google could not be reached, try again")
+	case errors.Is(err, accounts.ErrGoogleTaken):
+		WriteError(w, http.StatusConflict, "conflict", "this Google account is already linked to another user")
+	case errors.Is(err, accounts.ErrGoogleAlreadyLinked):
+		WriteError(w, http.StatusConflict, "conflict", "another Google account is already linked, unlink it first")
 	case errors.Is(err, accounts.ErrForbidden):
 		WriteError(w, http.StatusForbidden, "forbidden", "admin only")
 	case errors.Is(err, accounts.ErrNotFound):
@@ -222,15 +237,37 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-// decode reads a JSON object body (at most 16 KiB). It answers 400 and returns false on failure.
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+// readJSON decodes exactly one JSON value from r (at most 16 KiB) and rejects anything after
+// it, including a stray `}` or `]` that json.Decoder.More would let through. With optional, an
+// empty body is accepted and leaves v untouched.
+func readJSON(w http.ResponseWriter, r *http.Request, v any, optional bool) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(v); err != nil {
+		if optional && errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("trailing data after the JSON value")
+	}
+	return nil
+}
+
+// decode reads a JSON object body (at most 16 KiB, nothing after it). It answers 400 and
+// returns false on failure.
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := readJSON(w, r, v, false); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 		return false
 	}
-	if dec.More() {
+	return true
+}
+
+// decodeOptional is decode for bodies that may be empty.
+func decodeOptional(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := readJSON(w, r, v, true); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 		return false
 	}

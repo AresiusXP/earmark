@@ -92,11 +92,19 @@ func (s *Sealer) Open(userID, provider, sealed string) (string, error) {
 	return string(plain), nil
 }
 
-// Fingerprint is hex(HMAC-SHA256(fingerprint key, apiKey)): equal for equal keys, useless
-// without the server secret. Used to spot a household sharing one key and to key per-account
-// budgets.
-func (s *Sealer) Fingerprint(apiKey string) string {
+// FingerprintPrefix marks the current fingerprint format. Rows written before the provider was
+// part of the input hold bare hex; they are "unknown" (never reported as shared, healed the next
+// time the key is read for use or rechecked).
+const FingerprintPrefix = "v2:"
+
+// Fingerprint is "v2:" + hex(HMAC-SHA256(fingerprint key, provider NUL apiKey)): equal for the
+// same key of the same provider, useless without the server secret. The provider is part of
+// the input so that a TorBox key and a Real-Debrid key can never be mistaken for one account.
+// Used to spot a household sharing one key and to key per-account budgets.
+func (s *Sealer) Fingerprint(provider, apiKey string) string {
 	m := hmac.New(sha256.New, s.fpKey)
+	m.Write([]byte(provider))
+	m.Write([]byte{0})
 	m.Write([]byte(apiKey))
-	return hex.EncodeToString(m.Sum(nil))
+	return FingerprintPrefix + hex.EncodeToString(m.Sum(nil))
 }

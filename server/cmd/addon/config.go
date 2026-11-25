@@ -22,6 +22,9 @@ type config struct {
 	ConfigSecret     string
 	InstancePassword string
 	AllowOpenConfig  bool // explicit opt-in to run without INSTANCE_PASSWORD
+	// GoogleClientIDs are the accepted audiences of Google ID tokens (GOOGLE_CLIENT_ID, plus the
+	// comma list GOOGLE_CLIENT_IDS); empty disables Sign in with Google. Client IDs are public.
+	GoogleClientIDs []string
 	// ABBBaseURLs are the AudioBook Bay mirrors in order of preference; empty disables ABB.
 	ABBBaseURLs []string
 	// TorrentsCSV and SolidTorrents enable those sources (default on; env value "off" disables).
@@ -79,6 +82,12 @@ func loadConfig(getenv func(string) string) (config, error) {
 		errs = append(errs, errors.New("INSTANCE_PASSWORD is required (or set ALLOW_OPEN_CONFIG=true to run an open instance)"))
 	}
 
+	gids, err := parseGoogleClientIDs(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_IDS"))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	c.GoogleClientIDs = gids
+
 	abb, err := parseABBBaseURLs(getenv("ABB_BASE_URLS"))
 	if err != nil {
 		errs = append(errs, err)
@@ -96,6 +105,26 @@ func loadConfig(getenv func(string) string) (config, error) {
 		*sw.dst = on
 	}
 	return c, errors.Join(errs...)
+}
+
+const googleClientIDSuffix = ".apps.googleusercontent.com"
+
+// parseGoogleClientIDs merges GOOGLE_CLIENT_ID and the comma list GOOGLE_CLIENT_IDS (order kept,
+// duplicates dropped). Every entry must look like a Google OAuth client ID, so a typo fails the
+// start instead of silently rejecting every sign-in.
+func parseGoogleClientIDs(single, list string) ([]string, error) {
+	var out []string
+	for _, raw := range append([]string{single}, strings.Split(list, ",")...) {
+		id := strings.TrimSpace(raw)
+		if id == "" || slices.Contains(out, id) {
+			continue
+		}
+		if !strings.HasSuffix(id, googleClientIDSuffix) || len(id) == len(googleClientIDSuffix) || strings.ContainsAny(id, " \t\"'") {
+			return nil, errors.New("GOOGLE_CLIENT_ID(S): every entry must be a Google OAuth client ID (<id>" + googleClientIDSuffix + ")")
+		}
+		out = append(out, id)
+	}
+	return out, nil
 }
 
 // parseABBBaseURLs reads ABB_BASE_URLS: unset means the default mirrors, "off" disables ABB,

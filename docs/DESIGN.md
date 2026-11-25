@@ -46,7 +46,8 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   `store` (Postgres), `metadata`, `sources`, `debrid/*`. `cmd/addon` wires them from env:
   `DATABASE_URL`, `CONFIG_SECRET` (>=32 bytes, rotating it invalidates every install URL),
   `PUBLIC_URL`, `INSTANCE_PASSWORD` (required unless `ALLOW_OPEN_CONFIG=true`), `PORT`,
-  `ADMIN_PORT` (metrics, never exposed by the Ingress), `LOG_LEVEL`.
+  `ADMIN_PORT` (metrics, never exposed by the Ingress), `LOG_LEVEL`, and optionally `GOOGLE_CLIENT_ID` (+ `GOOGLE_CLIENT_IDS`,
+  a comma list for a second audience; Sign in with Google, see Accounts notes; Helm: `googleClientId`, empty = off).
 * Video id = `abk:<ASIN>:<infohash>:<fileIndex>`; season = rank of the release at page time.
   File index `-1` (AutoFile) = "provider picks the largest audio file" and is never guessed.
 * `/resolve` answers 302 to the provider's signed CDN link (the API key never reaches the player);
@@ -97,20 +98,60 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     `invalid`, "set it again").
   * Tokens: access = HS256 JWT `{sub, dev, iat, exp}`, 1 h; refresh = 32 random bytes, only the SHA-256 stored, rotated by
     one `UPDATE ... WHERE refresh_hash = old` (a reused token finds no row and fails; it does not revoke the device).
-    Invite codes (16 chars, 80 bit) and link codes (12 chars, 60 bit, 15 min) are Crockford base32, stored as the
-    SHA-256 of the normalised code; a new link code replaces the user's earlier unused ones.
-  * Revocation is immediate: the middleware checks the device row (not revoked, belongs to the token's user) and the
-    user row (not disabled) through a per-process cache of at most 5 s that `RevokeDevice`/`SetDisabled` clear at once
-    (a second replica would see a change within 5 s). A store failure answers 503 `upstream_failed` (clients retry).
+    Invite codes and link codes (15 min) are 26 Crockford base32 chars = 130 bits (every secret except the instance
+    password carries >= 128 bits), stored as the SHA-256 of the normalised code; a new link code replaces the user's
+    earlier unused ones.
+  * Revocation is immediate within the process: the middleware checks the device row (not revoked, belongs to the token's
+    user) and the user row (not disabled) through a per-process cache of at most 5 s that `RevokeDevice`/`SetDisabled`
+    clear at once. The deployment is one replica (Recreate); with a second replica a change would take up to ~5 s to
+    show there. Every admin mutation (disable/enable, create/revoke invite) re-checks IN ITS OWN TRANSACTION, under a
+    share lock on the actor's row, that the actor is an enabled admin (403 `forbidden` otherwise), so a stale Principal
+    (an in-flight request, another replica's cache) cannot re-enable itself or mint invites. A store failure answers 503 `upstream_failed` (clients retry).
     **Disabling a user does not revoke its devices** (contract text amended): the flag blocks access tokens, refresh and
     link codes, and re-enabling restores the devices; otherwise a re-enabled user could never sign in again.
   * Bootstrap / disabling users take `pg_advisory_xact_lock` (`abk_user`) so "first admin only while zero users" and "never
     the last enabled admin" hold under concurrency; self-disable is refused (409). Invite redemption is
     `UPDATE invites SET used_at ... WHERE used_at IS NULL AND expires_at > now` in the same transaction that creates the user.
-  * Limiters (global, in memory; every attempt takes a slot, a success gives it back): 5 failures/min each for
-    bootstrap, join and link, 30/min for refresh (separate buckets so a join flood cannot lock out refreshes),
-    10 invites/min. `429 rate_limited` with `Retry-After` and `retry_after_s`. With `ALLOW_OPEN_CONFIG` and no
-    `INSTANCE_PASSWORD`, bootstrap accepts any password (the operator asked for an open instance).
+  * Limiters (global, in memory; client IPs are not visible behind Traefik, so every limit is process-wide and anybody
+    who can send garbage could use a failure lockout to lock EVERYONE out). Therefore failures are only counted where the
+    secret is guessable: `POST /v1/auth/bootstrap` (instance password; exists only while no user does) allows 5
+    failures/min, and invite creation 10/min (an admin action). Each attempt reserves a slot and a success refunds
+    exactly its own reservation. Refresh tokens (256 bit), invite codes and link codes (130 bit) and Google ID tokens
+    cannot be guessed at any request rate, so those endpoints only get a generous global token-bucket cap that bounds CPU
+    and database load and never looks at success or failure: refresh 20/s (burst 100), join, link and each Google
+    endpoint 5/s (burst 20). Over the cap -> `429 rate_limited` with `Retry-After`/`retry_after_s`; a flood of garbage
+    therefore delays real callers at most until the bucket refills (<= 1 s at these rates), it never locks them out.
+    With `ALLOW_OPEN_CONFIG` and no `INSTANCE_PASSWORD`, bootstrap accepts any password (the operator asked for an open instance).
+  * Request bodies of `/v1` are exactly one JSON value (<= 16 KiB): anything after it, even a stray `}`, is 400
+    `invalid_request` (`appapi.decode`/`decodeOptional`; the legacy `/api/config` does the same).
+  * Sign in with Google (additional sign-in method; packages `googleid` (stdlib only verifier, `googleidtest` fake Google for
+    tests), `accounts/google.go`, `appapi/google.go`, `store/google.go`, migration `0010_google_identities.sql`; the migrator
+    applies every missing version independently, so gaps in the numbering are fine). Enabled only when `GOOGLE_CLIENT_ID`
+    (public web OAuth client ID, the audience; the app's Credential Manager request uses it as `serverClientId`) is set;
+    otherwise every Google route answers 404 `google_disabled` and `GET /v1/version` has `google_enabled:false`. The app
+    sends a Google ID token; the server only verifies identity (no OAuth redirect flow, no Google API access).
+    * Rules: Google never creates an account by itself. A new user = admin invite + ID token (`POST /v1/auth/google/join`,
+      invite redemption and identity link in ONE transaction: a taken identity fails the join and leaves the invite unused).
+      The first admin comes from the instance password and may then link Google (`POST /v1/me/google`). `google_identities(sub
+      PRIMARY KEY, user_id UNIQUE FK cascade, email, linked_at)`: one identity belongs to at most one user and a user has at
+      most one identity (409 otherwise; relinking the same identity is a no-op). A disabled user cannot sign in with Google
+      (401 `unauthorized`). `POST /v1/auth/google` with an unknown identity is 401 `google_not_linked`. Sign-in refreshes the
+      stored email. Unlinking is ALWAYS allowed: the caller is signed in on a device, and devices, link codes and refresh tokens
+      do not depend on Google, so Google is never the only way in (a user who revoked every device and unlinked Google needs a
+      new invite, as one who never linked it would). `Me.google` is `{linked, email?}` (email only for the user itself); the admin
+      list has `google_linked` and `google_email`. Display name of a Google join defaults to the given name, sanitised
+      (control/format characters dropped, whitespace folded, 40 characters), falling back to full name, email local part, `Listener`.
+    * Verification (`googleid.Verifier.Verify`): RS256 only (alg `none`/HS256 are refused before any key is looked up), key by
+      `kid` from `https://www.googleapis.com/oauth2/v3/certs` cached honouring `Cache-Control: max-age` clamped to 5 min - 24 h,
+      one refetch for an unknown `kid` at most once a minute, stale keys still serve known kids during a Google outage, RSA >= 2048
+      bits; `iss` is `https://accounts.google.com` or `accounts.google.com`, `aud` one of the configured IDs, `exp`/`iat` with 2 min
+      leeway, `email_verified` true (bool or "true"), `sub` set, and `nonce` a server nonce. A fetch failure is 502 `upstream_failed`.
+    * Nonces: `GET /v1/auth/google/nonce` returns `random(16) || expiry` + HMAC-SHA256 (HKDF label `audiobooks-google-nonce-v1`),
+      valid 5 min, stateless; single use is enforced by a bounded in-memory set (4096) filled ONLY after a token passed every other
+      check, so unauthenticated callers cannot burn nonces; a restart forgets it (a replay still needs a live Google token and an
+      unexpired nonce). The nonce is spent as soon as its token verified, so a later failure needs a new token. Tokens are never
+      logged and never echoed in errors.
+    * Limits: sign-in, join and link share a global request-rate cap of 5/s (burst 20), no failure lockout (see Limiters).
   * Debrid keys (`userkeys.Service`): `Put` validates with `Provider.Validate` first (rejected -> 400 `bad_debrid_key`,
     outage -> 502 `debrid_unavailable`, nothing stored), `Recheck` records ok|invalid|error without echoing provider
     text, `shared_with_others` is a fingerprint match computed in SQL, `GetForUse(userID, provider)` is the only way to
@@ -150,11 +191,13 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
   admin; more devices join with single-use link codes. Each device has its own token pair (1 h HS256 JWT + rotating
   refresh token, only the SHA-256 of the refresh token stored); disabling a user or revoking a device stops access
   immediately (access tokens are checked against the device/user row). The JWT secret is derived from `CONFIG_SECRET`
-  with HKDF (own label), like Echoes. Auth failures are limited globally (no client IPs behind Traefik).
+  with HKDF (own label), like Echoes. Only the guessable secret (the instance password at bootstrap) has a failure limiter; everything else has a global request-rate cap (see Limiters).
 * **Debrid keys belong to the user.** `user_debrid_keys(user_id, provider, sealed_key, fingerprint, status, validated_at,
   last_error)`; sealed with AES-256-GCM using an HKDF-derived key (own label, never the JWT key); never returned, never
   logged. A request that talks to a debrid service uses ONLY the requesting user's key; there is no fallback to another
-  user's key. Two users may hold the same key (a household): `fingerprint = HMAC-SHA256(derived key, api key)`.
+  user's key. Two users may hold the same key (a household): `fingerprint = "v2:" + HMAC-SHA256(derived key, provider NUL api key)` (the provider is part of the input and of the
+  "shared with others" test; a row with an older bare-hex fingerprint counts as unknown until the key is next read for use or
+  rechecked, which rewrites it).
 * **What is shared and what is per user.** Shared: books, releases, file lists, TorBox cache state (the TorBox cache is
   the same for every account, so one user's check helps everybody). Per user: debrid add/queue/links, RealDebrid probe
   results (stored per key fingerprint, never in the shared `availability` table), library, progress, bookmarks, settings.
@@ -179,7 +222,7 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
   Optional interfaces in `debrid`: `FileLister` (`Files(ctx,key,hash)`, never adds) and `Deleter` (`Delete(ctx,key,hash)`).
 
 ### API shape (see `api/openapi.yaml`)
-`/v1/auth/*`, `/v1/me` (+ `/devices`, `/debrid/{provider}`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`
+`/v1/auth/*` (incl. `/v1/auth/google*`), `/v1/me` (+ `/devices`, `/debrid/{provider}`, `/google`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`
 (+ `/chapters` from Audnexus), `/v1/releases/{hash}/prepare|files/{index}/download|torrent-files`, `/v1/me/library`
 (+ bookmarks), `/v1/app/update*`. The `/v1` handlers live in `server/internal/appapi`; they call `service.API` (extended
 with per-user key arguments) and never touch the Stremio `userconfig`. Errors are `{"error":{"code","message"}}`.

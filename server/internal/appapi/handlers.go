@@ -1,9 +1,7 @@
 package appapi
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -27,6 +25,7 @@ type meDTO struct {
 	DisplayName string      `json:"display_name"`
 	Role        string      `json:"role"`
 	Settings    settingsDTO `json:"settings"`
+	Google      googleDTO   `json:"google"`
 }
 
 type sessionDTO struct {
@@ -55,14 +54,16 @@ type debridDTO struct {
 }
 
 type adminUserDTO struct {
-	ID          string          `json:"id"`
-	DisplayName string          `json:"display_name"`
-	Role        string          `json:"role"`
-	Disabled    bool            `json:"disabled"`
-	CreatedAt   time.Time       `json:"created_at"`
-	LastSeenAt  *time.Time      `json:"last_seen_at"`
-	DeviceCount int             `json:"device_count"`
-	Debrid      map[string]bool `json:"debrid"`
+	ID           string          `json:"id"`
+	DisplayName  string          `json:"display_name"`
+	Role         string          `json:"role"`
+	Disabled     bool            `json:"disabled"`
+	CreatedAt    time.Time       `json:"created_at"`
+	LastSeenAt   *time.Time      `json:"last_seen_at"`
+	DeviceCount  int             `json:"device_count"`
+	Debrid       map[string]bool `json:"debrid"`
+	GoogleLinked bool            `json:"google_linked"`
+	GoogleEmail  *string         `json:"google_email,omitempty"`
 }
 
 type inviteDTO struct {
@@ -76,7 +77,7 @@ func toMe(u accounts.User) meDTO {
 	return meDTO{ID: u.ID, DisplayName: u.DisplayName, Role: string(u.Role), Settings: settingsDTO{
 		Region: u.Settings.Region, Languages: nonNil(u.Settings.Languages), PreferFormat: u.Settings.PreferFormat,
 		PreferredProvider: u.Settings.PreferredProvider, SourceMode: u.Settings.SourceMode, P2PEnabled: u.Settings.P2PEnabled,
-	}}
+	}, Google: toGoogle(u.GoogleEmail)}
 }
 
 func toSession(s accounts.Session) sessionDTO {
@@ -110,7 +111,7 @@ func (a *API) version(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"version": a.ver, "api_version": APIVersion, "bootstrapped": boot})
+	WriteJSON(w, http.StatusOK, map[string]any{"version": a.ver, "api_version": APIVersion, "bootstrapped": boot, "google_enabled": a.acc.GoogleEnabled()})
 }
 
 func (a *API) bootstrap(w http.ResponseWriter, r *http.Request) {
@@ -344,6 +345,7 @@ func (a *API) toAdminUser(u accounts.AdminUser) adminUserDTO {
 	return adminUserDTO{
 		ID: u.ID, DisplayName: u.DisplayName, Role: string(u.Role), Disabled: u.Disabled, CreatedAt: u.CreatedAt,
 		LastSeenAt: u.LastSeenAt, DeviceCount: u.DeviceCount, Debrid: debrid,
+		GoogleLinked: u.GoogleEmail != nil, GoogleEmail: u.GoogleEmail,
 	}
 }
 
@@ -413,9 +415,7 @@ func (a *API) adminCreateInvite(w http.ResponseWriter, r *http.Request) {
 		Note           string `json:"note"`
 		ExpiresInHours *int   `json:"expires_in_hours"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
-		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeOptional(w, r, &in) {
 		return
 	}
 	var ttl time.Duration

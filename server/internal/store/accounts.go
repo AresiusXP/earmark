@@ -19,7 +19,8 @@ var _ accounts.Store = (*Postgres)(nil)
 const usersLockKey int64 = 0x61626B5F75736572 // "abk_user"
 
 const userCols = `u.id::text, u.display_name, u.role, u.disabled, u.created_at, u.last_seen_at,
-	u.region, u.languages, u.prefer_format, u.preferred_provider, u.source_mode, u.p2p_enabled`
+	u.region, u.languages, u.prefer_format, u.preferred_provider, u.source_mode, u.p2p_enabled,
+	(SELECT g.email FROM google_identities g WHERE g.user_id = u.id)`
 
 func scanUser(row pgx.Row, extra ...any) (accounts.User, error) {
 	var (
@@ -28,7 +29,7 @@ func scanUser(row pgx.Row, extra ...any) (accounts.User, error) {
 	)
 	dst := append([]any{&u.ID, &u.DisplayName, &role, &u.Disabled, &u.CreatedAt, &u.LastSeenAt,
 		&u.Settings.Region, &u.Settings.Languages, &u.Settings.PreferFormat, &u.Settings.PreferredProvider,
-		&u.Settings.SourceMode, &u.Settings.P2PEnabled}, extra...)
+		&u.Settings.SourceMode, &u.Settings.P2PEnabled, &u.GoogleEmail}, extra...)
 	if err := row.Scan(dst...); err != nil {
 		return accounts.User{}, err
 	}
@@ -97,15 +98,45 @@ func (p *Postgres) CreateFirstAdmin(ctx context.Context, displayName, deviceName
 	return reg, nil
 }
 
+// requireAdmin re-checks, inside tx and under a share lock on the actor's row, that the actor is
+// an enabled admin RIGHT NOW. The Principal a request carries may be stale (an in-flight request,
+// the 5 s auth cache of another replica); every admin mutation therefore decides on the row, and
+// a concurrent disable of the actor waits for this transaction.
+func requireAdmin(ctx context.Context, tx pgx.Tx, actorID string) error {
+	var ok bool
+	err := tx.QueryRow(ctx, `SELECT role = 'admin' AND NOT disabled FROM users WHERE id = $1::uuid FOR SHARE`, actorID).Scan(&ok)
+	if e := idErr(err); errors.Is(e, accounts.ErrNotFound) {
+		return accounts.ErrForbidden
+	}
+	if err != nil {
+		return fmt.Errorf("store: check admin: %w", err)
+	}
+	if !ok {
+		return accounts.ErrForbidden
+	}
+	return nil
+}
+
 func (p *Postgres) CreateInvite(ctx context.Context, createdBy string, codeHash []byte, note string, now, expires time.Time) (accounts.Invite, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return accounts.Invite{}, fmt.Errorf("store: create invite: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := requireAdmin(ctx, tx, createdBy); err != nil {
+		return accounts.Invite{}, err
+	}
 	// Old finished rows are dropped here, on the rare admin action, instead of by a janitor.
-	_, _ = p.pool.Exec(ctx, `DELETE FROM invites WHERE used_at IS NULL AND expires_at < $1`, now.Add(-30*24*time.Hour))
+	_, _ = tx.Exec(ctx, `DELETE FROM invites WHERE used_at IS NULL AND expires_at < $1`, now.Add(-30*24*time.Hour))
 	var inv accounts.Invite
-	err := p.pool.QueryRow(ctx, `INSERT INTO invites (code_hash, note, created_by, created_at, expires_at)
+	err = tx.QueryRow(ctx, `INSERT INTO invites (code_hash, note, created_by, created_at, expires_at)
 		VALUES ($1, $2, $3::uuid, $4, $5) RETURNING id::text, note, created_at, expires_at`,
 		codeHash, note, createdBy, now, expires).Scan(&inv.ID, &inv.Note, &inv.CreatedAt, &inv.ExpiresAt)
 	if err != nil {
 		return accounts.Invite{}, fmt.Errorf("store: create invite: %w", idErr(err))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return accounts.Invite{}, fmt.Errorf("store: create invite: %w", err)
 	}
 	return inv, nil
 }
@@ -128,15 +159,33 @@ func (p *Postgres) ListOpenInvites(ctx context.Context, now time.Time) ([]accoun
 	return out, rows.Err()
 }
 
-func (p *Postgres) DeleteInvite(ctx context.Context, id string) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM invites WHERE id = $1::uuid AND used_at IS NULL`, id)
+func (p *Postgres) DeleteInvite(ctx context.Context, actorID, id string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: delete invite: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := requireAdmin(ctx, tx, actorID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `DELETE FROM invites WHERE id = $1::uuid AND used_at IS NULL`, id)
 	if err = idErr(err); err != nil && !errors.Is(err, accounts.ErrNotFound) {
 		return fmt.Errorf("store: delete invite: %w", err)
 	}
-	return nil
+	if errors.Is(err, accounts.ErrNotFound) {
+		// A malformed id deleted nothing; the aborted statement poisons tx, so just stop here.
+		return nil
+	}
+	return tx.Commit(ctx)
 }
 
 func (p *Postgres) RedeemInvite(ctx context.Context, codeHash []byte, displayName, deviceName string, refreshHash []byte, now time.Time) (accounts.Registered, error) {
+	return p.redeemInvite(ctx, codeHash, nil, displayName, deviceName, refreshHash, now)
+}
+
+// redeemInvite marks the invite used, creates the user and its first device and, when g is set,
+// links the Google identity, all in one transaction.
+func (p *Postgres) redeemInvite(ctx context.Context, codeHash []byte, g *accounts.GoogleIdentity, displayName, deviceName string, refreshHash []byte, now time.Time) (accounts.Registered, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return accounts.Registered{}, fmt.Errorf("store: redeem invite: %w", err)
@@ -159,6 +208,12 @@ func (p *Postgres) RedeemInvite(ctx context.Context, codeHash []byte, displayNam
 	}
 	if _, err := tx.Exec(ctx, `UPDATE invites SET used_by = $2::uuid WHERE id = $1::uuid`, inviteID, reg.User.ID); err != nil {
 		return accounts.Registered{}, fmt.Errorf("store: redeem invite: %w", err)
+	}
+	if g != nil {
+		if err := insertGoogle(ctx, tx, reg.User.ID, *g, now); err != nil {
+			return accounts.Registered{}, err
+		}
+		reg.User.GoogleEmail = &g.Email
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return accounts.Registered{}, fmt.Errorf("store: redeem invite: %w", err)
@@ -370,6 +425,9 @@ func (p *Postgres) SetDisabled(ctx context.Context, actorID, targetID string, di
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, usersLockKey); err != nil {
 		return accounts.AdminUser{}, fmt.Errorf("store: set disabled lock: %w", err)
+	}
+	if err := requireAdmin(ctx, tx, actorID); err != nil {
+		return accounts.AdminUser{}, err
 	}
 	var (
 		role string

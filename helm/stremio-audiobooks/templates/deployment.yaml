@@ -67,6 +67,10 @@ spec:
                   name: {{ .Values.secrets.existingSecret }}
                   key: {{ .Values.secrets.keys.instancePassword }}
                   optional: true
+            {{- if .Values.googleClientId }}
+            - name: GOOGLE_CLIENT_ID
+              value: {{ .Values.googleClientId | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
