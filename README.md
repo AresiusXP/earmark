@@ -23,7 +23,8 @@
 * **Audiobook catalog inside Stremio**: search by title or author, browse best sellers. Metadata (cover,
   authors, narrators, series, runtime) comes from Audible and Audnexus.
 * **Instant playback through TorBox**: only releases TorBox already has cached are offered first (⚡).
-  Anything else is added on demand.
+  Anything else is added on demand. Real-Debrid works too, but has no cache check: its releases are
+  added when you play them.
 * **Books, not movies**: every release of a book is a *season*, every chapter file an *episode*. Stremio
   remembers your position per file and plays the next chapter by itself.
 * **Smart matching**: release names are parsed and scored against the book (title, author, narrator,
@@ -112,7 +113,7 @@ server/
     metadata         Audible catalog + Audnexus client
     sources          Knaben and AudioBook Bay release sources
     parse, match     release-name parsing and book/release scoring
-    debrid           provider interface, TorBox client
+    debrid           provider interface, TorBox and Real-Debrid clients
     userconfig       AES-GCM sealed user configuration
 docs/                design (source of truth), usage guide
 helm/                Helm chart

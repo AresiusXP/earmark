@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/realdebrid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/torbox"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/httpapi"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
@@ -72,7 +73,7 @@ func run() error {
 		Metadata:  metadata.New(),
 		Sources:   srcs,
 		Store:     db,
-		Providers: debrid.NewRegistry(torbox.New("", nil)),
+		Providers: debrid.NewRegistry(torbox.New("", nil), realdebrid.New("", nil)),
 		Logger:    logger,
 	})
 	api := httpapi.New(httpapi.Deps{

@@ -131,6 +131,13 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
   shows RD cache state only after the caller's own key probed the release. Probing adds a torrent, so it happens only on
   `prepare` (an explicit user action), never while rendering a book page. RD may bind links to the IP that created them and
   limits parallel use; the provider's error message is shown as is.
+  Implementation notes: `File.Index` is the RD file id (1-based). RD allows ONE file selection per torrent, so the first
+  Resolve selects all audio files plus the requested one; `info.links` holds one link per selected file in ascending id
+  order, so a file's link is found by its position among the selected files (a link/file count mismatch is an error, never
+  guessed). Torrents are found by hash in `GET /torrents` (eventually consistent), so the id from `addMagnet` is remembered
+  in memory per key fingerprint for 30 min to avoid duplicate adds. Requests are spaced 250 ms per key fingerprint and a
+  429 blocks that key for `Retry-After` (fail-fast `ErrRateLimited`, no retries). The unrestricted URL must be https.
+  Optional interfaces in `debrid`: `FileLister` (`Files(ctx,key,hash)`, never adds) and `Deleter` (`Delete(ctx,key,hash)`).
 
 ### API shape (see `api/openapi.yaml`)
 `/v1/auth/*`, `/v1/me` (+ `/devices`, `/debrid/{provider}`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`
