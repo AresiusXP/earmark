@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/appapi"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/torbox"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/httpapi"
@@ -22,6 +24,7 @@ import (
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/store"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -68,16 +71,26 @@ func run() error {
 	if cfg.SolidTorrents {
 		srcs = append(srcs, sources.NewSolidTorrents())
 	}
+	providers := debrid.NewRegistry(torbox.New("", nil))
 	svc := service.New(service.Deps{
 		Metadata:  metadata.New(),
 		Sources:   srcs,
 		Store:     db,
-		Providers: debrid.NewRegistry(torbox.New("", nil)),
+		Providers: providers,
 		Logger:    logger,
 	})
+	acc, err := accounts.New(accounts.Config{Secret: cfg.ConfigSecret, InstancePassword: cfg.InstancePassword, Store: db})
+	if err != nil {
+		return err
+	}
+	keys, err := userkeys.New(userkeys.Config{Secret: cfg.ConfigSecret, Store: db, Providers: providers, Logger: logger})
+	if err != nil {
+		return err
+	}
+	v1 := appapi.New(appapi.Deps{Accounts: acc, Keys: keys, Version: version, Logger: logger})
 	api := httpapi.New(httpapi.Deps{
 		API: svc, Sealer: sealer, PublicURL: cfg.PublicURL, InstancePassword: cfg.InstancePassword,
-		Logger: logger, Version: version,
+		Logger: logger, Version: version, V1: v1,
 	})
 
 	servers := []*http.Server{{

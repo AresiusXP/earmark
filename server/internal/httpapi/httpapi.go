@@ -37,6 +37,9 @@ type Deps struct {
 	Logger           *slog.Logger
 	Version          string
 	Registry         *prometheus.Registry // nil = a private registry with Go/process collectors
+	// V1 serves every path under /v1/ (the app API, see internal/appapi). It sits outside the
+	// Stremio CORS policy: no Access-Control-Allow-Origin is sent for it. nil = /v1 is a 404.
+	V1 http.Handler
 }
 
 type server struct {
@@ -52,6 +55,7 @@ type server struct {
 	limiter    *bucket
 	main       *http.ServeMux
 	resolveMux *http.ServeMux
+	v1         http.Handler
 }
 
 // New builds the addon handler.
@@ -64,6 +68,7 @@ func New(d Deps) http.Handler {
 		log:       d.Logger,
 		version:   d.Version,
 		limiter:   newBucket(30, 30, time.Minute),
+		v1:        d.V1,
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -120,13 +125,16 @@ func New(d Deps) http.Handler {
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
-	h.Set("Access-Control-Allow-Origin", "*")
-	h.Set("Access-Control-Allow-Headers", "*")
-	h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
-	h.Set("Access-Control-Max-Age", "86400")
+	isV1 := strings.HasPrefix(r.URL.Path, "/v1/")
+	if !isV1 {
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Headers", "*")
+		h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+		h.Set("Access-Control-Max-Age", "86400")
+	}
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Content-Type-Options", "nosniff")
-	if r.Method == http.MethodOptions {
+	if r.Method == http.MethodOptions && !isV1 {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -154,6 +162,14 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.log.Log(r.Context(), lvl, "request", "method", r.Method, "route", route, "status", sw.code(), "dur", dur)
 	}()
 
+	if isV1 {
+		if s.v1 == nil {
+			http.NotFound(sw, r)
+			return
+		}
+		s.v1.ServeHTTP(sw, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/resolve/") {
 		s.resolveMux.ServeHTTP(sw, r)
 		return
