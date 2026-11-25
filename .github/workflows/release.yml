@@ -1,9 +1,17 @@
-# Release pipeline: ONE version (vX.Y.Z) for the server image and the Helm chart.
+# Release pipeline: ONE version (vX.Y.Z) for the server image, the Helm chart and the Android APK.
 #
 #   push to main
 #     -> release-please   keeps the release PR up to date; merging it creates the
-#                         vX.Y.Z tag + GitHub release (and bumps Chart.yaml)
-#     -> image            builds/pushes ghcr.io/<owner>/stremio-audiobooks:X.Y.Z
+#                         vX.Y.Z tag + GitHub release (and bumps Chart.yaml and
+#                         .release-please-manifest.json, which Gradle reads)
+#     -> apk              builds the signed release APK and attaches audiobooks-X.Y.Z.apk (+ .sha256)
+#                         to the GitHub release; also uploads it with an update.json as the
+#                         workflow artifact `apk` (5 days)
+#     -> images           builds/pushes ghcr.io/<owner>/stremio-audiobooks:X.Y.Z, with that artifact
+#                         baked in (/update) so the server can offer in-app updates: the repo is
+#                         private, so the app cannot fetch release assets. Waits for apk but
+#                         never depends on its success: if the APK or the artifact is missing
+#                         the image is built without it (in-app update reports "none")
 #     -> chart            packages/pushes oci://ghcr.io/<owner>/charts/stremio-audiobooks
 #     -> register         bumps targetRevision of the stremio-audiobooks entry in
 #                         <owner>/argocd-apps (bootstrap/values.yaml) on main, so ArgoCD
@@ -16,10 +24,16 @@
 #
 # Recovery: run this workflow manually (workflow_dispatch) with `tag` set to an
 # existing release tag (e.g. v0.1.0) to build any MISSING image and publish the
-# chart if that chart version is missing. release-please is skipped then.
+# chart if that chart version is missing. release-please is skipped then. The apk
+# job rebuilds the APK of that tag in the same run, so a recovered image gets it too.
 # Published versions are immutable: an image tag that already exists is never
 # rebuilt (floating base-image tags could otherwise change a released version)
-# unless `force_images` is explicitly ticked.
+# unless `force_images` is explicitly ticked (do that to add the APK to an image
+# that was published without it).
+#
+# Signing secrets of the apk job: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD; optional repository VARIABLE ANDROID_CERT_SHA256
+# pins the signing certificate. See docs/RELEASING.md.
 #
 # ARGOCD_APPS_DEPLOY_KEY is the private half of a write deploy key (title
 # `stremio-audiobooks-release`) registered on <owner>/argocd-apps only. `register` only ever
@@ -75,8 +89,10 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # Needs apk only to be able to download its artifact: the condition (not `success()`) keeps the
+  # image, chart and deploy going when the APK build fails or is skipped.
   images:
-    needs: release-please
+    needs: [release-please, apk]
     if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
@@ -125,8 +141,46 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Before the build; never fails the job. An absent/invalid bundle only means no in-app update.
+      - name: Download the APK bundle built by the apk job
+        if: steps.exists.outputs.exists != 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: apk
+          path: server/update
+
+      - name: Check the APK bundle
+        if: steps.exists.outputs.exists != 'true'
+        id: bundle
+        working-directory: server/update
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          APK_RESULT: ${{ needs.apk.result }}
+        run: |
+          drop() {
+            echo "::warning::$1; the image is built WITHOUT the in-app update bundle (apk job: ${APK_RESULT})"
+            rm -f audiobooks.apk update.json
+            echo "bundled=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$1" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          grep -q '^COPY update/ /update/' ../Dockerfile || drop "server/Dockerfile of ${VERSION} does not copy update/ (tag predates the in-app update pipeline)"
+          [[ -f audiobooks.apk && -f update.json ]] || drop "No APK bundle artifact"
+          [[ "$(jq -r '.version_name // empty' update.json 2>/dev/null)" == "$VERSION" ]] || drop "update.json is invalid or not for ${VERSION}"
+          [[ "$(jq -r '.sha256 // empty' update.json)" == "$(sha256sum audiobooks.apk | cut -d' ' -f1)" ]] || drop "audiobooks.apk does not match the sha256 in update.json"
+          [[ "$(jq -r '.size // empty' update.json)" == "$(stat -c %s audiobooks.apk)" ]] || drop "audiobooks.apk does not match the size in update.json"
+          chmod a+r audiobooks.apk update.json
+          echo "::notice::Baking audiobooks-${VERSION}.apk into the image"
+          {
+            echo "bundled=true"
+            echo "sha256=$(jq -r .sha256 update.json)"
+            echo "size=$(stat -c %s audiobooks.apk)"
+          } >> "$GITHUB_OUTPUT"
+
       # The source label links the GHCR package to this repository.
       - name: Build and push image
+        id: build
         if: steps.exists.outputs.exists != 'true'
         uses: docker/build-push-action@v7
         with:
@@ -141,6 +195,202 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.image }}:cache
           cache-to: type=registry,ref=${{ steps.meta.outputs.image }}:cache,mode=max
+
+      # Makes a silent fail-open visible: says whether the image carries the in-app update APK.
+      - name: Summary
+        if: ${{ always() && steps.meta.outcome == 'success' }}
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          EXISTS: ${{ steps.exists.outputs.exists }}
+          BUILD: ${{ steps.build.outcome }}
+          BUNDLED: ${{ steps.bundle.outputs.bundled }}
+          REASON: ${{ steps.bundle.outputs.reason }}
+          SHA256: ${{ steps.bundle.outputs.sha256 }}
+          SIZE: ${{ steps.bundle.outputs.size }}
+          APK_RESULT: ${{ needs.apk.result }}
+        run: |
+          {
+            echo "### Image ${IMAGE}:${VERSION}"
+            echo
+            if [[ "$EXISTS" == "true" ]]; then
+              echo "Already published, **not rebuilt**: its in-app update APK is whatever it was built with (tick force_images to rebuild)."
+            elif [[ "$BUILD" != "success" ]]; then
+              echo "**Image build did not succeed** (${BUILD:-not run})."
+            elif [[ "$BUNDLED" == "true" ]]; then
+              echo "In-app update APK: **included** - audiobooks-${VERSION}.apk, sha256 \`${SHA256:0:12}...\`, ${SIZE} bytes."
+            else
+              echo "In-app update APK: **NOT included** - ${REASON:-unknown reason} (apk job: ${APK_RESULT}). The app will see no update until the image is rebuilt with force_images."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Signed release APK attached to the GitHub release and handed to `images` as the artifact `apk`
+  # (APK + update.json). It does not need images/chart/register, and a failure here never blocks
+  # them: `images` only waits for it and then builds with or without the bundle.
+  apk:
+    needs: release-please
+    if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      # Same rule as appupdate.VersionCode and app/app/build.gradle.kts: versionCode = X*10000+Y*100+Z
+      # only stays unique and monotonic when each component is 0..99 (no leading zeros). Fails the apk
+      # job before anything is built or uploaded; images still runs (without a bundle).
+      - name: Resolve version
+        id: meta
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid tag '$TAG' (expected vX.Y.Z)"
+            exit 1
+          fi
+          version="${TAG#v}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version components must each be 0..99 without leading zeros (versionCode = X*10000+Y*100+Z); got '$version'"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # compileSdk 37 is newer than the platforms preinstalled on the runner image.
+      - name: Install Android SDK platform and build-tools
+        run: |
+          SDKMANAGER="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # The keystore lives in RUNNER_TEMP only, never in the workspace.
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" ]]; then
+            echo "::error::Secret ANDROID_KEYSTORE_BASE64 is not set"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/audiobooks-release.jks"
+          echo "AUDIOBOOKS_KEYSTORE_FILE=$RUNNER_TEMP/audiobooks-release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        working-directory: app
+        env:
+          AUDIOBOOKS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          AUDIOBOOKS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          AUDIOBOOKS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: ./gradlew :app:assembleRelease -PappVersion="$VERSION" --stacktrace
+
+      - name: Verify signature and package
+        id: pkg
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          EXPECTED_CERT: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          src=app/app/build/outputs/apk/release/app-release.apk
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n1)"
+          out="$("$apksigner" verify --print-certs "$src")"
+          echo "$out"
+          if grep -q "Android Debug" <<< "$out"; then
+            echo "::error::Release APK is signed with the debug key"
+            exit 1
+          fi
+          # Pin the signing certificate (repository VARIABLE ANDROID_CERT_SHA256, not a secret):
+          # a wrong key would build an APK that installed apps refuse to update to.
+          # apksigner prints `Signer #1 certificate SHA-256 digest:` (build-tools 35) or `V2 Signer: certificate
+          # SHA-256 digest:` (build-tools 36 on the runners, v2-only signatures): accept both, first signer.
+          cert_re='^(Signer #1 certificate|V[0-9.]+ Signer: certificate) SHA-256 digest: '
+          signer="$(sed -n -E "s/${cert_re}//p" <<< "$out" | head -n1 | tr -d ':' | tr 'A-F' 'a-f')"
+          expected="$(tr -d ': \t\r\n' <<< "$EXPECTED_CERT" | tr 'A-F' 'a-f')"
+          if [[ -z "$expected" ]]; then
+            echo "::warning::Repository variable ANDROID_CERT_SHA256 is not set; the signing certificate is not pinned (signer: ${signer})"
+          elif [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Repository variable ANDROID_CERT_SHA256 is not a SHA-256 hex digest"
+            exit 1
+          elif [[ "$signer" != "$expected" ]]; then
+            echo "::error::APK signer certificate ${signer:-<none>} does not match ANDROID_CERT_SHA256 ${expected}"
+            exit 1
+          fi
+          mkdir -p dist
+          apk="dist/audiobooks-${VERSION}.apk"
+          cp "$src" "$apk"
+          (cd dist && sha256sum "audiobooks-${VERSION}.apk" > "audiobooks-${VERSION}.apk.sha256")
+          {
+            echo "### audiobooks-${VERSION}.apk"
+            echo
+            echo "SHA-256: \`$(cut -d' ' -f1 "$apk.sha256")\`"
+            echo
+            echo "Signer: \`${signer}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # update.json is what the server reads (see server/internal/appupdate): the sha256/size of the
+      # exact bytes in the image, versionCode as in app/app/build.gradle.kts, and the release notes
+      # (best effort: a failing `gh release view` leaves them empty instead of failing the job).
+      - name: Build the update bundle for the server image
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          apk="dist/audiobooks-${VERSION}.apk"
+          IFS=. read -r major minor patch <<< "${VERSION%%-*}"
+          code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,publishedAt > "$RUNNER_TEMP/release.json"; then
+            echo "::warning::Could not read release $TAG; update.json carries empty notes"
+            echo '{}' > "$RUNNER_TEMP/release.json"
+          fi
+          mkdir -p dist/update
+          cp "$apk" dist/update/audiobooks.apk
+          jq -n \
+            --arg version_name "$VERSION" \
+            --argjson version_code "$code" \
+            --arg sha256 "$(sha256sum "$apk" | cut -d' ' -f1)" \
+            --argjson size "$(stat -c %s "$apk")" \
+            --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --slurpfile rel "$RUNNER_TEMP/release.json" \
+            '{version_name: $version_name, version_code: $version_code, sha256: $sha256, size: $size,
+              notes: (($rel[0].body // "")[0:4000]),
+              released_at: (($rel[0].publishedAt // "") | if . == "" then $now else . end)}' \
+            > dist/update/update.json
+          cat dist/update/update.json
+
+      - name: Upload the update bundle (artifact for the server image)
+        uses: actions/upload-artifact@v7
+        with:
+          name: apk
+          path: |
+            dist/update/audiobooks.apk
+            dist/update/update.json
+          retention-days: 5
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload to the GitHub release
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          gh release upload "$TAG" "dist/audiobooks-${VERSION}.apk" "dist/audiobooks-${VERSION}.apk.sha256" \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/audiobooks-release.jks"
 
   chart:
     needs: [release-please, images]

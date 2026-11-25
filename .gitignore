@@ -9,3 +9,7 @@ app/local.properties
 app/.kotlin/
 *.jks
 *.keystore
+
+# APK bundle baked into the server image by release.yml
+/server/update/*.apk
+/server/update/update.json
