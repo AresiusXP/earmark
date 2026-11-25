@@ -1,0 +1,41 @@
+# Español (es-AR, voseo) for scripts/strings/account.py.
+ES = {
+    # Sign in with Google (onboarding)
+    "google_continue": "Continuar con Google",
+    "google_continue_desc": "Para una cuenta de Google que ya está vinculada a tu usuario.",
+    "google_working": "Esperando a Google…",
+    "google_not_available_here": "Iniciar sesión con Google requiere los servicios de Google Play, que este dispositivo no tiene. Usá un código de invitación o de vinculación.",
+    "google_join_action": "Unirme con Google",
+    "google_join_help": "Ingresá el código de invitación que te dieron. Tu cuenta de Google se vincula a tu nuevo usuario, así que la próxima vez alcanza con Continuar con Google.",
+    # Google errors
+    "google_error_disabled": "Iniciar sesión con Google está desactivado en este servidor.",
+    "google_error_not_linked": "Esta cuenta de Google todavía no está vinculada a un usuario: unite con un código de invitación.",
+    "google_error_rejected": "El inicio de sesión con Google venció o fue rechazado. Probá de nuevo.",
+    "google_error_conflict": "Esta cuenta de Google ya está vinculada a otro usuario, o tu usuario ya tiene otra cuenta de Google (desvinculá esa primero).",
+    "google_error_no_account": "No hay ninguna cuenta de Google en este dispositivo. Agregá una en los ajustes de Android, o usá un código de invitación o de vinculación.",
+    "google_error_unavailable": "Iniciar sesión con Google no está disponible en este dispositivo (sin servicios de Google Play). Usá un código de invitación o de vinculación.",
+    "google_error_failed": "No se pudo obtener el inicio de sesión de Google. Probá de nuevo.",
+    "auth_bad_invite_google": "Ese código de invitación es desconocido, ya se usó o venció, o se agotó el tiempo del inicio de sesión con Google. Probá de nuevo.",
+    # Settings > Account
+    "settings_google_title": "Cuenta de Google",
+    "settings_google_none": "No hay ninguna cuenta de Google vinculada. Vinculá una para iniciar sesión en un teléfono nuevo con un toque.",
+    "settings_google_linked": "Vinculada: %1$s",
+    "settings_google_linked_no_email": "Hay una cuenta de Google vinculada.",
+    "settings_google_link": "Vincular cuenta de Google",
+    "settings_google_unlink": "Desvincular",
+    "settings_google_unlink_title": "¿Desvincular la cuenta de Google?",
+    "settings_google_unlink_message": "Ya no vas a poder iniciar sesión con esta cuenta de Google. Tus dispositivos siguen con la sesión iniciada y podés volver a vincularla más tarde.",
+    # Codes: invite and link codes (shared dialog, onboarding input)
+    "code_share": "Compartir",
+    "code_expires_in": "Vence en %1$s",
+    "code_expired": "Este código venció.",
+    "code_qr_description": "Código QR del código",
+    "code_copied": "Copiado",
+    "code_scan_hint": "En el otro teléfono elegí \"Escanear código QR\", o escribí el código.",
+    "code_input_count": "%1$d de 26 caracteres",
+    "code_input_ok": "El código se ve bien",
+    "code_paste": "Pegar",
+    "code_scan": "Escanear código QR",
+    "input_code_invalid": "Ese no es un código válido: tiene 26 letras y números (los espacios, guiones y mayúsculas no importan).",
+    "auth_scanner_unavailable": "El escáner de QR no está disponible en este dispositivo. Pegá o escribí el código.",
+}

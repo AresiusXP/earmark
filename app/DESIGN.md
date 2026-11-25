@@ -33,7 +33,7 @@ covers in the dark theme; the light theme gets a soft warm shadow instead (`cove
 * **Fraunces** (opsz, wght, SOFT 50, WONK off, opsz tied to the size class) for display, headlines and titles: 34-48 sp headlines with
   tight tracking, serif book titles.
 * **Hanken Grotesk** for UI and body; labels 11-14 sp medium with a little letter spacing. Time and progress use tabular figures
-  (`TabularFigures`). Latin + Latin Extended (Dutch).
+  (`TabularFigures`). Latin + Latin Extended (Dutch, Spanish: ¿ ¡ á é í ó ú ñ ü).
 
 ## Shape and motion (`Shape.kt`, `Motion.kt`)
 Large radii: covers 24 dp, cards 28 dp, pill buttons, `SquircleShape` for the player's skip buttons. Generous whitespace, one strong hero per

@@ -14,8 +14,18 @@ cd app
 
 Toolchain: Gradle 9.9.1 (wrapper), AGP 9.5.1 (built-in Kotlin), Kotlin 2.4.21 + Compose compiler plugin (all warnings are errors), KSP,
 Hilt, Room, Retrofit + kotlinx-serialization, Coil 3, Palette, Tink, Media3 (ExoPlayer + session), WorkManager. compileSdk 37 (install `platforms;android-37.0`), targetSdk 35,
-minSdk 26. Versions live in `gradle/libs.versions.toml`. Strings: edit the table in `scripts/gen_strings.py` or a module in `scripts/strings/*.py` and run it (it writes English and
-Dutch together, so no key can miss a translation; CI checks they are in sync).
+minSdk 26. Versions live in `gradle/libs.versions.toml`. Strings: edit the table in `scripts/gen_strings.py` or a module in `scripts/strings/*.py` (English + Dutch), add the Spanish text
+(es-AR, voseo) to the file of the same name in `scripts/strings_es/*.py` (`core.py` = `gen_strings.py`) and run it: it writes `values/`, `values-nl/` and
+`values-es/` and fails on a missing or orphan Spanish string or format arguments (`%1$s`, `%1$d`) that differ from English. CI runs
+`scripts/test_gen_strings.py` and checks the generated files are in sync; `StringResourcesTest` re-checks the XML on the JVM.
+
+## Languages
+
+UI: English (default), Dutch, Spanish (`values-es`, Argentine voseo kept neutral). `res/xml/locales_config.xml` lists them for the Android 13+
+per-app language setting (`android:localeConfig`) and `androidResources.localeFilters` in `app/build.gradle.kts` keeps the same three. Add a language in
+all three places (+ a `strings_es`-style folder). Dates, sizes and numbers go through `Locale`; the Discover greeting
+says "Buenas tardes" until 20:00 in Spanish (18:00 elsewhere). Book languages (Settings > Languages, `SETTINGS_LANGUAGES`): English, Dutch, Spanish, at least one;
+the label of each comes from `Locale`, so it follows the UI language. The demo backend lists its two Spanish books only when `es` is selected.
 
 `versionName` is `-PappVersion=X.Y.Z` or, by default, the repo version (`../.release-please-manifest.json`); `versionCode = X*10000 + Y*100 + Z`.
 
