@@ -617,3 +617,69 @@ func TestNoSecretsInLogs(t *testing.T) {
 		}
 	}
 }
+
+// Refresh tokens carry 256 bits, so garbage is not counted against anybody: a flood only hits the
+// global request-rate cap (429 + Retry-After) and a valid refresh works as soon as the bucket
+// has a token again.
+func TestRefreshFloodDoesNotLockOutRealUsers(t *testing.T) {
+	e := newEnv(t)
+	admin := e.bootstrap()
+	garbage := map[string]any{"refresh_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+	var unauthorized, limited int
+	for i := 0; i < 150; i++ {
+		r := e.do("POST", "/v1/auth/refresh", "", garbage)
+		switch r.Code {
+		case 401:
+			unauthorized++
+		case 429:
+			limited++
+			if r.Header().Get("Retry-After") == "" {
+				t.Fatal("429 without Retry-After")
+			}
+		default:
+			t.Fatalf("status %d", r.Code)
+		}
+	}
+	if unauthorized != 100 || limited != 50 {
+		t.Fatalf("401s=%d 429s=%d, want 100/50 (the bucket's burst)", unauthorized, limited)
+	}
+	e.clk.Advance(time.Second) // the cap refills 20 tokens a second
+	e.do("POST", "/v1/auth/refresh", "", map[string]any{"refresh_token": admin.refresh}).status(t, 200)
+}
+
+func TestJoinGarbageDoesNotLockOutValidInvites(t *testing.T) {
+	e := newEnv(t)
+	admin := e.bootstrap()
+	code := e.invite(admin)
+	for i := 0; i < 20; i++ {
+		e.do("POST", "/v1/auth/join", "", map[string]any{"invite_code": "NOPE-NOPE", "display_name": "x", "device_name": "d"}).errCode(t, 401, "unauthorized")
+	}
+	e.do("POST", "/v1/auth/join", "", map[string]any{"invite_code": code, "display_name": "Bob", "device_name": "d"}).errCode(t, 429, "rate_limited")
+	e.clk.Advance(time.Second)
+	e.do("POST", "/v1/auth/join", "", map[string]any{"invite_code": code, "display_name": "Bob", "device_name": "d"}).status(t, 200)
+}
+
+func TestTrailingJSONIsRejected(t *testing.T) {
+	e := newEnv(t)
+	admin := e.bootstrap()
+	routes := []struct{ method, path, token, body string }{
+		{"POST", "/v1/auth/bootstrap", "", `{"instance_password":"pw","display_name":"A","device_name":"d"}`},
+		{"POST", "/v1/auth/join", "", `{"invite_code":"x","display_name":"A","device_name":"d"}`},
+		{"POST", "/v1/auth/link", "", `{"link_code":"x","device_name":"d"}`},
+		{"POST", "/v1/auth/refresh", "", `{"refresh_token":"x"}`},
+		{"PATCH", "/v1/me", admin.access, `{"display_name":"B"}`},
+		{"PUT", "/v1/me/debrid/torbox", admin.access, `{"api_key":"abcdefgh1234"}`},
+		{"PATCH", "/v1/admin/users/" + admin.userID, admin.access, `{"disabled":false}`},
+		{"POST", "/v1/admin/invites", admin.access, `{"note":"n"}`},
+	}
+	for _, rt := range routes {
+		for _, trail := range []string{"}", "]", `{"a":1}`, "x", " 1", "\n{}"} {
+			r := e.do(rt.method, rt.path, rt.token, rt.body+trail)
+			r.errCode(t, 400, "invalid_request")
+		}
+	}
+	// trailing whitespace is fine, and the invite body may be absent or empty
+	e.do("PATCH", "/v1/me", admin.access, `{"display_name":"B"}`+" \n\t").status(t, 200)
+	e.do("POST", "/v1/admin/invites", admin.access, "").status(t, 200)
+	e.do("POST", "/v1/admin/invites", admin.access, nil).status(t, 200)
+}

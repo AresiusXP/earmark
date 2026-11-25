@@ -50,7 +50,10 @@ type Service struct {
 	store  Store
 	now    func() time.Time
 
-	bootstrapFails, joinFails, linkFails, refreshFails, inviteRate *failLimiter
+	// bootstrapFails guards the guessable instance password; inviteRate bounds invite creation.
+	// The other public endpoints carry >= 128-bit secrets and only get a global request-rate cap.
+	bootstrapFails, inviteRate              *failLimiter
+	joinCap, linkCap, refreshCap, googleCap *rateCap
 
 	cacheTTL time.Duration
 	mu       sync.Mutex
@@ -100,18 +103,29 @@ func New(c Config) (*Service, error) {
 		s.cacheTTL = maxCacheTTL
 	}
 	s.bootstrapFails = newFailLimiter(5, time.Minute, s.now)
-	s.joinFails = newFailLimiter(5, time.Minute, s.now)
-	s.linkFails = newFailLimiter(5, time.Minute, s.now)
-	s.refreshFails = newFailLimiter(30, time.Minute, s.now)
 	s.inviteRate = newFailLimiter(10, time.Minute, s.now)
+	s.refreshCap = newRateCap(20, 100, s.now)
+	s.joinCap = newRateCap(5, 20, s.now)
+	s.linkCap = newRateCap(5, 20, s.now)
+	s.googleCap = newRateCap(5, 20, s.now)
 	return s, nil
 }
 
 // Bootstrapped reports whether the first admin exists.
 func (s *Service) Bootstrapped(ctx context.Context) (bool, error) { return s.store.Bootstrapped(ctx) }
 
-func take(l *failLimiter) error {
-	if ok, retry := l.acquire(); !ok {
+// take reserves a slot of l; the caller refunds the reservation on success.
+func take(l *failLimiter) (reservation, error) {
+	res, ok, retry := l.acquire()
+	if !ok {
+		return 0, &LimitError{RetryAfter: retry}
+	}
+	return res, nil
+}
+
+// admit takes a token of a global request-rate cap.
+func admit(c *rateCap) error {
+	if ok, retry := c.allow(); !ok {
 		return &LimitError{RetryAfter: retry}
 	}
 	return nil
@@ -124,7 +138,8 @@ func (s *Service) Bootstrap(ctx context.Context, password, displayName, deviceNa
 	if err != nil {
 		return Session{}, err
 	}
-	if err := take(s.bootstrapFails); err != nil {
+	res, err := take(s.bootstrapFails)
+	if err != nil {
 		return Session{}, err
 	}
 	if !s.open {
@@ -133,7 +148,7 @@ func (s *Service) Bootstrap(ctx context.Context, password, displayName, deviceNa
 			return Session{}, ErrBadPassword
 		}
 	}
-	s.bootstrapFails.refund()
+	s.bootstrapFails.refund(res)
 	refresh, hash, err := newRefresh()
 	if err != nil {
 		return Session{}, err
@@ -151,7 +166,7 @@ func (s *Service) Join(ctx context.Context, inviteCode, displayName, deviceName 
 	if err != nil {
 		return Session{}, err
 	}
-	if err := take(s.joinFails); err != nil {
+	if err := admit(s.joinCap); err != nil {
 		return Session{}, err
 	}
 	refresh, hash, err := newRefresh()
@@ -162,7 +177,6 @@ func (s *Service) Join(ctx context.Context, inviteCode, displayName, deviceName 
 	if err != nil {
 		return Session{}, err
 	}
-	s.joinFails.refund()
 	return s.issue(reg, refresh)
 }
 
@@ -172,7 +186,7 @@ func (s *Service) Link(ctx context.Context, linkCode, deviceName string) (Sessio
 	if err != nil {
 		return Session{}, err
 	}
-	if err := take(s.linkFails); err != nil {
+	if err := admit(s.linkCap); err != nil {
 		return Session{}, err
 	}
 	refresh, hash, err := newRefresh()
@@ -183,7 +197,6 @@ func (s *Service) Link(ctx context.Context, linkCode, deviceName string) (Sessio
 	if err != nil {
 		return Session{}, err
 	}
-	s.linkFails.refund()
 	return s.issue(reg, refresh)
 }
 
@@ -194,7 +207,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (Session, er
 	if !ok {
 		return Session{}, ErrBadRefresh
 	}
-	if err := take(s.refreshFails); err != nil {
+	if err := admit(s.refreshCap); err != nil {
 		return Session{}, err
 	}
 	refresh, hash, err := newRefresh()
@@ -208,7 +221,6 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (Session, er
 	if !ok {
 		return Session{}, ErrBadRefresh
 	}
-	s.refreshFails.refund()
 	return s.issue(reg, refresh)
 }
 
@@ -405,7 +417,7 @@ func (s *Service) CreateInvite(ctx context.Context, p Principal, note string, tt
 	case ttl < time.Hour || ttl > MaxInviteTTL:
 		return Invite{}, "", &ValidationError{"expires_in_hours must be 1-720"}
 	}
-	if err := take(s.inviteRate); err != nil {
+	if _, err := take(s.inviteRate); err != nil {
 		return Invite{}, "", err
 	}
 	code, err := newCode(inviteCodeLen)
@@ -433,8 +445,5 @@ func (s *Service) RevokeInvite(ctx context.Context, p Principal, id string) erro
 	if err := requireAdmin(p); err != nil {
 		return err
 	}
-	if !uuidRE.MatchString(id) {
-		return nil
-	}
-	return s.store.DeleteInvite(ctx, id)
+	return s.store.DeleteInvite(ctx, p.UserID, id)
 }

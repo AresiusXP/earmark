@@ -136,10 +136,12 @@ type Store interface {
 	// exists (ErrAlreadyBootstrapped otherwise, even under concurrent calls).
 	CreateFirstAdmin(ctx context.Context, displayName, deviceName string, refreshHash []byte, now time.Time) (Registered, error)
 
+	// CreateInvite, DeleteInvite and SetDisabled re-check in their own transaction that the
+	// actor is an enabled admin (ErrForbidden otherwise), whatever Principal the caller holds.
 	CreateInvite(ctx context.Context, createdBy string, codeHash []byte, note string, now, expires time.Time) (Invite, error)
 	ListOpenInvites(ctx context.Context, now time.Time) ([]Invite, error)
 	// DeleteInvite removes an unused invite; it is idempotent (no error when absent or used).
-	DeleteInvite(ctx context.Context, id string) error
+	DeleteInvite(ctx context.Context, actorID, id string) error
 	// RedeemInvite marks the invite used and creates the user and its first device in one
 	// transaction; ErrInvalidCode when the code is unknown, used or expired.
 	RedeemInvite(ctx context.Context, codeHash []byte, displayName, deviceName string, refreshHash []byte, now time.Time) (Registered, error)

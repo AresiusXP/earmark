@@ -13,7 +13,8 @@ info:
     with a single-use invite code made by an admin (`POST /v1/auth/join`). Another device of an
     existing user joins with a single-use link code (`POST /v1/auth/link`). Every device has its own
     token pair: a one-hour HS256 access token and a rotating refresh token. Disabling a user or
-    revoking a device makes its refresh fail and its access tokens stop working immediately.
+    revoking a device makes its refresh fail and its access tokens stop working immediately (in the
+    single server process; with more than one replica a change could take up to ~5 s to show on another).
     Every route except `/healthz`, `/v1/version`, `/v1/auth/*` and `/v1/app/update*` requires
     `Authorization: Bearer <access_token>`.
 
@@ -36,7 +37,13 @@ info:
     **Errors.** `{"error": {"code": "<snake_case>", "message": "<text>"}}`. The 401 produced by the
     auth middleware is `{"error": {"code": "unauthorized"}}`. Codes: `invalid_request`, `unauthorized`,
     `forbidden`, `not_found`, `conflict`, `rate_limited`, `no_debrid_key`, `bad_debrid_key`,
-    `debrid_unavailable`, `limit_reached`, `upstream_failed`.
+    `debrid_unavailable`, `limit_reached`, `upstream_failed`. A request body is exactly one JSON value;
+    anything after it is `400 invalid_request`.
+
+    **Rate caps.** Client IPs are invisible to the server, so limits are global. `POST /v1/auth/bootstrap`
+    allows 5 failed attempts per minute (guessable instance password). Refresh, join, link and the Google
+    sign-in endpoints have a generous request-rate cap instead (never a failure lockout: their secrets are
+    unguessable); over it they answer `429 rate_limited` with `Retry-After`.
 
     **Caching.** All responses are `Cache-Control: no-store`, except catalog responses
     (`search`, `discover`, `books`) which are `private, max-age=300`.

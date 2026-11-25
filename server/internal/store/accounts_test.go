@@ -176,7 +176,7 @@ func TestInviteSingleUseAndExpiry(t *testing.T) {
 		switch {
 		case err == nil:
 			wins++
-		case errors.Is(err, accounts.ErrInvalidCode), errors.Is(err, accounts.ErrTooManyAttempts):
+		case errors.Is(err, accounts.ErrInvalidCode):
 		default:
 			t.Fatalf("unexpected: %v", err)
 		}
@@ -184,7 +184,6 @@ func TestInviteSingleUseAndExpiry(t *testing.T) {
 	if wins != 1 {
 		t.Fatalf("%d joins succeeded with one invite, want 1", wins)
 	}
-	e.clk.Advance(2 * time.Minute) // clear the failure limiter
 	if _, err := e.svc.Join(ctx, code, "Mallory", "phone"); !errors.Is(err, accounts.ErrInvalidCode) {
 		t.Fatalf("reusing a used invite: %v", err)
 	}
@@ -217,14 +216,12 @@ func TestInviteSingleUseAndExpiry(t *testing.T) {
 	if err := e.svc.RevokeInvite(ctx, admin, "not-a-uuid"); err != nil {
 		t.Fatal(err)
 	}
-	e.clk.Advance(2 * time.Minute)
 	if _, err := e.svc.Join(ctx, code3, "Revoked", "phone"); !errors.Is(err, accounts.ErrInvalidCode) {
 		t.Fatalf("revoked invite: %v", err)
 	}
 
 	// an invite code is not a link code
 	_, code4, _ := e.svc.CreateInvite(ctx, admin, "", 0)
-	e.clk.Advance(2 * time.Minute)
 	if _, err := e.svc.Link(ctx, code4, "phone"); !errors.Is(err, accounts.ErrInvalidCode) {
 		t.Fatalf("invite used as link code: %v", err)
 	}
@@ -388,8 +385,10 @@ func TestDeviceRevocationAndDisableBlockAccess(t *testing.T) {
 	if _, err := e.svc.SetDisabled(ctx, admin, admin.UserID, true); !errors.Is(err, accounts.ErrCannotDisableSelf) {
 		t.Fatalf("self disable: %v", err)
 	}
-	if _, err := e.db.SetDisabled(ctx, bob.UserID, admin.UserID, true); !errors.Is(err, accounts.ErrLastAdmin) {
-		t.Fatalf("disabling the last admin: %v", err)
+	// the store itself refuses a non-admin actor (and so can never reach the last-admin branch,
+	// which stays as defence in depth)
+	if _, err := e.db.SetDisabled(ctx, bob.UserID, admin.UserID, true); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("disabling the admin as a plain user: %v", err)
 	}
 	if _, err := e.svc.SetDisabled(ctx, admin, "00000000-0000-4000-8000-000000000000", true); !errors.Is(err, accounts.ErrNotFound) {
 		t.Fatalf("unknown user: %v", err)
@@ -427,7 +426,9 @@ func TestLastAdminProtectedUnderRace(t *testing.T) {
 	for _, err := range res {
 		if err == nil {
 			ok++
-		} else if !errors.Is(err, accounts.ErrLastAdmin) {
+		} else if !errors.Is(err, accounts.ErrLastAdmin) && !errors.Is(err, accounts.ErrForbidden) {
+			// the loser is either refused as the last admin or, once the winner disabled it,
+			// refused because it is no longer an enabled admin
 			t.Fatalf("unexpected: %v", err)
 		}
 	}
@@ -691,4 +692,85 @@ func TestAccountsMigrationConstraints(t *testing.T) {
 		VALUES (gen_random_uuid(), 'torbox', 's', 'f', 'ok')`); err == nil {
 		t.Error("a key for a user that does not exist was accepted")
 	}
+}
+
+// A Principal outlives the request that authenticated it: an admin disabled in the meantime (an
+// in-flight request, another replica's 5 s cache) must not be able to re-enable itself, mint
+// invites or revoke them. Every admin mutation re-checks the actor's row in its own transaction.
+func TestDisabledAdminWithStalePrincipalCannotMutate(t *testing.T) {
+	e := newAcctEnv(t)
+	ctx := context.Background()
+	_, a1 := e.bootstrap(t)
+	_, other := e.join(t, a1, "Second")
+	if _, err := e.db.pool.Exec(ctx, `UPDATE users SET role = 'admin' WHERE id = $1::uuid`, other.UserID); err != nil {
+		t.Fatal(err)
+	}
+	inv, _, err := e.svc.CreateInvite(ctx, a1, "open", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a1 is disabled behind the service's back; its Principal (a1) is still "cached".
+	if _, err := e.db.pool.Exec(ctx, `UPDATE users SET disabled = true WHERE id = $1::uuid`, a1.UserID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.svc.SetDisabled(ctx, a1, a1.UserID, false); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("self re-enable: %v, want ErrForbidden", err)
+	}
+	if _, err := e.svc.SetDisabled(ctx, a1, other.UserID, true); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("disable another admin: %v, want ErrForbidden", err)
+	}
+	if _, _, err := e.svc.CreateInvite(ctx, a1, "sneaky", 0); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("create invite: %v, want ErrForbidden", err)
+	}
+	if err := e.svc.RevokeInvite(ctx, a1, inv.ID); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("revoke invite: %v, want ErrForbidden", err)
+	}
+	var disabled bool
+	_ = e.db.pool.QueryRow(ctx, `SELECT disabled FROM users WHERE id = $1::uuid`, a1.UserID).Scan(&disabled)
+	if !disabled {
+		t.Fatal("the disabled admin re-enabled itself")
+	}
+	if invs, _ := e.svc.ListInvites(ctx, accounts.Principal{UserID: other.UserID, Role: accounts.RoleAdmin}); len(invs) != 1 || invs[0].ID != inv.ID {
+		t.Fatalf("invites = %+v, want only the original", invs)
+	}
+	var enabledOther bool
+	_ = e.db.pool.QueryRow(ctx, `SELECT NOT disabled FROM users WHERE id = $1::uuid`, other.UserID).Scan(&enabledOther)
+	if !enabledOther {
+		t.Fatal("the other admin was disabled by a disabled admin")
+	}
+
+	// the other (enabled) admin can still re-enable it; then it works again
+	other.Role = accounts.RoleAdmin
+	if _, err := e.svc.SetDisabled(ctx, other, a1.UserID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.svc.CreateInvite(ctx, a1, "back", 0); err != nil {
+		t.Fatalf("re-enabled admin: %v", err)
+	}
+
+	// a plain user whose Principal claims admin (forged context / role changed since) is refused too
+	plain := accounts.Principal{UserID: uuidOf(t, e, "Plain"), Role: accounts.RoleAdmin}
+	if _, _, err := e.svc.CreateInvite(ctx, plain, "", 0); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("non-admin with an admin principal: %v", err)
+	}
+	if _, err := e.svc.SetDisabled(ctx, plain, a1.UserID, true); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("non-admin disabling: %v", err)
+	}
+	// an unknown actor id
+	ghost := accounts.Principal{UserID: "00000000-0000-4000-8000-000000000000", Role: accounts.RoleAdmin}
+	if _, _, err := e.svc.CreateInvite(ctx, ghost, "", 0); !errors.Is(err, accounts.ErrForbidden) {
+		t.Fatalf("unknown actor: %v", err)
+	}
+}
+
+// uuidOf makes a plain user named name through a fresh admin-made invite and returns its id.
+func uuidOf(t *testing.T, e acctEnv, name string) string {
+	t.Helper()
+	var id string
+	if err := e.db.pool.QueryRow(context.Background(), `SELECT id::text FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	_, p := e.join(t, accounts.Principal{UserID: id, Role: accounts.RoleAdmin}, name)
+	return p.UserID
 }
