@@ -33,7 +33,7 @@ import (
 type Deps struct {
 	API              service.API
 	Sealer           *userconfig.Sealer
-	PublicURL        string // e.g. https://earmark.aresius.xyz (no trailing slash needed)
+	PublicURL        string // e.g. https://earmark.example.com (no trailing slash needed)
 	InstancePassword string // empty = no password on POST /api/config
 	Logger           *slog.Logger
 	Version          string
