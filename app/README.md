@@ -53,7 +53,7 @@ core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Cat
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
 core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
               (chapters as the session playlist), TrustedControllers (the exported session's gate: own uid / platform-trusted / allowlisted packages verified against their uid = full, platform-uid media keys = keys only, everyone else refused; custom commands re-checked), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
-              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository (client_id),
+              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue; a 400 for an `updated_at` > 24 h ahead of the server (message "... not in the future") never drops the row: it is re-stamped with the server's `Date` header and resent once, later writes use the learned clock offset; with no `Date` the row stays queued; any other 400 stays permanent), BookmarkRepository (client_id),
               DurationReporter (POST durations), SleepTimerLogic,
               PlayerHub (state) + PlaybackController (commands), PlayerPreferences (skip lengths, smart rewind)
 core/download  offline downloads (Phase 3b), see below; feature/download = its UI

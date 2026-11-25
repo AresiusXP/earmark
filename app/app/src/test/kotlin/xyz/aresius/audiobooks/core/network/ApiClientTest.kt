@@ -4,6 +4,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -232,6 +233,18 @@ class ApiClientTest {
         assertTrue(results.all { it.valueOrNull != null })
         assertEquals(1, server.requestsTo("POST", "/v1/auth/refresh").size)
         assertEquals("refresh-new", sessions.load()?.refreshToken)
+    }
+
+    @Test fun aFutureUpdatedAtRejectionCarriesTheServersDate() = runBlocking<Unit> {
+        server.on(
+            "PUT", "/v1/me/library/B001",
+            FakeServer.error(400, "invalid_request", "updated_at must be the client clock in ms since epoch (not in the future)", "Date" to "Wed, 25 Nov 2026 12:00:00 GMT"),
+        )
+        val e = safeApiCall { provider.api().putLibraryEntry("B001", LibraryEntryWrite(status = "listening", updatedAt = 1)) }.errorOrNull as ApiError.Http
+        assertTrue(e.isFutureUpdatedAt)
+        assertEquals(java.time.Instant.parse("2026-11-25T12:00:00Z").toEpochMilli(), e.serverDateMs)
+        server.on("PUT", "/v1/me/library/B002", FakeServer.error(400, "invalid_request", "speed must be within 0.5-3.0"))
+        assertFalse(safeApiCall { provider.api().putLibraryEntry("B002", LibraryEntryWrite(status = "listening", updatedAt = 1)) }.errorOrNull!!.isFutureUpdatedAt)
     }
 
     @Test fun theTokenNeverGoesToAnotherHostOrAnAuthRoute() = runBlocking<Unit> {
