@@ -50,6 +50,8 @@ type Entry struct {
 	FilePositionMs int64
 	Speed          float64
 	UpdatedAt      int64 // client clock, ms since epoch
+	// FinishedAt is when the status became finished (server clock); nil unless Status is finished.
+	FinishedAt *time.Time
 }
 
 // Write is the content of a PUT. The book must already be in the catalog.
@@ -62,6 +64,9 @@ type Write struct {
 	FilePositionMs int64
 	Speed          float64
 	UpdatedAt      int64
+	// Now is the server time stored as FinishedAt when this write turns the entry finished (zero:
+	// time.Now). An entry that is already finished keeps its FinishedAt.
+	Now time.Time
 }
 
 // Bookmark is a position the user marked.

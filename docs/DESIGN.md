@@ -245,7 +245,10 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     (`WHERE stored.updated_at <= excluded.updated_at`: an equal timestamp is applied so retries are idempotent, an older write returns
     the stored entry); `updated_at` more than 24 h in the future is `400` (otherwise one wild clock would lock the other devices out);
     unknown ASIN -> `EnsureBook` (404 when Audible does not know it); `release_hash` must be a stored release (`400`);
-    2000 entries per user / 500 bookmarks per book enforced under an advisory lock (`409 limit_reached`); deleting an entry
+    2000 entries per user / 500 bookmarks per book enforced under an advisory lock (`409 limit_reached`); `finished_at` (migration `0012_library_finished_at.sql`,
+    server clock, `library.Write.Now`) is set when an applied write turns the status to finished, kept while writes keep it finished
+    (`COALESCE(stored, new)`, so retries and equal-timestamp rewrites do not move it), cleared (null) on `saved`/`listening`; pre-existing
+    finished rows were back-filled with their last write time; deleting an entry
     deletes its bookmarks (FK cascade), deleting a user cascades everything. `user_availability` is keyed by fingerprint, not user, so
     it has no FK to `users` (its rows are harmless booleans a key can only read itself).
   * **App update** (`appupdate` + `appupdate.go`): modelled on Echoes: directory `APP_UPDATE_DIR` (default `/update`) with `update.json`

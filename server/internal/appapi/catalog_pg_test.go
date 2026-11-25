@@ -464,9 +464,32 @@ func TestLibraryOverHTTP(t *testing.T) {
 	if m := r.json(t); m["status"] != "listening" || m["position_ms"] != float64(5000) {
 		t.Fatalf("an older write must return the stored entry: %s", r.Body.String())
 	}
+	if m["finished_at"] != nil {
+		t.Fatalf("finished_at is null until finished: %v", m)
+	}
 	r = e.putEntry(admin, duneASIN, map[string]any{"status": "finished", "position_ms": 9000, "updated_at": now + 1000})
-	if m := r.json(t); m["status"] != "finished" || m["position_ms"] != float64(9000) {
+	m = r.json(t)
+	if m["status"] != "finished" || m["position_ms"] != float64(9000) {
 		t.Fatalf("%s", r.Body.String())
+	}
+	fin, err := time.Parse(time.RFC3339, m["finished_at"].(string)) // server clock, not the client's updated_at
+	if err != nil || time.Since(fin) > time.Minute || time.Since(fin) < -time.Minute {
+		t.Fatalf("finished_at = %v (%v)", m["finished_at"], err)
+	}
+	m = e.putEntry(admin, duneASIN, map[string]any{"status": "finished", "position_ms": 9500, "updated_at": now + 2000}).json(t)
+	if m["finished_at"] != fin.UTC().Format(time.RFC3339Nano) && m["finished_at"] != fin.UTC().Format(time.RFC3339) {
+		t.Fatalf("finished_at changed on a later finished write: %v vs %v", m["finished_at"], fin)
+	}
+	if es := e.req("GET", "/v1/me/library?status=finished", admin.access, nil).json(t)["entries"].([]any); len(es) != 1 || es[0].(map[string]any)["finished_at"] != m["finished_at"] {
+		t.Fatalf("list: %v", es)
+	}
+	m = e.putEntry(admin, duneASIN, map[string]any{"status": "listening", "position_ms": 100, "updated_at": now + 3000}).json(t)
+	if m["status"] != "listening" || m["finished_at"] != nil {
+		t.Fatalf("cleared when listening again: %v", m)
+	}
+	m = e.putEntry(admin, duneASIN, map[string]any{"status": "finished", "position_ms": 9000, "updated_at": now + 4000}).json(t)
+	if m["finished_at"] == nil {
+		t.Fatalf("%v", m)
 	}
 
 	// Validation.

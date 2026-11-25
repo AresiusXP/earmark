@@ -996,6 +996,14 @@ components:
       properties:
         book: {$ref: "#/components/schemas/Book"}
         status: {$ref: "#/components/schemas/LibraryStatus"}
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            Server time at which the status became `finished`; null otherwise. Set by the write that turns the
+            status to `finished`, kept by later writes that keep it `finished` (also retries), cleared (null)
+            when the status goes back to `saved` or `listening`. A write that loses last-write-wins changes
+            nothing. Read only: clients never send it. Entries finished before v1.1 carry the time of their last write.
         release_hash: {type: [string, "null"], description: The release the user listens to.}
         position_ms: {type: integer, format: int64, description: Position in the whole book (all files).}
         file_path: {type: [string, "null"], description: Path of the file being played (match by path, not index).}

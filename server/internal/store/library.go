@@ -21,14 +21,14 @@ var _ library.Store = (*Postgres)(nil)
 
 const entryCols = `b.asin, b.title, b.subtitle, b.authors, b.narrators, b.series, b.series_position,
 	b.language, b.runtime_min, b.cover_url, b.description, b.region, b.release_year, b.genres,
-	l.status, l.release_hash, l.position_ms, l.file_path, l.file_position_ms, l.speed, l.updated_at`
+	l.status, l.release_hash, l.position_ms, l.file_path, l.file_position_ms, l.speed, l.updated_at, l.finished_at`
 
 func scanEntry(row pgx.Row) (library.Entry, error) {
 	var e library.Entry
 	b := &e.Book
 	err := row.Scan(&b.ASIN, &b.Title, &b.Subtitle, &b.Authors, &b.Narrators, &b.Series, &b.SeriesPosition,
 		&b.Language, &b.RuntimeMin, &b.CoverURL, &b.Description, &b.Region, &b.ReleaseYear, &b.Genres,
-		&e.Status, &e.ReleaseHash, &e.PositionMs, &e.FilePath, &e.FilePositionMs, &e.Speed, &e.UpdatedAt)
+		&e.Status, &e.ReleaseHash, &e.PositionMs, &e.FilePath, &e.FilePositionMs, &e.Speed, &e.UpdatedAt, &e.FinishedAt)
 	return e, err
 }
 
@@ -73,6 +73,10 @@ func getEntry(ctx context.Context, q queryRower, userID, asin string) (library.E
 
 func (p *Postgres) PutEntry(ctx context.Context, userID string, w library.Write) (library.Entry, error) {
 	var out library.Entry
+	now := w.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	err := p.inTx(ctx, "put library entry", func(tx pgx.Tx) error {
 		if err := lockKey(ctx, tx, "library:"+userID); err != nil {
 			return err
@@ -93,14 +97,15 @@ func (p *Postgres) PutEntry(ctx context.Context, userID string, w library.Write)
 		}
 		// The WHERE makes an older client write a no-op; the stored entry is read back below.
 		if _, err := tx.Exec(ctx, `INSERT INTO user_library AS l (user_id, asin, status, release_hash, position_ms,
-				file_path, file_position_ms, speed, updated_at)
-			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)
+				file_path, file_position_ms, speed, updated_at, finished_at)
+			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $3 = 'finished' THEN $10::timestamptz END)
 			ON CONFLICT (user_id, asin) DO UPDATE SET status = EXCLUDED.status,
 				release_hash = EXCLUDED.release_hash, position_ms = EXCLUDED.position_ms,
 				file_path = EXCLUDED.file_path, file_position_ms = EXCLUDED.file_position_ms,
-				speed = EXCLUDED.speed, updated_at = EXCLUDED.updated_at
+				speed = EXCLUDED.speed, updated_at = EXCLUDED.updated_at,
+				finished_at = CASE WHEN EXCLUDED.status = 'finished' THEN COALESCE(l.finished_at, EXCLUDED.finished_at) END
 			WHERE l.updated_at <= EXCLUDED.updated_at`,
-			userID, w.ASIN, w.Status, w.ReleaseHash, w.PositionMs, w.FilePath, w.FilePositionMs, w.Speed, w.UpdatedAt); err != nil {
+			userID, w.ASIN, w.Status, w.ReleaseHash, w.PositionMs, w.FilePath, w.FilePositionMs, w.Speed, w.UpdatedAt, now); err != nil {
 			return err
 		}
 		e, err := getEntry(ctx, tx, userID, w.ASIN)

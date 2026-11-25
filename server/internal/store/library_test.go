@@ -157,6 +157,77 @@ func TestLibraryLastWriteWins(t *testing.T) {
 	}
 }
 
+func TestLibraryFinishedAt(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	u := mkUser(t, s, "A")
+	other := mkUser(t, s, "B")
+	asin := "B000000001"
+	mkBook(t, s, asin)
+	t0 := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	put := func(user string, at int64, status string, now time.Time) library.Entry {
+		t.Helper()
+		w := write(asin, at)
+		w.Status, w.Now = status, now
+		e, err := s.PutEntry(ctx, user, w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	at := func(e library.Entry) string {
+		if e.FinishedAt == nil {
+			return "nil"
+		}
+		return e.FinishedAt.UTC().Format(time.RFC3339)
+	}
+
+	if e := put(u, 100, library.StatusListening, t0); e.FinishedAt != nil {
+		t.Fatalf("listening has no finished_at: %s", at(e))
+	}
+	if e := put(u, 200, library.StatusFinished, t0.Add(time.Hour)); at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("set when the status becomes finished: %s", at(e))
+	}
+	if e := put(u, 300, library.StatusFinished, t0.Add(5*time.Hour)); at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("kept while later writes keep it finished: %s", at(e))
+	}
+	// An older (ignored) write changes nothing, even one that would clear it.
+	if e := put(u, 250, library.StatusSaved, t0.Add(6*time.Hour)); e.Status != library.StatusFinished || at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("ignored write: %s %s", e.Status, at(e))
+	}
+	// An equal timestamp is a retry: still the first finish time.
+	if e := put(u, 300, library.StatusFinished, t0.Add(7*time.Hour)); at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("retry: %s", at(e))
+	}
+	if e := put(u, 400, library.StatusListening, t0.Add(8*time.Hour)); e.FinishedAt != nil {
+		t.Fatalf("cleared when listening again: %s", at(e))
+	}
+	if e := put(u, 500, library.StatusFinished, t0.Add(9*time.Hour)); at(e) != "2026-11-25T19:00:00Z" {
+		t.Fatalf("finishing again sets a new time: %s", at(e))
+	}
+	if e := put(u, 600, library.StatusSaved, t0.Add(10*time.Hour)); e.FinishedAt != nil {
+		t.Fatalf("cleared when saved: %s", at(e))
+	}
+	// Finished on the very first write, and per user.
+	if e := put(other, 1, library.StatusFinished, t0); at(e) != "2026-11-25T10:00:00Z" {
+		t.Fatalf("first write: %s", at(e))
+	}
+	got, err := s.GetEntry(ctx, u, asin)
+	if err != nil || got.FinishedAt != nil {
+		t.Fatalf("user A is unaffected by B: %+v %v", got, err)
+	}
+	es, err := s.ListEntries(ctx, other, library.StatusFinished)
+	if err != nil || len(es) != 1 || es[0].FinishedAt == nil {
+		t.Fatalf("list: %+v %v", es, err)
+	}
+	// The zero Now falls back to the real clock.
+	w := write(asin, 700)
+	w.Status = library.StatusFinished
+	if e, err := s.PutEntry(ctx, u, w); err != nil || e.FinishedAt == nil || time.Since(*e.FinishedAt) > time.Minute {
+		t.Fatalf("%+v %v", e, err)
+	}
+}
+
 func TestLibraryReferencesAndConstraints(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()

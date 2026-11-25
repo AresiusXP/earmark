@@ -26,10 +26,17 @@ type libraryEntryDTO struct {
 	FilePositionMs int64   `json:"file_position_ms"`
 	Speed          float64 `json:"speed"`
 	UpdatedAt      int64   `json:"updated_at"`
+	// FinishedAt is the server time the book became finished; null otherwise.
+	FinishedAt *time.Time `json:"finished_at"`
 }
 
 func toEntry(e library.Entry) libraryEntryDTO {
-	return libraryEntryDTO{
+	var fin *time.Time
+	if e.FinishedAt != nil {
+		t := e.FinishedAt.UTC()
+		fin = &t
+	}
+	return libraryEntryDTO{FinishedAt: fin,
 		Book: toBook(e.Book), Status: e.Status, ReleaseHash: e.ReleaseHash, PositionMs: e.PositionMs,
 		FilePath: e.FilePath, FilePositionMs: e.FilePositionMs, Speed: e.Speed, UpdatedAt: e.UpdatedAt,
 	}
@@ -132,7 +139,7 @@ func (a *app) putLibrary(w http.ResponseWriter, r *http.Request) {
 		bad("updated_at must be the client clock in ms since epoch (not in the future)")
 		return
 	}
-	wr := library.Write{ASIN: asin, Status: *in.Status, UpdatedAt: *in.UpdatedAt, Speed: 1.0}
+	wr := library.Write{ASIN: asin, Status: *in.Status, UpdatedAt: *in.UpdatedAt, Speed: 1.0, Now: a.now()}
 	if in.PositionMs != nil {
 		wr.PositionMs = *in.PositionMs
 	}
