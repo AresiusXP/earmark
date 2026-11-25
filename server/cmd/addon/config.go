@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/appapi"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
 )
 
@@ -27,6 +28,12 @@ type config struct {
 	// TorrentsCSV and SolidTorrents enable those sources (default on; env value "off" disables).
 	TorrentsCSV   bool
 	SolidTorrents bool
+	// UpdateDir holds the APK bundle (update.json + audiobooks.apk) served by /v1/app/update.
+	UpdateDir string
+	// AddsPerHour is the cold-add budget of a debrid key for /v1 prepare/download.
+	AddsPerHour int
+	// LinkHosts adds CDN host suffixes per provider to the redirect allowlist of /v1 downloads.
+	LinkHosts map[string][]string
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -95,6 +102,22 @@ func loadConfig(getenv func(string) string) (config, error) {
 		}
 		*sw.dst = on
 	}
+
+	c.UpdateDir = strings.TrimSpace(getenv("APP_UPDATE_DIR")) // empty: appupdate.DefaultDir (/update)
+	c.AddsPerHour = appapi.DefaultAddsPerHour
+	if v := getenv("PREPARE_ADDS_PER_HOUR"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 10000 {
+			errs = append(errs, fmt.Errorf("PREPARE_ADDS_PER_HOUR: invalid value %q (1-10000)", v))
+		} else {
+			c.AddsPerHour = n
+		}
+	}
+	hosts, err := appapi.ParseLinkHosts(getenv("DEBRID_LINK_HOSTS"))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	c.LinkHosts = hosts
 	return c, errors.Join(errs...)
 }
 

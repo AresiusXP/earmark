@@ -129,3 +129,36 @@ func TestLoadConfigSourceSwitches(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigAppSettings(t *testing.T) {
+	base := map[string]string{
+		"PUBLIC_URL": "https://audiobooks.example", "DATABASE_URL": "postgres://x",
+		"CONFIG_SECRET": strings.Repeat("s", 32), "INSTANCE_PASSWORD": "pw",
+	}
+	with := func(kv ...string) func(string) string {
+		m := map[string]string{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return env(m)
+	}
+	c, err := loadConfig(with())
+	if err != nil || c.AddsPerHour != 30 || c.UpdateDir != "" || len(c.LinkHosts) != 0 {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	c, err = loadConfig(with("PREPARE_ADDS_PER_HOUR", "5", "APP_UPDATE_DIR", " /srv/update ", "DEBRID_LINK_HOSTS", "realdebrid:cdn.example, torbox:tb.example"))
+	if err != nil || c.AddsPerHour != 5 || c.UpdateDir != "/srv/update" || !slices.Equal(c.LinkHosts["realdebrid"], []string{"cdn.example"}) || !slices.Equal(c.LinkHosts["torbox"], []string{"tb.example"}) {
+		t.Fatalf("%+v %v", c, err)
+	}
+	for _, kv := range [][]string{
+		{"PREPARE_ADDS_PER_HOUR", "0"}, {"PREPARE_ADDS_PER_HOUR", "x"}, {"PREPARE_ADDS_PER_HOUR", "100000"},
+		{"DEBRID_LINK_HOSTS", "premiumize:x.example"}, {"DEBRID_LINK_HOSTS", "realdebrid"},
+	} {
+		if _, err := loadConfig(with(kv...)); err == nil {
+			t.Errorf("%v accepted", kv)
+		}
+	}
+}

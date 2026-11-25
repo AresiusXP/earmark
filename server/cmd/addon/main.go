@@ -16,6 +16,7 @@ import (
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/appapi"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/appupdate"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/realdebrid"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid/torbox"
@@ -77,6 +78,7 @@ func run() error {
 		Metadata:  metadata.New(),
 		Sources:   srcs,
 		Store:     db,
+		UserStore: db,
 		Providers: providers,
 		Logger:    logger,
 	})
@@ -89,6 +91,12 @@ func run() error {
 		return err
 	}
 	v1 := appapi.New(appapi.Deps{Accounts: acc, Keys: keys, Version: version, Logger: logger})
+	update := appupdate.Load(cfg.UpdateDir, logger)
+	defer update.Close()
+	v1.MountApp(appapi.AppDeps{
+		Catalog: svc, Store: db, Library: db, Providers: providers, Update: update, PublicURL: cfg.PublicURL,
+		AddsPerHour: cfg.AddsPerHour, LinkHosts: cfg.LinkHosts, Logger: logger,
+	})
 	api := httpapi.New(httpapi.Deps{
 		API: svc, Sealer: sealer, PublicURL: cfg.PublicURL, InstancePassword: cfg.InstancePassword,
 		Logger: logger, Version: version, V1: v1,
