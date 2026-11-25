@@ -413,8 +413,8 @@
     <string name="player_bookmark_delete">Delete the bookmark</string>
     <string name="player_bookmark_unsynced">Not synced yet</string>
     <string name="player_bookmark_no_note">Bookmark</string>
-    <string name="player_loading">Opening your book…</string>
-    <string name="player_preparing_title">Getting the book ready</string>
+    <string name="player_loading">Getting your book ready…</string>
+    <string name="player_preparing_title">Getting your book ready</string>
     <string name="player_preparing_message">Your debrid provider is fetching the files. Playback starts by itself.</string>
     <string name="player_preparing_progress">%1$d%% ready</string>
     <string name="player_preparing_no_seeders">Few or no seeders: this can take a long time.</string>

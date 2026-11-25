@@ -413,8 +413,8 @@
     <string name="player_bookmark_delete">Bladwijzer verwijderen</string>
     <string name="player_bookmark_unsynced">Nog niet gesynchroniseerd</string>
     <string name="player_bookmark_no_note">Bladwijzer</string>
-    <string name="player_loading">Je boek wordt geopend…</string>
-    <string name="player_preparing_title">Het boek wordt klaargezet</string>
+    <string name="player_loading">Je boek wordt klaargezet…</string>
+    <string name="player_preparing_title">Je boek wordt klaargezet</string>
     <string name="player_preparing_message">Je debrid-aanbieder haalt de bestanden op. Het afspelen begint vanzelf.</string>
     <string name="player_preparing_progress">%1$d%% klaar</string>
     <string name="player_preparing_no_seeders">Weinig of geen seeders: dit kan lang duren.</string>

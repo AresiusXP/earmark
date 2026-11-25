@@ -90,7 +90,14 @@ class PlaybackController @Inject constructor(
 
     override fun play(asin: String, releaseHash: String?, book: Book?, autoplay: Boolean) {
         // The screen that opens next must not see "nothing is playing" before the service has picked the command up.
-        hub.update { if (this.asin == asin && phase != PlayerPhase.Idle && !restored) this else PlayerState(phase = PlayerPhase.Loading, asin = asin, book = book ?: this.book.takeIf { this.asin == asin }) }
+        hub.update {
+            when {
+                this.asin == asin && phase != PlayerPhase.Idle && !restored -> this
+                // The restored book keeps its position and length on screen while it loads.
+                this.asin == asin && restored -> copy(phase = PlayerPhase.Loading, restored = false, book = book ?: this.book)
+                else -> PlayerState(phase = PlayerPhase.Loading, asin = asin, book = book)
+            }
+        }
         send(asin, releaseHash, book, autoplay)
     }
 

@@ -9,12 +9,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import xyz.aresius.audiobooks.core.data.CatalogRepository
 import xyz.aresius.audiobooks.core.data.LibraryRepository
 import xyz.aresius.audiobooks.core.data.MeRepository
+import xyz.aresius.audiobooks.core.data.ReleasePrefetch
 import xyz.aresius.audiobooks.core.download.LocalFiles
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiResult
@@ -68,6 +71,7 @@ class BookViewModel @Inject constructor(
     private val player: PlayerControls,
     localFiles: LocalFiles,
     private val me: MeRepository,
+    private val prefetcher: ReleasePrefetch,
 ) : ViewModel() {
     private val asin = savedStateHandle.routeAsin()
     private val local = MutableStateFlow(BookUiState())
@@ -87,6 +91,12 @@ class BookViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
 
     init {
+        // Opening the page warms the release Play will stream (see PreparePrefetcher for the rules); the answer is not used here.
+        viewModelScope.launch {
+            state.map { prefetchTarget(it, player.state.value.asin == asin && player.state.value.hasBook) }.distinctUntilChanged().collect { target ->
+                if (target != null) prefetcher.prefetch(target.first, target.second)
+            }
+        }
         load(refresh = false)
         viewModelScope.launch {
             remembered.value = player.rememberedRelease(asin)
@@ -139,6 +149,18 @@ class BookViewModel @Inject constructor(
     }
 
     fun consumeError() = local.update { it.copy(error = null) }
+}
+
+/**
+ * The release and provider to warm when the page opens: exactly the pair Play would stream (the chosen release, the provider the player
+ * picks for it), from a page that is not an offline copy, for a book that is not already open in the player or on the phone. Null otherwise.
+ */
+internal fun prefetchTarget(s: BookUiState, playerHasBook: Boolean): Pair<ReleaseView, Provider>? {
+    val detail = s.detail as? Load.Content ?: return null
+    val chosen = s.chosen ?: return null
+    val provider = chosen.provider ?: return null
+    if (detail.stale || s.hasDownloads || playerHasBook || s.availability !is PlayAvailability.Playable) return null
+    return chosen.release to provider
 }
 
 internal fun availabilityOf(chosen: ReleaseChoice?, hasDownloads: Boolean): PlayAvailability = when {

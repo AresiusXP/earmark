@@ -231,7 +231,10 @@ private fun Hero(book: Book, releases: List<ReleaseView>, state: BookUiState, on
             is PlayAvailability.Playable -> {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                     val resume = (state.libraryEntry?.positionMs ?: 0) > 0
-                    PrimaryButton(stringResource(if (resume) R.string.book_play_resume else R.string.book_play), onClick = onPlay, modifier = Modifier.weight(1f))
+                    PrimaryButton(
+                        stringResource(if (resume) R.string.book_play_resume else R.string.book_play), onClick = onPlay, modifier = Modifier.weight(1f),
+                        loading = state.playerPhase == PlayerPhase.Loading || state.playerPhase is PlayerPhase.Preparing,
+                    )
                     DownloadButton(book, downloadRelease, modifier = Modifier.weight(1f))
                 }
                 state.playerPhase?.let { PlayerStatusLine(it) }

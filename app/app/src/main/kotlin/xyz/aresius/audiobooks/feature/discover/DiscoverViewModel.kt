@@ -80,7 +80,7 @@ class DiscoverViewModel(
             continueListening = hero,
             continueInPlayer = mine,
             continuePlaying = mine && playing.playing,
-            continuePositionMs = if (mine) playing.positionMs else null,
+            continuePositionMs = if (mine && playing.phase == PlayerPhase.Ready) playing.positionMs else null,
             continueBusy = mine && (playing.buffering || playing.phase == PlayerPhase.Loading || playing.phase is PlayerPhase.Preparing),
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
