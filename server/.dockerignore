@@ -1,2 +1,18 @@
+# Build context is ./server (see release.yml): only go.mod, go.sum, cmd/, internal/ and update/ are COPYed.
+# update/ must stay in the context (it carries the APK bundle baked in by release.yml).
+.git
+.gitignore
+.dockerignore
+*.md
 *.test
 *.log
+**/*_test.go
+**/testdata
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+secrets/

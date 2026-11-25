@@ -13,3 +13,14 @@ app/.kotlin/
 # APK bundle baked into the server image by release.yml
 /server/update/*.apk
 /server/update/update.json
+
+# Secrets and local configuration: never commit these
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+local.properties
+/tmp
