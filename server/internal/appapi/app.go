@@ -29,7 +29,8 @@ type ReleaseStore interface {
 	InsertReleaseIfAbsent(ctx context.Context, r model.Release) (bool, error)
 	SaveClientFiles(ctx context.Context, infoHash string, files []model.File) ([]model.File, bool, error)
 	Files(ctx context.Context, infoHashes []string) (map[string][]model.File, error)
-	SaveFiles(ctx context.Context, infoHash string, files []model.File) error
+	// SaveFilesIfAbsent: first writer wins, atomically (provider indexes are never replaced).
+	SaveFilesIfAbsent(ctx context.Context, infoHash string, files []model.File) (bool, error)
 	// SetAvailability is only ever called for shared-cache providers (TorBox).
 	SetAvailability(ctx context.Context, provider string, entries []service.Availability) error
 	SetUserAvailability(ctx context.Context, fingerprint, provider, infoHash string, cached bool, at time.Time) error

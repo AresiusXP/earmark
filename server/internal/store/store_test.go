@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -523,6 +524,71 @@ func TestFiles(t *testing.T) {
 	}
 	if _, err := s.Files(ctx, []string{a, "bad"}); err == nil {
 		t.Error("bad hash accepted by Files")
+	}
+}
+
+func TestSaveFilesIfAbsentFirstWriterWins(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	h := hash(0x61)
+	if err := s.UpsertReleases(ctx, []model.Release{sampleRelease(h, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.SaveFilesIfAbsent(ctx, h, nil); ok || err != nil {
+		t.Fatalf("empty list: %v %v", ok, err)
+	}
+	if ok, err := s.SaveFilesIfAbsent(ctx, h, []model.File{{Index: 1, Path: "x"}, {Index: 1, Path: "y"}}); ok || err == nil {
+		t.Fatalf("duplicate index accepted: %v %v", ok, err)
+	}
+	if got, _ := s.Files(ctx, []string{h}); len(got) != 0 {
+		t.Fatalf("a failed write left rows: %v", got)
+	}
+	if _, err := s.SaveFilesIfAbsent(ctx, hash(0x62), []model.File{{Index: 0, Path: "p"}}); !errors.Is(err, service.ErrNotFound) {
+		t.Fatalf("unknown release err = %v", err)
+	}
+
+	// Concurrent first writers with different lists: exactly one list is stored, whole.
+	lists := make([][]model.File, 8)
+	for i := range lists {
+		for j := 0; j <= i; j++ {
+			lists[i] = append(lists[i], model.File{Index: j * 10, Path: "w" + string(rune('a'+i)) + ".mp3", Size: int64(i)})
+		}
+	}
+	var wg sync.WaitGroup
+	var winners atomic.Int32
+	for _, l := range lists {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := s.SaveFilesIfAbsent(ctx, h, l)
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				winners.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if winners.Load() != 1 {
+		t.Fatalf("winners = %d, want 1", winners.Load())
+	}
+	got, _ := s.Files(ctx, []string{h})
+	stored := got[h]
+	matched := false
+	for _, l := range lists {
+		if reflect.DeepEqual(stored, l) {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Fatalf("stored list is a mix of writers: %+v", stored)
+	}
+	if ok, err := s.SaveFilesIfAbsent(ctx, h, []model.File{{Index: 0, Path: "late.mp3"}}); ok || err != nil {
+		t.Fatalf("late writer: %v %v", ok, err)
+	}
+	if again, _ := s.Files(ctx, []string{h}); !reflect.DeepEqual(again[h], stored) {
+		t.Fatal("stored list changed")
 	}
 }
 

@@ -133,8 +133,10 @@ type Store interface {
 	ReleasesSearchedAt(ctx context.Context, asin string) (time.Time, error)
 	MarkReleasesSearched(ctx context.Context, asin string, at time.Time) error
 
-	// SaveFiles stores the file list of a torrent (replacing any previous list).
-	SaveFiles(ctx context.Context, infoHash string, files []model.File) error
+	// SaveFilesIfAbsent stores the file list of a torrent unless one is stored already (first
+	// writer wins, atomically: indexes are provider specific, a stored list is never replaced).
+	// It reports whether this call stored the list.
+	SaveFilesIfAbsent(ctx context.Context, infoHash string, files []model.File) (bool, error)
 	// Files returns stored files per hash; hashes without files are absent from the map.
 	Files(ctx context.Context, infoHashes []string) (map[string][]model.File, error)
 

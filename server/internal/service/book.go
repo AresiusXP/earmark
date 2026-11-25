@@ -448,11 +448,14 @@ func (s *Service) availability(ctx context.Context, keys map[string]string, prov
 			if len(have[h]) > 0 {
 				continue
 			}
-			if err := s.d.Store.SaveFiles(ctx, h, files); err != nil {
+			stored, err := s.d.Store.SaveFilesIfAbsent(ctx, h, files)
+			if err != nil {
 				s.log.Warn("store files failed", "err", err)
 				continue
 			}
-			have[h] = files
+			if stored {
+				have[h] = files
+			}
 		}
 		for h, cached := range r.known {
 			if out[h] == nil {

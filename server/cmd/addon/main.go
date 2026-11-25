@@ -100,6 +100,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	go pruneUserAvailability(ctx, db, logger, cleanupInterval, userAvailabilityMaxAge, time.Now)
 	v1 := appapi.New(appapi.Deps{Accounts: acc, Keys: keys, Version: version, Logger: logger})
 	update := appupdate.LoadWithLimit(cfg.UpdateDir, cfg.UpdateMaxBytes, logger)
 	defer update.Close()

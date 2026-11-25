@@ -314,6 +314,49 @@ func (p *Postgres) SaveFiles(ctx context.Context, infoHash string, files []model
 	return err
 }
 
+// SaveFilesIfAbsent stores the file list of a release only when none is stored yet (first writer
+// wins) and reports whether this call stored it. Indexes are provider specific, so a list is
+// never replaced behind a caller that matched against it. The check and the insert are ONE
+// statement under the per-hash advisory lock SaveFiles takes too, so concurrent callers store
+// exactly one complete list and never a mix. An empty list stores nothing; an unknown release
+// yields service.ErrNotFound; duplicate indexes are an error (nothing stored).
+func (p *Postgres) SaveFilesIfAbsent(ctx context.Context, infoHash string, files []model.File) (bool, error) {
+	h, err := normHash(infoHash)
+	if err != nil {
+		return false, err
+	}
+	if len(files) == 0 {
+		return false, nil
+	}
+	idx := make([]int32, len(files))
+	paths := make([]string, len(files))
+	sizes := make([]int64, len(files))
+	for i, f := range files {
+		if f.Index < math.MinInt32 || f.Index > math.MaxInt32 {
+			return false, fmt.Errorf("store: save files: index %d out of range", f.Index)
+		}
+		idx[i], paths[i], sizes[i] = int32(f.Index), f.Path, f.Size
+	}
+	var stored bool
+	err = p.inTx(ctx, "save files", func(tx pgx.Tx) error {
+		if err := lockKey(ctx, tx, "release_files:"+h); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `INSERT INTO release_files (info_hash, idx, path, size)
+			SELECT $1, u.idx, u.path, u.size FROM unnest($2::int[], $3::text[], $4::bigint[]) AS u(idx, path, size)
+			WHERE NOT EXISTS (SELECT 1 FROM release_files WHERE info_hash = $1)`, h, idx, paths, sizes)
+		stored = tag.RowsAffected() > 0
+		return err
+	})
+	if isFKViolation(err) {
+		return false, fmt.Errorf("store: save files: release %s: %w", h, service.ErrNotFound)
+	}
+	if err != nil {
+		return false, err
+	}
+	return stored, nil
+}
+
 func (p *Postgres) Files(ctx context.Context, infoHashes []string) (map[string][]model.File, error) {
 	out := map[string][]model.File{}
 	if len(infoHashes) == 0 {

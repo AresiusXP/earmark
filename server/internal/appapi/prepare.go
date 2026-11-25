@@ -236,13 +236,10 @@ func (a *app) checkCached(ctx context.Context, in prepIn) (cached bool, files []
 	return cached, c.Files, nil
 }
 
-// saveFilesOnce stores a provider file list (TorBox indexes) unless one is stored already.
+// saveFilesOnce stores a provider file list (TorBox indexes) unless one is stored already; the
+// store decides atomically, so concurrent callers cannot interleave two lists.
 func (a *app) saveFilesOnce(ctx context.Context, hash string, files []model.File) {
-	have, err := a.d.Store.Files(ctx, []string{hash})
-	if err != nil || len(have[hash]) > 0 {
-		return
-	}
-	if err := a.d.Store.SaveFiles(ctx, hash, files); err != nil {
+	if _, err := a.d.Store.SaveFilesIfAbsent(ctx, hash, files); err != nil {
 		a.log.Warn("store files failed", "err", err)
 	}
 }

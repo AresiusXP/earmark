@@ -133,12 +133,15 @@ func (m *memStore) Files(_ context.Context, hs []string) (map[string][]model.Fil
 	}
 	return out, nil
 }
-func (m *memStore) SaveFiles(_ context.Context, h string, fs []model.File) error {
+func (m *memStore) SaveFilesIfAbsent(_ context.Context, h string, fs []model.File) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.files[h] = fs
 	m.saveFiles++
-	return nil
+	if len(fs) == 0 || len(m.files[h]) > 0 {
+		return false, nil
+	}
+	m.files[h] = fs
+	return true, nil
 }
 func (m *memStore) SetAvailability(_ context.Context, p string, es []service.Availability) error {
 	m.mu.Lock()

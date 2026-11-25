@@ -165,7 +165,7 @@ func (s *Service) autoFile(ctx context.Context, p debrid.Provider, key, hash str
 	if !cached || len(c.Files) == 0 {
 		return model.File{}, false, false
 	}
-	if err := s.d.Store.SaveFiles(ctx, hash, c.Files); err != nil {
+	if _, err := s.d.Store.SaveFilesIfAbsent(ctx, hash, c.Files); err != nil {
 		s.log.Warn("store files failed", "err", err)
 	}
 	if match.IsPack(c.Files) {
