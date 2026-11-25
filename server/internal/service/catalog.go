@@ -15,11 +15,16 @@ import (
 
 // Search finds books by free text for every language of cfg and interleaves the results.
 func (s *Service) Search(ctx context.Context, cfg userconfig.Config, query string) ([]model.Book, error) {
+	return s.SearchFor(ctx, Prefs{Region: cfg.Region, Languages: cfg.Languages}, query)
+}
+
+// SearchFor is Search with explicit per-user parameters (the /v1 API).
+func (s *Service) SearchFor(ctx context.Context, p Prefs, query string) ([]model.Book, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []model.Book{}, nil
 	}
-	return s.catalogLookup(ctx, cfg, "search\x00"+strings.ToLower(query),
+	return s.catalogLookup(ctx, p, "search\x00"+strings.ToLower(query),
 		func(ctx context.Context, region, lang string) ([]model.Book, error) {
 			return s.d.Metadata.Search(ctx, region, lang, query)
 		})
@@ -27,10 +32,15 @@ func (s *Service) Search(ctx context.Context, cfg userconfig.Config, query strin
 
 // Discover lists best sellers for cfg.Region / cfg.Languages (page is 0-based).
 func (s *Service) Discover(ctx context.Context, cfg userconfig.Config, page int) ([]model.Book, error) {
+	return s.DiscoverFor(ctx, Prefs{Region: cfg.Region, Languages: cfg.Languages}, page)
+}
+
+// DiscoverFor is Discover with explicit per-user parameters (the /v1 API).
+func (s *Service) DiscoverFor(ctx context.Context, p Prefs, page int) ([]model.Book, error) {
 	if page < 0 {
 		page = 0
 	}
-	return s.catalogLookup(ctx, cfg, "discover\x00"+strconv.Itoa(page),
+	return s.catalogLookup(ctx, p, "discover\x00"+strconv.Itoa(page),
 		func(ctx context.Context, region, lang string) ([]model.Book, error) {
 			return s.d.Metadata.Discover(ctx, region, lang, page)
 		})
@@ -38,7 +48,7 @@ func (s *Service) Discover(ctx context.Context, cfg userconfig.Config, page int)
 
 // catalogLookup runs fetch once per language (cached by region+language+what), then merges.
 // A failing language is skipped as long as another one answered.
-func (s *Service) catalogLookup(ctx context.Context, cfg userconfig.Config, what string,
+func (s *Service) catalogLookup(ctx context.Context, cfg Prefs, what string,
 	fetch func(ctx context.Context, region, lang string) ([]model.Book, error)) ([]model.Book, error) {
 	region, err := metadata.MarketplaceRegion(cfg.Region)
 	if err != nil {

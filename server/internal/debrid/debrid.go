@@ -4,6 +4,7 @@ package debrid
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
 )
@@ -62,4 +63,10 @@ type FileLister interface {
 // account (for example to retry a failed one). A hash that is not there is not an error.
 type Deleter interface {
 	Delete(ctx context.Context, key, hash string) error
+}
+
+// RetryAfterer is optionally implemented by the error behind ErrRateLimited when the provider
+// said how long the key is blocked (errors.As to find it).
+type RetryAfterer interface {
+	RetryAfterDuration() time.Duration
 }

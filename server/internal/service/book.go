@@ -27,10 +27,37 @@ var (
 // Book returns the book and its ranked releases, refreshing metadata and searching sources
 // when the stored data is missing or stale.
 func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) (*BookPage, error) {
+	providers := s.configuredProviders(cfg)
+	return s.book(ctx, asin, bookParams{
+		region: cfg.Region, langs: uniqueLanguages(cfg.Languages), preferFormat: cfg.PreferFormat,
+		showUncached: cfg.ShowUncached, maxReleases: cfg.MaxReleases, providers: providers,
+		avail: func(ctx context.Context, hashes []string) map[string]map[string]bool {
+			return s.availability(ctx, cfg.Debrid, providers, hashes)
+		},
+	})
+}
+
+// bookParams are the per-caller inputs of the book page: the Stremio path derives them from the
+// sealed config, the /v1 API from the user's settings and keys (see BookFor).
+type bookParams struct {
+	region       string
+	langs        []string
+	preferFormat string
+	showUncached bool
+	maxReleases  int
+	providers    []string // providers whose cache state may hide uncached releases (filterReleases)
+	// avail returns the cache state per hash and provider as the caller may see it.
+	avail func(ctx context.Context, hashes []string) map[string]map[string]bool
+	// clientFiles also loads the phone-reported file lists (ReleaseView.TorrentFiles) and lets
+	// them make a series pack visible.
+	clientFiles bool
+}
+
+func (s *Service) book(ctx context.Context, asin string, p bookParams) (*BookPage, error) {
 	if !metadata.ValidASIN(asin) {
 		return nil, ErrNotFound
 	}
-	region, err := metadata.MarketplaceRegion(cfg.Region)
+	region, err := metadata.MarketplaceRegion(p.region)
 	if err != nil {
 		return nil, fmt.Errorf("service: %w", err)
 	}
@@ -43,8 +70,7 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 	if err != nil {
 		return nil, fmt.Errorf("service: load candidates: %w", err)
 	}
-	langs := uniqueLanguages(cfg.Languages)
-	providers := s.configuredProviders(cfg)
+	langs := p.langs
 
 	items := make([]scored, len(cands))
 	for i, c := range cands {
@@ -52,12 +78,20 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 	}
 	// Language first, so no availability checks are spent on releases that cannot be shown.
 	items = filterReleases(items, langs, nil, true)
-	cached := s.availability(ctx, cfg, providers, hashesOf(items))
+	cached := p.avail(ctx, hashesOf(items))
 	for i := range items {
 		items[i].Cached = cached[items[i].Release.InfoHash]
 	}
-	items = filterReleases(items, langs, providers, cfg.ShowUncached)
-	items, packFiles := s.filterPacks(ctx, book, items)
+	items = filterReleases(items, langs, p.providers, p.showUncached)
+	var client map[string][]model.File
+	if p.clientFiles && s.d.UserStore != nil {
+		hs := hashesOf(items)
+		if client, err = s.d.UserStore.ClientFiles(ctx, hs); err != nil {
+			s.log.Warn("load client files failed", "asin", asin, "err", err)
+			client = nil
+		}
+	}
+	items, packFiles := s.filterPacks(ctx, book, items, client)
 	// A release whose file list is known but holds no audio (typically one big .zip/.rar: the
 	// provider cannot play archives) is never shown. Unknown file lists stay.
 	var singles []string
@@ -72,8 +106,8 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 		files = nil
 	}
 	items = dropUnplayable(items, files)
-	items = rankReleases(items, langs, cfg.PreferFormat)
-	limit := cfg.MaxReleases
+	items = rankReleases(items, langs, p.preferFormat)
+	limit := p.maxReleases
 	if limit <= 0 {
 		limit = defaultMaxReleases
 	}
@@ -82,7 +116,13 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 	}
 
 	page := &BookPage{Book: book, Releases: make([]ReleaseView, len(items))}
+	if at, err := s.d.Store.ReleasesSearchedAt(ctx, asin); err != nil {
+		s.log.Warn("read search time failed", "asin", asin, "err", err)
+	} else {
+		page.SearchedAt = at
+	}
 	for i, it := range items {
+		h := it.Release.InfoHash
 		v := ReleaseView{
 			Season:     i + 1,
 			Release:    it.Release,
@@ -91,9 +131,11 @@ func (s *Service) Book(ctx context.Context, cfg userconfig.Config, asin string) 
 			Cached:     copyCached(it.Cached),
 		}
 		if it.Collection {
-			v.Files = packFiles[it.Release.InfoHash]
+			v.Files = packFiles[h]
+			v.TorrentFiles = audioFiles(match.FilterFiles(book, client[h]), maxFilesPerRelease)
 		} else {
-			v.Files = audioFiles(files[it.Release.InfoHash], maxFilesPerRelease)
+			v.Files = audioFiles(files[h], maxFilesPerRelease)
+			v.TorrentFiles = audioFiles(client[h], maxFilesPerRelease)
 		}
 		page.Releases[i] = v
 	}
@@ -117,7 +159,7 @@ func dropUnplayable(items []scored, files map[string][]model.File) []scored {
 // known and some of them belong to this book. It returns the surviving items and, per pack,
 // the book's own audio files (natural order, capped). A pack whose files are unknown (never
 // seen cached) cannot be shown: playing "the largest file" would pick another book.
-func (s *Service) filterPacks(ctx context.Context, book model.Book, items []scored) ([]scored, map[string][]model.File) {
+func (s *Service) filterPacks(ctx context.Context, book model.Book, items []scored, client map[string][]model.File) ([]scored, map[string][]model.File) {
 	var hashes []string
 	for _, it := range items {
 		if it.Collection {
@@ -141,7 +183,9 @@ func (s *Service) filterPacks(ctx context.Context, book model.Book, items []scor
 		}
 		h := it.Release.InfoHash
 		fs := audioFiles(match.FilterFiles(book, stored[h]), maxFilesPerRelease)
-		if len(fs) == 0 {
+		// A pack whose debrid file list is unknown can still be shown when a phone reported
+		// the files and some of them belong to this book (never for the Stremio path: nil).
+		if len(fs) == 0 && len(audioFiles(match.FilterFiles(book, client[h]), 1)) == 0 {
 			s.log.Debug("pack dropped: no known file belongs to the book", "asin", book.ASIN, "hash", h, "files", len(stored[h]))
 			continue
 		}
@@ -355,7 +399,7 @@ func searchTitle(title string) string {
 // availability returns, per info hash, the cache state per configured provider. Entries that
 // are unknown (no cache API, failed check) are absent. Fresh stored states are reused; the
 // rest is asked from the provider in one batch. A failing provider never fails the page.
-func (s *Service) availability(ctx context.Context, cfg userconfig.Config, providers, hashes []string) map[string]map[string]bool {
+func (s *Service) availability(ctx context.Context, keys map[string]string, providers, hashes []string) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	if len(providers) == 0 || len(hashes) == 0 {
 		return out
@@ -371,7 +415,7 @@ func (s *Service) availability(ctx context.Context, cfg userconfig.Config, provi
 					s.log.Error("availability check panicked", "provider", name, "panic", fmt.Sprint(r))
 				}
 			}()
-			results[i] = s.checkProvider(ctx, name, cfg.Debrid[name], hashes)
+			results[i] = s.checkProvider(ctx, name, keys[name], hashes)
 		}()
 	}
 	wg.Wait()
@@ -396,7 +440,7 @@ func (s *Service) availability(ctx context.Context, cfg userconfig.Config, provi
 	for i, name := range providers {
 		r := results[i]
 		if len(r.entries) > 0 {
-			if err := s.d.Store.SetAvailability(ctx, name, r.entries); err != nil {
+			if err := s.setAvailability(ctx, name, r.entries); err != nil {
 				s.log.Warn("store availability failed", "provider", name, "err", err)
 			}
 		}

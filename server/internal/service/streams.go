@@ -120,7 +120,7 @@ func (s *Service) Resolve(ctx context.Context, cfg userconfig.Config, provider, 
 		return debrid.ResolveResult{}, redact(err, key)
 	}
 	if !res.Pending && res.URL != "" {
-		err := s.d.Store.SetAvailability(ctx, provider, []Availability{{InfoHash: infoHash, Cached: true, CheckedAt: s.now()}})
+		err := s.setAvailability(ctx, provider, []Availability{{InfoHash: infoHash, Cached: true, CheckedAt: s.now()}})
 		if err != nil {
 			s.log.Warn("store availability failed", "provider", provider, "err", err)
 		}
@@ -159,7 +159,7 @@ func (s *Service) autoFile(ctx context.Context, p debrid.Provider, key, hash str
 		return model.File{}, false, false
 	}
 	c, cached := res[hash]
-	if err := s.d.Store.SetAvailability(ctx, p.Name(), []Availability{{InfoHash: hash, Cached: cached, CheckedAt: s.now()}}); err != nil {
+	if err := s.setAvailability(ctx, p.Name(), []Availability{{InfoHash: hash, Cached: cached, CheckedAt: s.now()}}); err != nil {
 		s.log.Warn("store availability failed", "provider", p.Name(), "err", err)
 	}
 	if !cached || len(c.Files) == 0 {

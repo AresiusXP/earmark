@@ -54,6 +54,8 @@ const AutoFile = -1
 type BookPage struct {
 	Book     model.Book
 	Releases []ReleaseView // ranked best first; Season = index+1
+	// SearchedAt is when the sources were last queried for the book (zero = never).
+	SearchedAt time.Time
 }
 
 // ReleaseView is one release as shown on the book page.
@@ -69,6 +71,9 @@ type ReleaseView struct {
 	// Files are the audio files in natural (chapter) order; empty when unknown. When empty
 	// the HTTP layer exposes one video with FileIndex AutoFile.
 	Files []model.File
+	// TorrentFiles are the audio files reported by phones (metainfo index); only the /v1 API
+	// fills them. For a pack only this book's files.
+	TorrentFiles []model.File
 }
 
 // VideoRef identifies one playable video. Its Stremio id is "abk:<ASIN>:<infohash>:<fileIndex>".

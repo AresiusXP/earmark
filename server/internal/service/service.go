@@ -45,9 +45,11 @@ type Metadata interface {
 
 // Deps are the collaborators and tunables of Service. Zero tunables take the Default* values.
 type Deps struct {
-	Metadata  Metadata
-	Sources   []sources.Source
-	Store     Store
+	Metadata Metadata
+	Sources  []sources.Source
+	Store    Store
+	// UserStore is optional: the per-user data of the /v1 API (client files, per-key cache state).
+	UserStore UserStore
 	Providers debrid.Registry
 	Clock     func() time.Time
 	Logger    *slog.Logger

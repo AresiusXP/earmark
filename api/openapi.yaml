@@ -129,8 +129,9 @@ paths:
       security: []
       operationId: getAppApk
       responses:
-        "200": {description: The signed APK., content: {application/vnd.android.package-archive: {schema: {type: string, format: binary}}}}
+        "200": {description: The signed APK. Supports Range requests., content: {application/vnd.android.package-archive: {schema: {type: string, format: binary}}}}
         "404": {$ref: "#/components/responses/Error"}
+        "503": {description: Too many downloads in progress (global limit); retry after `Retry-After`., content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
 
   /v1/auth/bootstrap:
     post:
@@ -577,6 +578,7 @@ paths:
                 magnet: {type: string, description: Only needed when the server does not know the release.}
       responses:
         "200": {description: Current state., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
+        "400": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
@@ -589,7 +591,12 @@ paths:
         `302` to the provider's short-lived CDN link for one file (`Location` is validated against an HTTPS
         allowlist of provider CDN hosts). The link must be used immediately, never stored. `202` with a
         `Prepare` body when the file is not ready yet; `403 no_debrid_key` / `bad_debrid_key`.
-        Supports `HEAD` without side effects (never adds a torrent).
+        Supports `HEAD` without side effects (never adds a torrent; answers `202` when it cannot tell without
+        adding). The route serves streaming (a player opens it, follows the redirect, seeks with Range requests
+        and reconnects) as well as downloading: the server caches the resolved link in memory per key for a few
+        minutes, so repeated requests are cheap. Adding a torrent shares the per-key add budget of `prepare`
+        (`429 rate_limited`). A release that failed at the provider answers `502 upstream_failed` (the message
+        names the reason); a file index that is not in the torrent answers `404`.
       parameters:
         - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
         - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
@@ -597,8 +604,10 @@ paths:
       responses:
         "302": {description: Redirect to the CDN., headers: {Location: {schema: {type: string, format: uri}}}}
         "202": {description: Not ready., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
+        "400": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
         "502": {$ref: "#/components/responses/Error"}
   /v1/releases/{hash}/torrent-files:
     post:

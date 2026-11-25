@@ -112,6 +112,9 @@ type RateLimitError struct {
 func (e *RateLimitError) Error() string { return e.msg }
 func (e *RateLimitError) Unwrap() error { return debrid.ErrRateLimited }
 
+// RetryAfterDuration implements debrid.RetryAfterer.
+func (e *RateLimitError) RetryAfterDuration() time.Duration { return e.RetryAfter }
+
 // Validate implements debrid.Provider.
 func (c *Client) Validate(ctx context.Context, key string) error {
 	if key == "" {

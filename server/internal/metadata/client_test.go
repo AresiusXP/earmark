@@ -395,3 +395,71 @@ func TestMarketplaceRegionAndHelpers(t *testing.T) {
 		t.Errorf("bestImage = %q", got)
 	}
 }
+
+func TestChapterListCaching(t *testing.T) {
+	var calls atomic.Int32
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	status := http.StatusOK
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			return
+		}
+		serveJSON([]byte(`{"asin":"B002V1OF70","runtimeLengthMs":3600000,"chapters":[
+			{"title":" One ","startOffsetMs":0,"lengthMs":1000},
+			{"title":"bad","startOffsetMs":-5,"lengthMs":1},
+			{"title":"Two","startOffsetMs":1000,"lengthMs":2000}]}`))(w, r)
+	})
+	c.Now = func() time.Time { return now }
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		cl, err := c.ChapterList(ctx, "us", "B002V1OF70")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cl.RuntimeMs != 3600000 || len(cl.Chapters) != 2 || cl.Chapters[0].Title != "One" || cl.Chapters[1].StartMs != 1000 {
+			t.Fatalf("list = %+v", cl)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls = %d, want 1 (cached)", calls.Load())
+	}
+	// "nl" shares the marketplace of "us"; another region is another cache entry.
+	if _, err := c.ChapterList(ctx, "nl", "B002V1OF70"); err != nil || calls.Load() != 1 {
+		t.Fatalf("nl: err=%v calls=%d", err, calls.Load())
+	}
+	if _, err := c.ChapterList(ctx, "uk", "B002V1OF70"); err != nil || calls.Load() != 2 {
+		t.Fatalf("uk: err=%v calls=%d", err, calls.Load())
+	}
+	now = now.Add(chapterTTL + time.Second)
+	if _, err := c.ChapterList(ctx, "us", "B002V1OF70"); err != nil || calls.Load() != 3 {
+		t.Fatalf("after ttl: err=%v calls=%d", err, calls.Load())
+	}
+
+	// A miss is cached for chapterMissTTL; other failures are not cached.
+	status = http.StatusNotFound
+	for i := 0; i < 2; i++ {
+		if _, err := c.ChapterList(ctx, "us", "B000000001"); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("miss err = %v", err)
+		}
+	}
+	if calls.Load() != 4 {
+		t.Fatalf("calls = %d after cached miss", calls.Load())
+	}
+	now = now.Add(chapterMissTTL + time.Second)
+	_, _ = c.ChapterList(ctx, "us", "B000000001")
+	if calls.Load() != 5 {
+		t.Fatalf("miss should expire, calls = %d", calls.Load())
+	}
+	status = http.StatusBadGateway
+	for i := 0; i < 2; i++ {
+		if _, err := c.ChapterList(ctx, "us", "B000000002"); !errors.Is(err, ErrUpstream) {
+			t.Fatalf("5xx err = %v", err)
+		}
+	}
+	if calls.Load() != 7 {
+		t.Fatalf("5xx must not be cached, calls = %d", calls.Load())
+	}
+}
