@@ -49,3 +49,17 @@ type Provider interface {
 	// Resolve returns a streamable URL for one file, adding the torrent to the account if needed.
 	Resolve(ctx context.Context, key string, req ResolveRequest) (ResolveResult, error)
 }
+
+// FileLister is optionally implemented by providers that can list the files of a torrent that
+// is already in the user's account (and never add one). Index values are the same as in
+// Resolve. Real-Debrid has no batch cache check, so this is how the app API shows the files
+// of a prepared torrent. A hash that is not in the account answers ErrNotFound.
+type FileLister interface {
+	Files(ctx context.Context, key, hash string) ([]model.File, error)
+}
+
+// Deleter is optionally implemented by providers that can remove a torrent from the user's
+// account (for example to retry a failed one). A hash that is not there is not an error.
+type Deleter interface {
+	Delete(ctx context.Context, key, hash string) error
+}
