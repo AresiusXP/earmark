@@ -56,8 +56,8 @@ type Service struct {
 
 	// bootstrapFails guards the guessable instance password; inviteRate bounds invite creation.
 	// The other public endpoints carry >= 128-bit secrets and only get a global request-rate cap.
-	bootstrapFails, inviteRate              *failLimiter
-	joinCap, linkCap, refreshCap, googleCap *rateCap
+	bootstrapFails, inviteRate                        *failLimiter
+	joinCap, linkCap, refreshCap, googleCap, nonceCap *rateCap
 
 	cacheTTL time.Duration
 	mu       sync.Mutex
@@ -112,6 +112,7 @@ func New(c Config) (*Service, error) {
 	s.joinCap = newRateCap(5, 20, s.now)
 	s.linkCap = newRateCap(5, 20, s.now)
 	s.googleCap = newRateCap(5, 20, s.now)
+	s.nonceCap = newRateCap(5, 20, s.now)
 	return s, nil
 }
 

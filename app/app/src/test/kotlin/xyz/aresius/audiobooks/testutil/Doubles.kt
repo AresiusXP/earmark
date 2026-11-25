@@ -37,7 +37,7 @@ fun memorySessionStore(initial: Session? = null) = EncryptedSessionStore(Reversi
 fun testSession(serverUrl: String, userId: String = "u1") =
     Session(serverUrl, accessToken = "access-1", refreshToken = "refresh-1", expiresAtMs = 0, deviceName = "Pixel", userId = userId)
 
-class MemoryPrefs(url: String = "https://earmark.aresius.xyz", done: Boolean = false) : AppPreferences {
+class MemoryPrefs(url: String = "", done: Boolean = false) : AppPreferences {
     private val url = MutableStateFlow(url)
     private val done = MutableStateFlow(done)
     private val dismissed = MutableStateFlow(0L)

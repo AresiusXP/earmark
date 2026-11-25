@@ -110,7 +110,7 @@ func run() error {
 	})
 	api := httpapi.New(httpapi.Deps{
 		API: svc, Sealer: sealer, PublicURL: cfg.PublicURL, InstancePassword: cfg.InstancePassword,
-		Logger: logger, Version: version, V1: v1,
+		Logger: logger, Version: version, V1: v1, LinkHosts: cfg.LinkHosts,
 	})
 
 	servers := []*http.Server{{

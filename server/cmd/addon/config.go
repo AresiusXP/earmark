@@ -11,6 +11,7 @@ import (
 
 	"github.com/AresiusXP/earmark/server/internal/appapi"
 	"github.com/AresiusXP/earmark/server/internal/appupdate"
+	"github.com/AresiusXP/earmark/server/internal/linkhosts"
 	"github.com/AresiusXP/earmark/server/internal/sources"
 )
 
@@ -134,7 +135,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 			c.AddsPerHour = n
 		}
 	}
-	hosts, err := appapi.ParseLinkHosts(getenv("DEBRID_LINK_HOSTS"))
+	hosts, err := linkhosts.Parse(getenv("DEBRID_LINK_HOSTS"))
 	if err != nil {
 		errs = append(errs, err)
 	}

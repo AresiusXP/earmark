@@ -87,13 +87,14 @@ private fun ServerStep(state: OnboardingUiState, vm: OnboardingViewModel) {
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         label = { Text(stringResource(R.string.onboarding_server_label)) },
+        placeholder = { Text(stringResource(R.string.onboarding_server_placeholder)) },
         supportingText = { Text(stringResource(R.string.onboarding_server_help)) },
         isError = state.error != null,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
         enabled = !state.checkingServer,
     )
     state.error?.let { Text(it.message(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-    PrimaryButton(stringResource(R.string.common_continue), onClick = vm::checkServer, loading = state.checkingServer)
+    PrimaryButton(stringResource(R.string.common_continue), onClick = vm::checkServer, enabled = state.serverUrlValid, loading = state.checkingServer)
     if (state.showDemoShortcut) {
         TextButton(onClick = vm::useDemoServer, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.onboarding_use_demo)) }
     }

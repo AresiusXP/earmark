@@ -17,6 +17,7 @@ import (
 	"github.com/AresiusXP/earmark/server/internal/accounts"
 	"github.com/AresiusXP/earmark/server/internal/debrid"
 	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/linkhosts"
 	"github.com/AresiusXP/earmark/server/internal/model"
 	"github.com/AresiusXP/earmark/server/internal/service"
 	"github.com/AresiusXP/earmark/server/internal/userkeys"
@@ -379,7 +380,7 @@ func newRelEnv(t *testing.T, addsPerHour int) *relEnv {
 	api := &API{acc: acc, key: ksvc, log: log, mux: http.NewServeMux()}
 	e.app = &app{
 		API: api, d: AppDeps{Store: e.store, Providers: provs, AddsPerHour: addsPerHour}, log: log, now: e.clk.Now,
-		allow: NewLinkAllowlist(nil), links: newLinkCache(e.clk.Now), trk: newTracker(e.clk.Now), bud: newBudget(addsPerHour, e.clk.Now),
+		allow: linkhosts.New(nil), links: newLinkCache(e.clk.Now), trk: newTracker(e.clk.Now), bud: newBudget(addsPerHour, e.clk.Now),
 		work: newWorkGate(0, 0), appDL: make(chan struct{}, maxAppDownloads),
 	}
 	t.Cleanup(e.scan)

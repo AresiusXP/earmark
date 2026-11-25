@@ -34,10 +34,13 @@ type GoogleVerifier interface {
 func (s *Service) GoogleEnabled() bool { return s.google != nil }
 
 // GoogleNonce returns a single-use nonce (valid 5 minutes) the app passes to Google when it
-// asks for the ID token.
+// asks for the ID token. The route is unauthenticated, so it is bounded by a global rate cap.
 func (s *Service) GoogleNonce() (string, time.Time, error) {
 	if s.google == nil {
 		return "", time.Time{}, ErrGoogleDisabled
+	}
+	if err := admit(s.nonceCap); err != nil {
+		return "", time.Time{}, err
 	}
 	n, exp, err := s.google.NewNonce()
 	if err != nil {

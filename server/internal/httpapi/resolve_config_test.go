@@ -26,7 +26,7 @@ func TestResolveRedirect(t *testing.T) {
 	}
 	e.api.resolve = func(cfg userconfig.Config, p, h string, i int) (debrid.ResolveResult, error) {
 		got.provider, got.hash, got.idx, got.cfg = p, h, i, cfg
-		return debrid.ResolveResult{URL: "https://cdn.example/dl/abc?token=x"}, nil
+		return debrid.ResolveResult{URL: "https://nexus-1.weur.tb-cdn.st/dl/abc?token=x"}, nil
 	}
 	for _, tc := range []struct {
 		method, path string
@@ -38,7 +38,7 @@ func TestResolveRedirect(t *testing.T) {
 	} {
 		rec := e.do(tc.method, tc.path, nil)
 		mustStatus(t, rec, 302)
-		if loc := rec.Header().Get("Location"); loc != "https://cdn.example/dl/abc?token=x" {
+		if loc := rec.Header().Get("Location"); loc != "https://nexus-1.weur.tb-cdn.st/dl/abc?token=x" {
 			t.Errorf("%s Location = %q", tc.path, loc)
 		}
 		if rec.Header().Get("Cache-Control") != "no-store" {
@@ -80,15 +80,63 @@ func TestResolveBadRequests(t *testing.T) {
 	mustStatus(t, e.get("/resolve/catalog/audiobook/abk-top/x"), 404)
 }
 
-func TestResolveUnusableURL(t *testing.T) {
+func TestResolveRefusesLinksOffTheProviderAllowlist(t *testing.T) {
 	e := newEnv(t, "")
 	tok := e.defaultToken(t)
-	for _, u := range []string{"", "javascript:alert(1)", "/relative", "ftp://x.example/a"} {
+	path := "/resolve/" + tok + "/torbox/" + testHash + "/1"
+	for _, u := range []string{
+		"", "javascript:alert(1)", "/relative", "ftp://x.example/a", "//nexus.tb-cdn.st/x",
+		"https://cdn.example/x",                   // not a TorBox host
+		"https://tb-cdn.st.evil.com/x",            // look-alike suffix
+		"https://evil-tb-cdn.st/x",                // look-alike prefix
+		"https://nexus.tb-cdn.st.evil.com/x",      // allowed name as a subdomain of another domain
+		"https://tb-cdn.st@evil.com/x",            // userinfo
+		"https://user:pw@nexus.tb-cdn.st/x",       // userinfo on an allowed host
+		"http://nexus.tb-cdn.st/x",                // not https
+		"https://nexus.tb-cdn.st:8443/x",          // other port
+		"https://22-4.download.real-debrid.com/x", // another provider's host
+		"https://127.0.0.1/x",
+	} {
 		e.api.resolve = func(userconfig.Config, string, string, int) (debrid.ResolveResult, error) {
 			return debrid.ResolveResult{URL: u}, nil
 		}
-		mustStatus(t, e.get("/resolve/"+tok+"/torbox/"+testHash+"/1"), 502)
+		rec := e.get(path)
+		mustStatus(t, rec, 502)
+		if loc := rec.Header().Get("Location"); loc != "" {
+			t.Errorf("%q: refused link still redirects to %q", u, loc)
+		}
 	}
+}
+
+func TestResolveAcceptsAllowedHostsAndTheConfiguredExtras(t *testing.T) {
+	e := newEnv(t, "")
+	tok := e.defaultToken(t)
+	for _, tc := range []struct{ provider, url string }{
+		{"torbox", "https://nexus-12.weur.tb-cdn.st/dl/abc?token=x"},
+		{"torbox", "https://store-3.torbox.app/x"},
+		{"realdebrid", "https://22-4.download.real-debrid.com/d/ABC"},
+		{"realdebrid", "https://x.rdb.so/d/ABC"},
+	} {
+		e.api.resolve = func(userconfig.Config, string, string, int) (debrid.ResolveResult, error) {
+			return debrid.ResolveResult{URL: tc.url}, nil
+		}
+		rec := e.get("/resolve/" + tok + "/" + tc.provider + "/" + testHash + "/1")
+		mustStatus(t, rec, 302)
+		if loc := rec.Header().Get("Location"); loc != tc.url {
+			t.Errorf("%s: Location = %q", tc.url, loc)
+		}
+	}
+
+	// DEBRID_LINK_HOSTS extends the list for /resolve as it does for the app download route.
+	e.api.resolve = func(userconfig.Config, string, string, int) (debrid.ResolveResult, error) {
+		return debrid.ResolveResult{URL: "https://dl.new-cdn.example/x"}, nil
+	}
+	path := "/resolve/" + tok + "/torbox/" + testHash + "/1"
+	mustStatus(t, e.get(path), 502)
+	s := New(Deps{API: e.api, Sealer: e.sealer, PublicURL: testPublic, LinkHosts: map[string][]string{"torbox": {"new-cdn.example"}}})
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	mustStatus(t, rec, 302)
 }
 
 func TestResolvePlaceholderAndRange(t *testing.T) {
@@ -202,7 +250,7 @@ func TestResolveMetrics(t *testing.T) {
 	tok := e.defaultToken(t)
 	e.api.resolve = func(_ userconfig.Config, p string, _ string, _ int) (debrid.ResolveResult, error) {
 		if p == "torbox" {
-			return debrid.ResolveResult{URL: "https://cdn.example/x"}, nil
+			return debrid.ResolveResult{URL: "https://nexus-1.weur.tb-cdn.st/x"}, nil
 		}
 		return debrid.ResolveResult{Pending: true}, nil
 	}
@@ -534,7 +582,7 @@ func TestResolveHeadHasNoSideEffects(t *testing.T) {
 	calls := 0
 	e.api.resolve = func(userconfig.Config, string, string, int) (debrid.ResolveResult, error) {
 		calls++
-		return debrid.ResolveResult{URL: "https://cdn.example/x"}, nil
+		return debrid.ResolveResult{URL: "https://nexus-1.weur.tb-cdn.st/x"}, nil
 	}
 	rec := e.do(http.MethodHead, "/resolve/"+tok+"/torbox/"+testHash+"/4", nil)
 	mustStatus(t, rec, 200)

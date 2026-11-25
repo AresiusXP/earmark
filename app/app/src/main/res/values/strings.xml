@@ -43,7 +43,8 @@
     <string name="onboarding_server_title">Welcome</string>
     <string name="onboarding_server_subtitle">Connect the app to your Earmark server.</string>
     <string name="onboarding_server_label">Server address</string>
-    <string name="onboarding_server_help">Leave as is unless you host your own server.</string>
+    <string name="onboarding_server_placeholder">https://your-server.example</string>
+    <string name="onboarding_server_help">Earmark is self-hosted and the app has no default server: enter the address of your own server, or ask whoever runs it for you.</string>
     <string name="onboarding_use_demo">Use the demo backend (debug build)</string>
     <string name="onboarding_method_title">How do you want to sign in?</string>
     <string name="onboarding_method_fresh_instance">This server has no accounts yet: start with First setup.</string>

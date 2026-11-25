@@ -24,6 +24,7 @@ import xyz.aresius.audiobooks.core.auth.InputProblem
 import xyz.aresius.audiobooks.core.auth.InputValidation
 import xyz.aresius.audiobooks.core.auth.SessionStore
 import xyz.aresius.audiobooks.core.auth.SignInMethod
+import xyz.aresius.audiobooks.core.auth.UrlValidation
 import xyz.aresius.audiobooks.core.auth.requester
 import xyz.aresius.audiobooks.core.data.AppPreferences
 
@@ -34,7 +35,10 @@ enum class OnboardingMethod { Invite, FirstSetup, Link, GoogleJoin }
 
 data class OnboardingUiState(
     val step: OnboardingStep = OnboardingStep.Server,
+    /** Empty until the user types one: the app ships with no default server. An already-saved one (or the signed-in session's) is prefilled. */
     val serverUrl: String = "",
+    /** [serverUrl] passes the URL validation; "Continue" on the server step stays disabled until it does. */
+    val serverUrlValid: Boolean = false,
     val checkingServer: Boolean = false,
     /** From `GET /v1/version`: false = nobody has set the instance up yet, so "First setup" is the way in. Null until checked. */
     val bootstrapped: Boolean? = null,
@@ -73,13 +77,17 @@ class OnboardingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val url = prefs.serverUrl.first()
-            _state.update { it.copy(serverUrl = if (it.serverUrl.isEmpty()) url else it.serverUrl) }
-            if (sessions.load() != null && !prefs.onboardingDone.first()) _state.update { it.copy(step = OnboardingStep.Debrid) }
+            val session = sessions.load()
+            val url = prefs.serverUrl.first().ifBlank { session?.serverUrl.orEmpty() }
+            if (url.isNotEmpty()) _state.update { if (it.serverUrl.isEmpty()) it.withServerUrl(url) else it }
+            if (session != null && !prefs.onboardingDone.first()) _state.update { it.copy(step = OnboardingStep.Debrid) }
         }
     }
 
-    fun onServerUrlChange(text: String) = _state.update { it.copy(serverUrl = text, error = null) }
+    private fun OnboardingUiState.withServerUrl(text: String) =
+        copy(serverUrl = text, serverUrlValid = auth.validateServerUrl(text) is UrlValidation.Valid, error = null)
+
+    fun onServerUrlChange(text: String) = _state.update { it.withServerUrl(text) }
 
     fun onSecretChange(text: String) = _state.update { it.copy(secret = text, error = null) }
 
@@ -88,7 +96,7 @@ class OnboardingViewModel @Inject constructor(
     fun onDeviceNameChange(text: String) = _state.update { it.copy(deviceName = text, error = null) }
 
     /** Debug builds: points the app at the in-process FakeBackend (see app/README.md). */
-    fun useDemoServer() = _state.update { it.copy(serverUrl = DEMO_SERVER_URL, error = null) }
+    fun useDemoServer() = _state.update { it.withServerUrl(DEMO_SERVER_URL) }
 
     /** "Continue" on the server step: checks that the URL is an Audiobooks server before going on. */
     fun checkServer() {

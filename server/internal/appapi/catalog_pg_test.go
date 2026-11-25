@@ -872,6 +872,30 @@ func TestAppUpdate(t *testing.T) {
 	}
 }
 
+func TestAppUpdateRoutesAreRateCapped(t *testing.T) {
+	for _, path := range []string{"/v1/app/update", "/v1/app/update/apk"} {
+		e := newAppEnv(t)
+		var ok, limited int
+		for i := 0; i < 200; i++ {
+			r := e.req("GET", path, "", nil)
+			switch r.Code {
+			case 200, 404: // the JSON answer / no APK bundled
+				ok++
+			case 429:
+				limited++
+				if r.Header().Get("Retry-After") == "" {
+					t.Fatalf("%s: 429 without Retry-After", path)
+				}
+			default:
+				t.Fatalf("%s: status %d", path, r.Code)
+			}
+		}
+		if ok < 20 || limited < 100 {
+			t.Fatalf("%s: ok=%d limited=%d, want the burst of 20 served and the flood limited", path, ok, limited)
+		}
+	}
+}
+
 func sha256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])

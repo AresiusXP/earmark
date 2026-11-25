@@ -104,3 +104,14 @@ func (c *rateCap) allow() (ok bool, retryAfter time.Duration) {
 	}
 	return false, max(time.Duration(math.Ceil((1-c.tokens)/c.rate*float64(time.Second))), time.Second)
 }
+
+// RateCap is a global request-rate cap for the public routes outside this package (see rateCap).
+type RateCap struct{ c *rateCap }
+
+// NewRateCap allows `rate` requests per second with room for `burst`.
+func NewRateCap(rate float64, burst int, now func() time.Time) *RateCap {
+	return &RateCap{newRateCap(rate, burst, now)}
+}
+
+// Admit takes a token; the error is a *LimitError (with the retry delay) when the bucket is empty.
+func (r *RateCap) Admit() error { return admit(r.c) }

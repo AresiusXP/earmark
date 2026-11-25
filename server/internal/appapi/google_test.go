@@ -204,3 +204,17 @@ func TestGoogleGarbageFloodOnlyHitsTheRateCap(t *testing.T) {
 	e.clk.Advance(time.Second)
 	e.do("POST", "/v1/auth/google", "", map[string]any{"id_token": e.googleToken("sub-admin", "admin@example.com"), "device_name": "d"}).status(t, 200)
 }
+
+func TestGoogleNonceIsRateCapped(t *testing.T) {
+	e := newEnvOpt(t, true)
+	for i := 0; i < 20; i++ {
+		e.do("GET", "/v1/auth/google/nonce", "", nil).status(t, 200)
+	}
+	r := e.do("GET", "/v1/auth/google/nonce", "", nil)
+	r.errCode(t, 429, "rate_limited")
+	if r.Header().Get("Retry-After") == "" {
+		t.Fatal("429 without Retry-After")
+	}
+	e.clk.Advance(time.Second)
+	e.do("GET", "/v1/auth/google/nonce", "", nil).status(t, 200)
+}
