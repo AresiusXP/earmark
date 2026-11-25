@@ -88,6 +88,7 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
 
     sourceSets["androidTest"].assets.srcDir("$projectDir/schemas")
@@ -140,6 +141,7 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.datastore.preferences)
+    implementation(libs.androidx.work.runtime)
 
     implementation(libs.androidx.palette)
     implementation(libs.androidx.core.splashscreen)
@@ -159,6 +161,9 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.robolectric)
 
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.androidx.test.ext.junit)
