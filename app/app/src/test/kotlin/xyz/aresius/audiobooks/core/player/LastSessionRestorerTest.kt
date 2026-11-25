@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import xyz.aresius.audiobooks.core.data.LibraryEntryEntity
 import xyz.aresius.audiobooks.core.network.AudiobooksJson
@@ -70,5 +71,24 @@ class LastSessionRestorerTest {
         entry("A5", position = 0, updated = 9000)
         restorer.restore("u3")
         assertNull(hub.state.value.asin)
+    }
+
+    @Test fun `a restored mini player follows a library refresh, a closed player stays closed`() = runBlocking {
+        entry("A1", position = 600_000, updated = 1000)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Unconfined)
+        restorer.start(scope)
+        assertEquals(600_000L, hub.state.value.positionMs)
+        entry("A1", position = 900_000, updated = 2000)
+        assertEquals(900_000L, hub.state.value.positionMs, "another phone listened on: the mini player follows")
+        entry("A1", status = "finished", position = 900_000, updated = 3000)
+        assertNull(hub.state.value.asin, "finished elsewhere: nothing to resume")
+        entry("A2", position = 5_000, updated = 4000)
+        assertEquals("A2", hub.state.value.asin)
+        hub.update { PlayerState(phase = PlayerPhase.Ready, asin = "A2", playing = true) }
+        entry("A2", position = 5_500, updated = 4500)
+        hub.reset()
+        entry("A2", position = 6_000, updated = 5000)
+        assertNull(hub.state.value.asin, "the user closed the player: a library write does not bring it back")
+        scope.cancel()
     }
 }

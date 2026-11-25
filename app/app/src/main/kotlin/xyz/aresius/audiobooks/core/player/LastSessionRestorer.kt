@@ -4,6 +4,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -27,18 +28,36 @@ class LastSessionRestorer @Inject constructor(
 ) {
     fun start(scope: CoroutineScope) {
         scope.launch {
-            sessions.session.map { it?.userId }.distinctUntilChanged().collect { user -> if (user != null) restore(user) }
+            sessions.session.map { it?.userId }.distinctUntilChanged().collectLatest { user -> if (user != null) follow(user) }
         }
     }
 
+    /** Restores once from the cached library, then follows it while nothing was played: a refresh that brings newer progress (another phone) updates the mini player. */
+    private suspend fun follow(userId: String) {
+        userTookOver = false
+        restore(userId)
+        // Later changes only refresh a restored state (or fill an empty one until the user played something): closing the player must not
+        // bring the mini player back.
+        library.observeAll(userId).collect { if (hub.state.value.restored || !userTookOver) restore(userId) }
+    }
+
+    private var userTookOver = false
+
     suspend fun restore(userId: String) {
-        if (hub.state.value.hasBook) return
-        val entry = library.observeAll(userId).first().firstOrNull { it.status == LibraryStatus.LISTENING && it.positionMs > 0 } ?: return
-        val book = runCatching { AudiobooksJson.decodeFromString(Book.serializer(), entry.bookJson) }.getOrNull() ?: return
-        val progress = dao.progress(userId, entry.asin)?.takeIf { it.updatedAt >= entry.updatedAt }
-        if (progress != null && progress.status != LibraryStatus.LISTENING) return
+        val current = hub.state.value
+        if (current.hasBook && !current.restored) {
+            userTookOver = true
+            return
+        }
+        val entry = library.observeAll(userId).first().firstOrNull { it.status == LibraryStatus.LISTENING && it.positionMs > 0 }
+        val book = entry?.let { runCatching { AudiobooksJson.decodeFromString(Book.serializer(), it.bookJson) }.getOrNull() }
+        val progress = entry?.let { dao.progress(userId, it.asin)?.takeIf { p -> p.updatedAt >= it.updatedAt } }
+        if (entry == null || book == null || (progress != null && progress.status != LibraryStatus.LISTENING)) {
+            hub.update { if (restored) PlayerState() else this }
+            return
+        }
         val position = progress?.positionMs ?: entry.positionMs
-        val restored = PlayerState(
+        val next = PlayerState(
             phase = PlayerPhase.Ready,
             asin = entry.asin,
             book = book,
@@ -49,6 +68,6 @@ class LastSessionRestorer @Inject constructor(
             speed = (progress?.speed ?: entry.speed).toFloat(),
             restored = true,
         )
-        hub.update { if (hasBook) this else restored }
+        hub.update { if (hasBook && !restored) this else next }
     }
 }
