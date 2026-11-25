@@ -71,8 +71,8 @@ private fun BitTorrentWarning(state: BitTorrentUiState, viewModel: BitTorrentVie
 @Composable
 fun BitTorrentRiskText(modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-        Text(stringResource(R.string.bittorrent_explain_1), style = MaterialTheme.typography.bodyMedium)
-        Text(stringResource(R.string.bittorrent_explain_2), style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.bittorrent_explain_1), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(stringResource(R.string.bittorrent_explain_2), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         Text(stringResource(R.string.bittorrent_explain_3), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

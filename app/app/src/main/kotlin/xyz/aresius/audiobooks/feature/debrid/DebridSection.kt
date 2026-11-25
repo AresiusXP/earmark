@@ -116,7 +116,8 @@ private fun ProviderCard(
                 )
                 row.error?.let { Text(debridErrorText(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    OutlinedButton(onClick = onCancel, enabled = !row.busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.common_cancel)) }
+                    // Cancel keeps its natural width so the longer "check and save" label of Dutch and Spanish gets the rest.
+                    OutlinedButton(onClick = onCancel, enabled = !row.busy) { Text(stringResource(R.string.common_cancel), maxLines = 1) }
                     PrimaryButton(stringResource(R.string.debrid_validate_save), onClick = onSave, enabled = row.canSave, loading = row.busy, modifier = Modifier.weight(1f))
                 }
             } else {
