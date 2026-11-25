@@ -10,6 +10,7 @@ package appapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -222,15 +223,37 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-// decode reads a JSON object body (at most 16 KiB). It answers 400 and returns false on failure.
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+// readJSON decodes exactly one JSON value from r (at most 16 KiB) and rejects anything after
+// it, including a stray `}` or `]` that json.Decoder.More would let through. With optional, an
+// empty body is accepted and leaves v untouched.
+func readJSON(w http.ResponseWriter, r *http.Request, v any, optional bool) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(v); err != nil {
+		if optional && errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("trailing data after the JSON value")
+	}
+	return nil
+}
+
+// decode reads a JSON object body (at most 16 KiB, nothing after it). It answers 400 and
+// returns false on failure.
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := readJSON(w, r, v, false); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 		return false
 	}
-	if dec.More() {
+	return true
+}
+
+// decodeOptional is decode for bodies that may be empty.
+func decodeOptional(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := readJSON(w, r, v, true); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 		return false
 	}

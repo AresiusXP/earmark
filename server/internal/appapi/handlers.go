@@ -1,9 +1,7 @@
 package appapi
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -413,9 +411,7 @@ func (a *API) adminCreateInvite(w http.ResponseWriter, r *http.Request) {
 		Note           string `json:"note"`
 		ExpiresInHours *int   `json:"expires_in_hours"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
-		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeOptional(w, r, &in) {
 		return
 	}
 	var ttl time.Duration

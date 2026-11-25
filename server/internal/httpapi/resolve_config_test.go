@@ -467,6 +467,14 @@ func TestConfigAPIValidation(t *testing.T) {
 	}
 }
 
+func TestConfigAPIRejectsTrailingJSON(t *testing.T) {
+	e := newEnv(t, "")
+	for _, trail := range []string{"}", "]", `{"keys":{}}`, "x"} {
+		mustStatus(t, e.do(http.MethodPost, "/api/config", strings.NewReader(`{"keys":{"torbox":"k"}}`+trail)), 400)
+	}
+	mustStatus(t, e.do(http.MethodPost, "/api/config", strings.NewReader(`{"keys":{"torbox":"k"}}`+"\n")), 200)
+}
+
 func TestConfigAPIBodyLimit(t *testing.T) {
 	e := newEnv(t, "")
 	big := `{"keys":{"torbox":"` + strings.Repeat("k", 9000) + `"}}`
