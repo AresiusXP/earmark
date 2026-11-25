@@ -4,28 +4,35 @@
 #     -> release-please   keeps the release PR up to date; merging it creates the
 #                         vX.Y.Z tag + GitHub release (and bumps Chart.yaml and
 #                         .release-please-manifest.json, which Gradle reads)
-#     -> apk              builds the signed release APK and attaches audiobooks-X.Y.Z.apk (+ .sha256)
-#                         to the GitHub release; also uploads it with an update.json as the
-#                         workflow artifact `apk` (5 days)
-#     -> images           builds/pushes ghcr.io/<owner>/earmark:X.Y.Z, with that artifact
-#                         baked in (/update) so the server can offer in-app updates: the repo is
-#                         private, so the app cannot fetch release assets. Waits for apk but
-#                         never depends on its success: if the APK or the artifact is missing
-#                         the image is built without it (in-app update reports "none")
+#     -> tag-check        validates the tag and pins the commit every later job builds: for the manual
+#                         recovery path it requires a run from main and a tag reachable from origin/main.
+#                         Runs before any job that sees a secret
+#     -> apk              builds and signs the release APK. This is the ONLY job with the signing secrets
+#                         and it has no write token: it only uploads the artifact `apk-signed`
+#                         (audiobooks-X.Y.Z.apk + .sha256, 5 days)
+#     -> publish-apk      the ONLY job that can write to the release (contents: write) and it has no
+#                         signing secrets: it verifies the artifact and attaches it to the GitHub release
+#     -> images           builds/pushes ghcr.io/<owner>/earmark:X.Y.Z, with the APK and an update.json
+#                         baked in (/update) so the server can offer in-app updates. The app asks the
+#                         server instead of GitHub, so an instance can be private and release assets
+#                         only matter for people who install the APK by hand. Waits for apk but never
+#                         depends on its success: if the APK or the artifact is missing the image is built
+#                         without it (in-app update reports "none")
 #     -> chart            packages/pushes oci://ghcr.io/<owner>/charts/earmark
-#     -> register         bumps targetRevision of the earmark entry in
-#                         <owner>/argocd-apps (bootstrap/values.yaml) on main, so ArgoCD
-#                         deploys the release; needs the ARGOCD_APPS_DEPLOY_KEY secret
+#     -> register         OPTIONAL GitOps step: when the ARGOCD_APPS_DEPLOY_KEY secret exists, bumps
+#                         targetRevision of the earmark entry in a values file of a GitOps repository
+#                         (see docs/RELEASING.md). Skips with a notice when the secret is not set
 #
 # Why publishing lives in this same workflow: the tag is created by release-please
 # with the default GITHUB_TOKEN, and events caused by GITHUB_TOKEN do not trigger
 # other workflows, so a separate `on: push: tags` / `on: release` workflow would
 # never run. Images and chart therefore run here, gated on release_created.
 #
-# Recovery: run this workflow manually (workflow_dispatch) with `tag` set to an
+# Recovery: run this workflow manually (workflow_dispatch, from main) with `tag` set to an
 # existing release tag (e.g. v0.1.0) to build any MISSING image and publish the
 # chart if that chart version is missing. release-please is skipped then. The apk
 # job rebuilds the APK of that tag in the same run, so a recovered image gets it too.
+# The tag must exist and be an ancestor of origin/main, otherwise nothing runs.
 # Published versions are immutable: an image tag that already exists is never
 # rebuilt (floating base-image tags could otherwise change a released version)
 # unless `force_images` is explicitly ticked (do that to add the APK to an image
@@ -35,10 +42,10 @@
 # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD; optional repository VARIABLE ANDROID_CERT_SHA256
 # pins the signing certificate. See docs/RELEASING.md.
 #
-# ARGOCD_APPS_DEPLOY_KEY is the private half of a write deploy key (title
-# `earmark-release`) registered on <owner>/argocd-apps only. `register` only ever
-# moves the deployed version FORWARD (re-running an old tag is a no-op) and skips
-# pre-releases. In-cluster Renovate remains the fallback if it fails.
+# ARGOCD_APPS_DEPLOY_KEY is the private half of a write deploy key registered on the GitOps
+# repository only (repository variable GITOPS_REPO, default <owner>/argocd-apps). `register` only
+# ever moves the deployed version FORWARD (re-running an old tag is a no-op) and skips
+# pre-releases.
 
 name: Release
 
@@ -89,33 +96,88 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Needs apk only to be able to download its artifact: the condition (not `success()`) keeps the
-  # image, chart and deploy going when the APK build fails or is skipped.
-  images:
-    needs: [release-please, apk]
+  # Gate for everything below. No secret is available to it. For the manual recovery path it requires that
+  # the run comes from main and that the tag exists and is reachable from origin/main; a release-please tag
+  # is checked the same way. The commit it resolves is what every later job checks out (a tag moved
+  # between jobs is not followed).
+  tag-check:
+    needs: release-please
     if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
-      packages: write
+    outputs:
+      tag: ${{ steps.verify.outputs.tag }}
+      version: ${{ steps.verify.outputs.version }}
+      commit: ${{ steps.verify.outputs.commit }}
     env:
       TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
-
     steps:
-      - name: Resolve version and image name
-        id: meta
+      - name: Require a run from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [[ "$REF" != "refs/heads/main" ]]; then
+            echo "::error::The release workflow only runs from main (got '${REF}')"
+            exit 1
+          fi
+
+      - name: Check out main with its tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Verify the tag
+        id: verify
         run: |
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Invalid tag '$TAG' (expected vX.Y.Z)"
             exit 1
           fi
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          if ! commit="$(git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}")"; then
+            echo "::error::Tag ${TAG} does not exist in this repository"
+            exit 1
+          fi
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::Tag ${TAG} (${commit}) is not reachable from origin/main; refusing to build it with release credentials"
+            exit 1
+          fi
+          {
+            echo "tag=${TAG}"
+            echo "version=${TAG#v}"
+            echo "commit=${commit}"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Releasing ${TAG} at ${commit}"
+
+  # Needs apk only to be able to download its artifact: the condition (not `success()`) keeps the
+  # image, chart and deploy going when the APK build fails or is skipped.
+  images:
+    needs: [tag-check, apk]
+    if: ${{ !cancelled() && needs.tag-check.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ needs.tag-check.outputs.tag }}
+      VERSION: ${{ needs.tag-check.outputs.version }}
+
+    steps:
+      - name: Resolve image name
+        id: meta
+        run: |
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/earmark" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.tag-check.outputs.commit }}
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -131,7 +193,6 @@ jobs:
         id: exists
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
           FORCE: ${{ inputs.force_images }}
         run: |
           if [[ "$FORCE" != "true" ]] && docker buildx imagetools inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
@@ -141,41 +202,64 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Before the build; never fails the job. An absent/invalid bundle only means no in-app update.
-      - name: Download the APK bundle built by the apk job
+      # Before the build; never fails the job. An absent/invalid artifact only means no in-app update.
+      - name: Download the signed APK built by the apk job
         if: steps.exists.outputs.exists != 'true'
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: apk
-          path: server/update
+          name: apk-signed
+          path: ${{ runner.temp }}/apk-signed
 
-      - name: Check the APK bundle
+      # update.json is what the server reads (see server/internal/appupdate): the sha256/size of the
+      # exact bytes in the image, versionCode as in app/app/build.gradle.kts, and the release notes
+      # (best effort: a failing `gh release view` leaves them empty instead of failing the step).
+      - name: Assemble the APK bundle
         if: steps.exists.outputs.exists != 'true'
         id: bundle
-        working-directory: server/update
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
           APK_RESULT: ${{ needs.apk.result }}
+          SIGNED_DIR: ${{ runner.temp }}/apk-signed
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           drop() {
             echo "::warning::$1; the image is built WITHOUT the in-app update bundle (apk job: ${APK_RESULT})"
-            rm -f audiobooks.apk update.json
+            rm -f server/update/audiobooks.apk server/update/update.json
             echo "bundled=false" >> "$GITHUB_OUTPUT"
             echo "reason=$1" >> "$GITHUB_OUTPUT"
             exit 0
           }
-          grep -q '^COPY update/ /update/' ../Dockerfile || drop "server/Dockerfile of ${VERSION} does not copy update/ (tag predates the in-app update pipeline)"
-          [[ -f audiobooks.apk && -f update.json ]] || drop "No APK bundle artifact"
-          [[ "$(jq -r '.version_name // empty' update.json 2>/dev/null)" == "$VERSION" ]] || drop "update.json is invalid or not for ${VERSION}"
-          [[ "$(jq -r '.sha256 // empty' update.json)" == "$(sha256sum audiobooks.apk | cut -d' ' -f1)" ]] || drop "audiobooks.apk does not match the sha256 in update.json"
-          [[ "$(jq -r '.size // empty' update.json)" == "$(stat -c %s audiobooks.apk)" ]] || drop "audiobooks.apk does not match the size in update.json"
-          chmod a+r audiobooks.apk update.json
+          apk="${SIGNED_DIR}/audiobooks-${VERSION}.apk"
+          grep -q '^COPY update/ /update/' server/Dockerfile || drop "server/Dockerfile of ${VERSION} does not copy update/ (tag predates the in-app update pipeline)"
+          [[ -f "$apk" && -f "${apk}.sha256" ]] || drop "No signed APK artifact"
+          (cd "$SIGNED_DIR" && sha256sum --check --status "audiobooks-${VERSION}.apk.sha256") || drop "audiobooks-${VERSION}.apk does not match its .sha256"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(-[0-9A-Za-z.-]+)?$ ]] || drop "Version ${VERSION} is outside 0..99 per component"
+          IFS=. read -r major minor patch <<< "${VERSION%%-*}"
+          code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,publishedAt > "$RUNNER_TEMP/release.json"; then
+            echo "::warning::Could not read release $TAG; update.json carries empty notes"
+            echo '{}' > "$RUNNER_TEMP/release.json"
+          fi
+          mkdir -p server/update
+          cp "$apk" server/update/audiobooks.apk
+          jq -n \
+            --arg version_name "$VERSION" \
+            --argjson version_code "$code" \
+            --arg sha256 "$(sha256sum "$apk" | cut -d' ' -f1)" \
+            --argjson size "$(stat -c %s "$apk")" \
+            --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --slurpfile rel "$RUNNER_TEMP/release.json" \
+            '{version_name: $version_name, version_code: $version_code, sha256: $sha256, size: $size,
+              notes: (($rel[0].body // "")[0:4000]),
+              released_at: (($rel[0].publishedAt // "") | if . == "" then $now else . end)}' \
+            > server/update/update.json
+          chmod a+r server/update/audiobooks.apk server/update/update.json
+          cat server/update/update.json
           echo "::notice::Baking audiobooks-${VERSION}.apk into the image"
           {
             echo "bundled=true"
-            echo "sha256=$(jq -r .sha256 update.json)"
-            echo "size=$(stat -c %s audiobooks.apk)"
+            echo "sha256=$(jq -r .sha256 server/update/update.json)"
+            echo "size=$(stat -c %s server/update/audiobooks.apk)"
           } >> "$GITHUB_OUTPUT"
 
       # The source label links the GHCR package to this repository.
@@ -201,7 +285,6 @@ jobs:
         if: ${{ always() && steps.meta.outcome == 'success' }}
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
           EXISTS: ${{ steps.exists.outputs.exists }}
           BUILD: ${{ steps.build.outcome }}
           BUNDLED: ${{ steps.bundle.outputs.bundled }}
@@ -224,42 +307,36 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Signed release APK attached to the GitHub release and handed to `images` as the artifact `apk`
-  # (APK + update.json). It does not need images/chart/register, and a failure here never blocks
-  # them: `images` only waits for it and then builds with or without the bundle.
+  # Builds and signs the release APK. The only job with the signing secrets, and it holds no write
+  # token and no GH_TOKEN: a compromised Gradle build or dependency cannot touch the release, the
+  # tags or the packages. It hands the result to publish-apk and images as the artifact `apk-signed`.
   apk:
-    needs: release-please
-    if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    needs: tag-check
+    if: ${{ !cancelled() && needs.tag-check.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.tag-check.outputs.tag }}
+      VERSION: ${{ needs.tag-check.outputs.version }}
 
     steps:
       # Same rule as appupdate.VersionCode and app/app/build.gradle.kts: versionCode = X*10000+Y*100+Z
       # only stays unique and monotonic when each component is 0..99 (no leading zeros). Fails the apk
       # job before anything is built or uploaded; images still runs (without a bundle).
-      - name: Resolve version
-        id: meta
+      - name: Check the version
         run: |
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Invalid tag '$TAG' (expected vX.Y.Z)"
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version components must each be 0..99 without leading zeros (versionCode = X*10000+Y*100+Z); got '$VERSION'"
             exit 1
           fi
-          version="${TAG#v}"
-          if [[ ! "$version" =~ ^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Version components must each be 0..99 without leading zeros (versionCode = X*10000+Y*100+Z); got '$version'"
-            exit 1
-          fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.tag-check.outputs.commit }}
+          persist-credentials: false
 
       - name: Set up JDK 17
         uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
@@ -274,35 +351,37 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
 
+      # Never writes the build cache from a job that holds signing secrets.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: true
 
-      # The keystore lives in RUNNER_TEMP only, never in the workspace.
-      - name: Decode signing keystore
+      # The keystore lives in RUNNER_TEMP only (never in the workspace), exists only for the lifetime of this
+      # step (trap), and is removed again by the always() step below. Nothing here echoes a secret.
+      - name: Build signed release APK
+        working-directory: app
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          AUDIOBOOKS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          AUDIOBOOKS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          AUDIOBOOKS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [[ -z "$KEYSTORE_BASE64" ]]; then
             echo "::error::Secret ANDROID_KEYSTORE_BASE64 is not set"
             exit 1
           fi
+          keystore="$RUNNER_TEMP/audiobooks-release.jks"
+          trap 'rm -f "$keystore"' EXIT
           umask 077
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/audiobooks-release.jks"
-          echo "AUDIOBOOKS_KEYSTORE_FILE=$RUNNER_TEMP/audiobooks-release.jks" >> "$GITHUB_ENV"
-
-      - name: Build signed release APK
-        working-directory: app
-        env:
-          AUDIOBOOKS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          AUDIOBOOKS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          AUDIOBOOKS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: ./gradlew :app:assembleRelease -PappVersion="$VERSION" --stacktrace
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+          unset KEYSTORE_BASE64
+          export AUDIOBOOKS_KEYSTORE_FILE="$keystore"
+          ./gradlew :app:assembleRelease -PappVersion="$VERSION" --stacktrace
 
       - name: Verify signature and package
         id: pkg
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
           EXPECTED_CERT: ${{ vars.ANDROID_CERT_SHA256 }}
         run: |
           src=app/app/build/outputs/apk/release/app-release.apk
@@ -341,66 +420,68 @@ jobs:
             echo "Signer: \`${signer}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # update.json is what the server reads (see server/internal/appupdate): the sha256/size of the
-      # exact bytes in the image, versionCode as in app/app/build.gradle.kts, and the release notes
-      # (best effort: a failing `gh release view` leaves them empty instead of failing the job).
-      - name: Build the update bundle for the server image
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          apk="dist/audiobooks-${VERSION}.apk"
-          IFS=. read -r major minor patch <<< "${VERSION%%-*}"
-          code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,publishedAt > "$RUNNER_TEMP/release.json"; then
-            echo "::warning::Could not read release $TAG; update.json carries empty notes"
-            echo '{}' > "$RUNNER_TEMP/release.json"
-          fi
-          mkdir -p dist/update
-          cp "$apk" dist/update/audiobooks.apk
-          jq -n \
-            --arg version_name "$VERSION" \
-            --argjson version_code "$code" \
-            --arg sha256 "$(sha256sum "$apk" | cut -d' ' -f1)" \
-            --argjson size "$(stat -c %s "$apk")" \
-            --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --slurpfile rel "$RUNNER_TEMP/release.json" \
-            '{version_name: $version_name, version_code: $version_code, sha256: $sha256, size: $size,
-              notes: (($rel[0].body // "")[0:4000]),
-              released_at: (($rel[0].publishedAt // "") | if . == "" then $now else . end)}' \
-            > dist/update/update.json
-          cat dist/update/update.json
-
-      - name: Upload the update bundle (artifact for the server image)
+      - name: Upload the signed APK (artifact for publish-apk and the server image)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: apk
+          name: apk-signed
           path: |
-            dist/update/audiobooks.apk
-            dist/update/update.json
+            dist/audiobooks-${{ needs.tag-check.outputs.version }}.apk
+            dist/audiobooks-${{ needs.tag-check.outputs.version }}.apk.sha256
           retention-days: 5
           compression-level: 0
           if-no-files-found: error
-
-      - name: Upload to the GitHub release
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          gh release upload "$TAG" "dist/audiobooks-${VERSION}.apk" "dist/audiobooks-${VERSION}.apk.sha256" \
-            --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Remove keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/audiobooks-release.jks"
 
+  # The only job that writes to the release. It never sees the signing secrets and checks out no code:
+  # it only verifies the artifact of the apk job and uploads it with the GitHub CLI.
+  publish-apk:
+    needs: [tag-check, apk]
+    if: ${{ !cancelled() && needs.apk.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.tag-check.outputs.tag }}
+      VERSION: ${{ needs.tag-check.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Download the signed APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apk-signed
+          path: ${{ runner.temp }}/apk-signed
+
+      - name: Verify the artifact
+        working-directory: ${{ runner.temp }}/apk-signed
+        run: |
+          apk="audiobooks-${VERSION}.apk"
+          [[ "$(find . -type f | wc -l)" == "2" && -f "$apk" && -f "${apk}.sha256" ]] || { echo "::error::Unexpected artifact content"; ls -la; exit 1; }
+          [[ "$(cut -d' ' -f3- "${apk}.sha256")" == "$apk" ]] || { echo "::error::${apk}.sha256 does not name ${apk}"; exit 1; }
+          sha256sum --check "${apk}.sha256"
+          [[ "$(head -c2 "$apk")" == "PK" ]] || { echo "::error::${apk} is not a zip/APK file"; exit 1; }
+
+      - name: Upload to the GitHub release
+        working-directory: ${{ runner.temp }}/apk-signed
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
+          gh release upload "$TAG" "audiobooks-${VERSION}.apk" "audiobooks-${VERSION}.apk.sha256" \
+            --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Attached audiobooks-${VERSION}.apk to ${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
   chart:
-    needs: [release-please, images]
+    needs: [tag-check, images]
     if: ${{ !cancelled() && needs.images.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+      TAG: ${{ needs.tag-check.outputs.tag }}
       CHART_PATH: helm/earmark
       CHART_NAME: earmark
       HELM_VERSION: v3.18.4
@@ -409,7 +490,8 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.tag-check.outputs.commit }}
+          persist-credentials: false
 
       - name: Install Helm
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
@@ -444,21 +526,36 @@ jobs:
           helm push "$RUNNER_TEMP/${CHART_NAME}-${version}.tgz" "oci://ghcr.io/${owner}/charts"
           echo "Published oci://ghcr.io/${owner}/charts/${CHART_NAME}:${version}" >> "$GITHUB_STEP_SUMMARY"
 
-  # Deploy: bump the chart version ArgoCD tracks in the GitOps repo.
+  # Optional GitOps deploy: bump the chart version a GitOps repository tracks. Does nothing (with a notice)
+  # unless the ARGOCD_APPS_DEPLOY_KEY secret is set, so forks and plain `helm install` users are not affected.
   register:
-    needs: [release-please, chart]
+    needs: [tag-check, chart]
     if: ${{ !cancelled() && needs.chart.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
-      GITOPS_REPO: ${{ github.repository_owner }}/argocd-apps
-      VALUES_FILE: bootstrap/values.yaml
-      APP_NAME: earmark
+      TAG: ${{ needs.tag-check.outputs.tag }}
+      GITOPS_REPO: ${{ vars.GITOPS_REPO || format('{0}/argocd-apps', github.repository_owner) }}
+      VALUES_FILE: ${{ vars.GITOPS_VALUES_FILE || 'bootstrap/values.yaml' }}
+      APP_NAME: ${{ vars.GITOPS_APP_NAME || 'earmark' }}
 
     steps:
+      - name: Check whether GitOps registration is configured
+        id: enabled
+        env:
+          DEPLOY_KEY: ${{ secrets.ARGOCD_APPS_DEPLOY_KEY }}
+        run: |
+          if [[ -z "$DEPLOY_KEY" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ARGOCD_APPS_DEPLOY_KEY is not set: skipping the optional GitOps registration (see docs/RELEASING.md)"
+            echo "GitOps registration skipped: ARGOCD_APPS_DEPLOY_KEY is not set." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out the GitOps repo
+        if: steps.enabled.outputs.enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.GITOPS_REPO }}
@@ -466,6 +563,7 @@ jobs:
           ssh-key: ${{ secrets.ARGOCD_APPS_DEPLOY_KEY }}
 
       - name: Bump targetRevision
+        if: steps.enabled.outputs.enabled == 'true'
         run: |
           version="${TAG#v}"
           if [[ "$version" == *-* ]]; then
