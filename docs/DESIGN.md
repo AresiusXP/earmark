@@ -397,6 +397,11 @@ flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/Tor
 * **Session**: one `SessionManager`, started on first use, stopped 15 s after the last torrent stopped; DHT state in `noBackupFilesDir/torrent`.
   DHT, LSD, PEX, uTP, UPnP/NAT-PMP on while the policy allows. Not auto-managed: the engine runs its own slots (max active torrents 2) and
   libtorrent's reconnect wait is 10 s (a pause drops every peer).
+  **A blocked policy is applied before anything can run** (`PolicyGate`, `NetworkSwitches`): a session that starts while the policy blocks is built
+  with DHT, LSD, UPnP/NAT-PMP, incoming TCP/uTP and the listen sockets all OFF (whatever the restored session state says) and is paused right
+  after `start` (libtorrent4j cannot start paused; with every switch off and no torrent yet there is nothing to pause). A policy change (set the
+  decision + apply it to the session) and every resume of a torrent or the session (metadata fetch, download, seeding) run under ONE lock, and
+  torrents are added paused: a resume either completes before a flip (which then pauses it) or sees the new decision and does not happen.
 * **Metadata**: `fetchFiles` adds the magnet in upload mode, waits up to 60 s, lists the files in metainfo order (BEP 47 pad files are skipped;
   `index` is the metainfo position) and stores a minimal `.torrent` (raw info dictionary) so the list never needs the network again; `download`
   fetches metadata first the same way when it is missing (a bare magnet with no wanted file is "finished" for libtorrent and drops its seeds).

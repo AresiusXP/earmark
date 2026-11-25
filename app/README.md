@@ -207,6 +207,9 @@ Against a real server in development use `http://10.0.2.2:<port>` (the emulator'
   `-Pandroid.testInstrumentationRunnerArguments.fgsTimeout=true` after `adb shell device_config put activity_manager data_sync_fgs_timeout_duration 20000`,
   the Android 15 dataSync timeout. `RealSwarmSmokeTest` is a manual, off-by-default test against a real LibriVox magnet
   (`-Pandroid.testInstrumentationRunnerArguments.librivoxMagnet=...`; your IP is visible in a real swarm: run it behind a VPN).
+* Policy ordering: `PolicyGate` (decision + the one lock for policy changes and every torrent/session resume; `PolicyGateTest` stress-tests it) and
+  `NetworkSwitches` (blocked = DHT/LSD/port maps/incoming/listen sockets all off, also at session start). Instrumented:
+  `aSessionStartedWhileBlockedIsPausedAndSilent`, `aPolicyFlipDuringMetadataFetchLeavesNothingRunning`.
 * Release ships `arm64-v8a` only; debug adds `x86_64` for the emulator (`ndk.abiFilters` per build type in `app/build.gradle.kts`).
 
 ## Player on an emulator
