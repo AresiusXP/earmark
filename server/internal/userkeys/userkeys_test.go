@@ -75,16 +75,24 @@ func TestFingerprint(t *testing.T) {
 	a, _ := NewSealer(testSecret)
 	b, _ := NewSealer(testSecret)
 	c, _ := NewSealer(strings.Repeat("z", 32))
-	if a.Fingerprint("key-one-1234") != b.Fingerprint("key-one-1234") {
+	if a.Fingerprint("torbox", "key-one-1234") != b.Fingerprint("torbox", "key-one-1234") {
 		t.Fatal("fingerprint is not deterministic")
 	}
-	if a.Fingerprint("key-one-1234") == a.Fingerprint("key-two-1234") {
+	if a.Fingerprint("torbox", "key-one-1234") == a.Fingerprint("torbox", "key-two-1234") {
 		t.Fatal("different keys share a fingerprint")
 	}
-	if a.Fingerprint("key-one-1234") == c.Fingerprint("key-one-1234") {
+	if a.Fingerprint("torbox", "key-one-1234") == c.Fingerprint("torbox", "key-one-1234") {
 		t.Fatal("fingerprint does not depend on the server secret")
 	}
-	if fp := a.Fingerprint("key-one-1234"); len(fp) != 64 || strings.Contains(fp, "key-one") {
+	if a.Fingerprint("torbox", "key-one-1234") == a.Fingerprint("realdebrid", "key-one-1234") {
+		t.Fatal("the same string under two providers shares a fingerprint")
+	}
+	// the provider/key boundary is unambiguous
+	if a.Fingerprint("torbox", "xkey-one-1234") == a.Fingerprint("torboxx", "key-one-1234") {
+		t.Fatal("provider and key run together in the HMAC input")
+	}
+	fp := a.Fingerprint("torbox", "key-one-1234")
+	if !strings.HasPrefix(fp, FingerprintPrefix) || len(fp) != len(FingerprintPrefix)+64 || strings.Contains(fp, "key-one") {
 		t.Fatalf("fingerprint %q", fp)
 	}
 }
@@ -149,7 +157,7 @@ func (m *memStore) ListKeys(_ context.Context, u string) ([]Record, error) {
 			continue
 		}
 		for k2, o := range m.rows {
-			if k2[0] != u && o.Fingerprint == r.Fingerprint {
+			if k2[0] != u && k2[1] == k[1] && strings.HasPrefix(r.Fingerprint, FingerprintPrefix) && o.Fingerprint == r.Fingerprint {
 				r.SharedWithOthers = true
 			}
 		}
@@ -409,5 +417,79 @@ func TestRecheckAndDelete(t *testing.T) {
 	}
 	if _, found, _ := st.GetKey(ctx, "user-a", "torbox"); found {
 		t.Fatal("key still there")
+	}
+}
+
+// A row written with the old fingerprint format (bare hex, no provider) is never "shared"; the next
+// read for use or recheck rewrites it, and the key used for budgets is always the current format.
+func TestLegacyFingerprintIsHealed(t *testing.T) {
+	ctx := context.Background()
+	s, st, _ := newSvc(t)
+	const key = "tb_supersecretkey123"
+	const alice, bob = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	for _, u := range []string{alice, bob} {
+		if _, err := s.Put(ctx, u, "torbox", key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacy := func(u string) {
+		st.mu.Lock()
+		r := st.rows[[2]string{u, "torbox"}]
+		r.Fingerprint = "00ff" // bare hex of the old format
+		st.rows[[2]string{u, "torbox"}] = r
+		st.mu.Unlock()
+	}
+	legacy(alice)
+	legacy(bob)
+	sts, _ := s.List(ctx, alice)
+	for _, x := range sts {
+		if x.Provider == "torbox" && x.SharedWithOthers {
+			t.Fatal("a legacy fingerprint was reported as shared")
+		}
+	}
+	k, err := s.GetForUse(ctx, alice, "torbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := s.sealer.Fingerprint("torbox", key); k.Fingerprint != want {
+		t.Fatalf("Key.Fingerprint = %q, want the current format", k.Fingerprint)
+	}
+	if rec, _, _ := st.GetKey(ctx, alice, "torbox"); rec.Fingerprint != k.Fingerprint {
+		t.Fatal("GetForUse did not heal the stored fingerprint")
+	}
+	if _, err := s.Recheck(ctx, bob, "torbox"); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _, _ := st.GetKey(ctx, bob, "torbox"); rec.Fingerprint != k.Fingerprint {
+		t.Fatal("Recheck did not heal the stored fingerprint")
+	}
+	sts, _ = s.List(ctx, alice)
+	for _, x := range sts {
+		if x.Provider == "torbox" && !x.SharedWithOthers {
+			t.Fatal("healed rows of one household are not shared")
+		}
+	}
+}
+
+// The same string held as a TorBox key by one user and a Real-Debrid key by another is not
+// a household.
+func TestSameKeyOnTwoProvidersIsNotShared(t *testing.T) {
+	ctx := context.Background()
+	s, _, _ := newSvc(t)
+	const key = "identical_key_1234"
+	const alice, bob = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	if _, err := s.Put(ctx, alice, "torbox", key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Put(ctx, bob, "realdebrid", key); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{alice, bob} {
+		sts, _ := s.List(ctx, u)
+		for _, x := range sts {
+			if x.SharedWithOthers {
+				t.Fatalf("%s/%s reported as shared", u, x.Provider)
+			}
+		}
 	}
 }

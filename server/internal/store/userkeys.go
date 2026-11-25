@@ -14,7 +14,7 @@ import (
 var _ userkeys.Store = (*Postgres)(nil)
 
 // Every query on user_debrid_keys is scoped by user_id: a user's key is reachable only with that
-// user's id. The one cross-user query is the fingerprint EXISTS in ListKeys, which exposes a
+// user's id. The one cross-user query is the fingerprint EXISTS in ListKeys (same provider, current v2 fingerprint format only), which exposes a
 // boolean and nothing else.
 
 func (p *Postgres) PutKey(ctx context.Context, r userkeys.Record) error {
@@ -46,7 +46,8 @@ func (p *Postgres) GetKey(ctx context.Context, userID, provider string) (userkey
 
 func (p *Postgres) ListKeys(ctx context.Context, userID string) ([]userkeys.Record, error) {
 	rows, err := p.pool.Query(ctx, `SELECT k.provider, k.sealed_key, k.fingerprint, k.status, k.validated_at, k.last_error,
-		EXISTS (SELECT 1 FROM user_debrid_keys o WHERE o.fingerprint = k.fingerprint AND o.user_id <> k.user_id)
+		(k.fingerprint LIKE 'v2:%' AND EXISTS (SELECT 1 FROM user_debrid_keys o
+			WHERE o.provider = k.provider AND o.fingerprint = k.fingerprint AND o.user_id <> k.user_id))
 		FROM user_debrid_keys k WHERE k.user_id = $1::uuid ORDER BY k.provider`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list debrid keys: %w", err)

@@ -49,7 +49,7 @@ type Record struct {
 	State       string
 	ValidatedAt *time.Time
 	LastError   string
-	// SharedWithOthers is set by ListKeys: another user holds a key with the same fingerprint.
+	// SharedWithOthers is set by ListKeys: another user holds the same key of the same provider (same current-format fingerprint).
 	SharedWithOthers bool
 }
 
@@ -197,7 +197,7 @@ func (s *Service) Put(ctx context.Context, userID, provider, apiKey string) (Sta
 	}
 	now := s.now()
 	rec := Record{
-		UserID: userID, Provider: provider, SealedKey: sealed, Fingerprint: s.sealer.Fingerprint(key),
+		UserID: userID, Provider: provider, SealedKey: sealed, Fingerprint: s.sealer.Fingerprint(provider, key),
 		State: StateOK, ValidatedAt: &now,
 	}
 	if err := s.store.PutKey(ctx, rec); err != nil {
@@ -271,6 +271,7 @@ func (s *Service) Recheck(ctx context.Context, userID, provider string) (Status,
 		}
 		return s.statusFor(ctx, userID, provider)
 	}
+	s.healFingerprint(ctx, rec, key)
 	now := s.now()
 	switch verr := s.validate(ctx, p, key); {
 	case verr == nil:
@@ -335,5 +336,18 @@ func (s *Service) GetForUse(ctx context.Context, userID, provider string) (Key, 
 	if err != nil {
 		return Key{}, ErrUnreadable
 	}
-	return Key{Provider: provider, Fingerprint: rec.Fingerprint, secret: plain}, nil
+	fp := s.healFingerprint(ctx, rec, plain)
+	return Key{Provider: provider, Fingerprint: fp, secret: plain}, nil
+}
+
+// healFingerprint returns the current-format fingerprint of the opened key and, when the stored
+// one is in an older format, rewrites the row (best effort: a failure only means the row is
+// healed next time; the returned value is right either way).
+func (s *Service) healFingerprint(ctx context.Context, rec Record, plain string) string {
+	fp := s.sealer.Fingerprint(rec.Provider, plain)
+	if rec.Fingerprint != fp {
+		rec.Fingerprint = fp
+		_ = s.store.PutKey(ctx, rec)
+	}
+	return fp
 }
