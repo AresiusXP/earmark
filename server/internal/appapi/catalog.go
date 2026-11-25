@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/library"
 	"github.com/AresiusXP/earmark/server/internal/metadata"
 	"github.com/AresiusXP/earmark/server/internal/model"
 	"github.com/AresiusXP/earmark/server/internal/service"
@@ -178,6 +179,58 @@ func (a *app) discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeBooks(w, books)
+}
+
+type shelfDTO struct {
+	ID    string    `json:"id"`
+	Kind  string    `json:"kind"`
+	Arg   string    `json:"arg,omitempty"`
+	Books []bookDTO `json:"books"`
+}
+
+// home answers the named shelves of the Discover screen. The shelves depend on the caller's library,
+// so the answer is not shared-cacheable.
+func (a *app) home(w http.ResponseWriter, r *http.Request) {
+	p, _, ok := a.prefs(w, r)
+	if !ok {
+		return
+	}
+	var lib []service.HomeEntry
+	if a.d.Library != nil {
+		es, err := a.d.Library.ListEntries(r.Context(), a.userID(r), "")
+		if err != nil {
+			a.libraryFail(w, err)
+			return
+		}
+		lib = make([]service.HomeEntry, len(es))
+		for i, e := range es {
+			lib[i] = service.HomeEntry{Book: e.Book, Started: e.Status != library.StatusSaved, Done: entryDone(e)}
+		}
+	}
+	shelves, err := a.d.Catalog.HomeFor(r.Context(), p, lib)
+	if err != nil {
+		a.catalogFail(w, err)
+		return
+	}
+	out := make([]shelfDTO, len(shelves))
+	for i, s := range shelves {
+		books := make([]bookDTO, len(s.Books))
+		for j, b := range s.Books {
+			books[j] = toBook(b)
+		}
+		out[i] = shelfDTO{ID: s.ID, Kind: s.Kind, Arg: s.Arg, Books: books}
+	}
+	w.Header().Set("Cache-Control", bookCacheControl)
+	WriteJSON(w, http.StatusOK, map[string]any{"shelves": out})
+}
+
+// entryDone reports whether the user finished the book or is at least 80 % through it.
+func entryDone(e library.Entry) bool {
+	if e.Status == library.StatusFinished {
+		return true
+	}
+	total := int64(e.Book.RuntimeMin) * 60_000
+	return total > 0 && float64(e.PositionMs) >= 0.8*float64(total)
 }
 
 // workingKeys returns the caller's keys that are usable now (status ok), each with the secret only

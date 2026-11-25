@@ -157,6 +157,7 @@ type Client struct {
 	Now func() time.Time
 
 	chapters chapterCache
+	cats     categoryCache
 }
 
 func (c *Client) clock() time.Time {

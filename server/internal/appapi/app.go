@@ -20,6 +20,7 @@ import (
 type Catalog interface {
 	SearchFor(ctx context.Context, p service.Prefs, query string) ([]model.Book, error)
 	DiscoverFor(ctx context.Context, p service.Prefs, page int) ([]model.Book, error)
+	HomeFor(ctx context.Context, p service.Prefs, library []service.HomeEntry) ([]service.Shelf, error)
 	BookFor(ctx context.Context, req service.BookRequest) (*service.BookPage, error)
 	EnsureBook(ctx context.Context, region, asin string) (model.Book, error)
 	ChapterList(ctx context.Context, region, asin string) (metadata.ChapterList, error)
@@ -105,6 +106,7 @@ func (a *API) MountApp(d AppDeps) {
 		m, auth := r.Mux, r.Auth
 		m.Handle("GET /v1/search", auth(http.HandlerFunc(ap.search)))
 		m.Handle("GET /v1/discover", auth(http.HandlerFunc(ap.discover)))
+		m.Handle("GET /v1/home", auth(http.HandlerFunc(ap.home)))
 		m.Handle("GET /v1/books/{asin}", auth(http.HandlerFunc(ap.book)))
 		m.Handle("GET /v1/books/{asin}/chapters", auth(http.HandlerFunc(ap.chapters)))
 

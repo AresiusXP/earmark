@@ -187,7 +187,7 @@ func TestNewRoutesRequireAuthExceptAppUpdate(t *testing.T) {
 	admin := e.bootstrap()
 	h := h40('a')
 	routes := []struct{ method, path string }{
-		{"GET", "/v1/search?q=dune"}, {"GET", "/v1/discover"}, {"GET", "/v1/books/" + duneASIN}, {"GET", "/v1/books/" + duneASIN + "/chapters"},
+		{"GET", "/v1/search?q=dune"}, {"GET", "/v1/discover"}, {"GET", "/v1/home"}, {"GET", "/v1/books/" + duneASIN}, {"GET", "/v1/books/" + duneASIN + "/chapters"},
 		{"POST", "/v1/releases/" + h + "/prepare"}, {"GET", "/v1/releases/" + h + "/files/0/download?provider=torbox"},
 		{"HEAD", "/v1/releases/" + h + "/files/0/download?provider=torbox"}, {"POST", "/v1/releases/" + h + "/torrent-files"}, {"POST", "/v1/releases/" + h + "/durations"},
 		{"GET", "/v1/me/library"}, {"GET", "/v1/me/library/" + duneASIN}, {"PUT", "/v1/me/library/" + duneASIN}, {"DELETE", "/v1/me/library/" + duneASIN},
@@ -233,6 +233,11 @@ func TestSearchDiscoverAndCaching(t *testing.T) {
 		t.Fatalf("%v %s", d.Header(), d.Body.String())
 	}
 	e.req("GET", "/v1/discover", admin.access, nil).status(t, 200)
+	hm := e.req("GET", "/v1/home", admin.access, nil)
+	hm.status(t, 200)
+	if hm.cacheControl() != "private, no-store" || hm.json(t)["shelves"] == nil {
+		t.Fatalf("home: %v %s", hm.Header(), hm.Body.String())
+	}
 
 	// Errors are never cacheable.
 	for _, p := range []string{"/v1/search", "/v1/search?q=a", "/v1/search?q=" + strings.Repeat("x", 121), "/v1/search?q=%20%20%20", "/v1/discover?page=-1", "/v1/discover?page=x"} {
@@ -706,6 +711,9 @@ func (nopCatalog) SearchFor(context.Context, service.Prefs, string) ([]model.Boo
 	return nil, nil
 }
 func (nopCatalog) DiscoverFor(context.Context, service.Prefs, int) ([]model.Book, error) {
+	return nil, nil
+}
+func (nopCatalog) HomeFor(context.Context, service.Prefs, []service.HomeEntry) ([]service.Shelf, error) {
 	return nil, nil
 }
 func (nopCatalog) BookFor(context.Context, service.BookRequest) (*service.BookPage, error) {

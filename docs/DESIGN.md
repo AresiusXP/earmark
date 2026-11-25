@@ -316,6 +316,17 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     limited to 4 concurrent downloads (`503` + `Retry-After`) and is `no-store` like every other response (no override). `APP_UPDATE_MAX_BYTES`
     (default 200 MiB) is checked when the bundle is loaded: a larger APK (by `update.json` or on disk) means "no update", with a warning. The app compares `version_code` itself and verifies the sha256. The
     release pipeline that bakes the files into the image is Phase 5.
+  * **Home shelves** (`GET /v1/home`, `service.HomeFor`, `metadata/home.go`): Discover is a set of named shelves instead of one flat
+    best-seller list. Personal shelves come first: *next in series* (for up to 2 series where a book is finished or >= 80 % listened to:
+    the books after the highest such position that the user does not have, sorted by position; the series of a book is its first
+    *numbered* Audible series, so an umbrella series like "The Cosmere" does not hide "Mistborn 2"), then *more from author* (authors of
+    the 2 most recently started books, Audible `author=` filter narrowed to exact author names). Then best sellers, 3 genre rows
+    rotating by ISO week (Audible root `Genres` categories, matched by name fragments per marketplace/language because ids and names
+    differ per marketplace; no match = no row) and new releases (`-ReleaseDate`). Every list is fetched through `catalogLookup`
+    (per region+language cache, es also asks the es marketplace) in parallel with a 15 s budget; a failed shelf is skipped and only
+    "all failed" is a 502. A book is in one shelf only and never when already in the library; shelves with < 4 books (< 3 for authors,
+    >= 1 for series) are dropped; 12 books max, no paging. The response is `private, no-store`; the genre arg is a key the app
+    translates. `GET /v1/discover` stays for older apps and as the app's fallback on an HTTP error.
   * **Caching headers**: `search`, `discover` and `chapters` answer `private, max-age=300` on 200 only; `books/{asin}` answers
     `private, no-store` (it mixes the caller's `cached`/`usable` into shared data; contract v1.1, it used to be `max-age=300`, which
     showed a stale cache state right after a key change or prepare); everything else (the APK included) `no-store`.

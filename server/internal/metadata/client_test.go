@@ -492,3 +492,67 @@ func TestChapterListCaching(t *testing.T) {
 		t.Fatalf("5xx must not be cached, calls = %d", calls.Load())
 	}
 }
+
+func TestHomeListings(t *testing.T) {
+	var queries []string
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/catalog/categories") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"categories":[{"id":"111","name":"History"},{"id":"222","name":"Mystery, Thriller & Suspense"}]}`))
+			return
+		}
+		queries = append(queries, r.URL.RawQuery)
+		serveJSON(fixture(t, "audible_discover.json"))(w, r)
+	})
+	ctx := context.Background()
+
+	books, err := c.GenreBooks(ctx, "us", "en", "thriller", SortBestSellers)
+	if err != nil || len(books) == 0 {
+		t.Fatalf("genre: %v %d", err, len(books))
+	}
+	if q := queries[len(queries)-1]; !strings.Contains(q, "category_id=222") || !strings.Contains(q, "products_sort_by=BestSellers") {
+		t.Errorf("genre query %q", q)
+	}
+	n := len(queries)
+	if b, err := c.GenreBooks(ctx, "us", "en", "romance", SortBestSellers); err != nil || len(b) != 0 || len(queries) != n {
+		t.Errorf("a genre without category must not query: %v %d", err, len(b))
+	}
+	if b, err := c.GenreBooks(ctx, "us", "en", "nope", SortBestSellers); err != nil || len(b) != 0 {
+		t.Errorf("unknown genre: %v", err)
+	}
+
+	if _, err := c.NewBooks(ctx, "nl", "nl"); err != nil {
+		t.Fatal(err)
+	}
+	if q := queries[len(queries)-1]; !strings.Contains(q, "products_sort_by=-ReleaseDate") && !strings.Contains(q, "products_sort_by=%2DReleaseDate") || !strings.Contains(q, "keywords=verhaal") {
+		t.Errorf("new query %q", q)
+	}
+
+	// Audible's author filter is a text search: only books by the author stay.
+	books, err = c.AuthorBooks(ctx, "us", "en", "Melissa Foster")
+	if err != nil || len(books) == 0 {
+		t.Fatalf("author: %v %d", err, len(books))
+	}
+	for _, b := range books {
+		if len(b.Authors) == 0 || b.Authors[0] != "Melissa Foster" && !strings.Contains(strings.Join(b.Authors, "|"), "Melissa Foster") {
+			t.Errorf("foreign book %+v", b)
+		}
+	}
+	if b, _ := c.AuthorBooks(ctx, "us", "en", "Nobody At All"); len(b) != 0 {
+		t.Errorf("unknown author returned %d books", len(b))
+	}
+	if b, _ := c.SeriesBooks(ctx, "us", "en", "No Such Series", ""); len(b) != 0 {
+		t.Errorf("unknown series returned %d books", len(b))
+	}
+}
+
+func TestToBookPrefersNumberedSeries(t *testing.T) {
+	p := audibleProduct{ASIN: "B0TESTTEST", Series: []audibleSeries{{Title: "The Cosmere"}, {Title: "Mistborn", Sequence: "2"}}}
+	if b := p.toBook("us"); b.Series != "Mistborn" || b.SeriesPosition != "2" {
+		t.Errorf("series %q %q", b.Series, b.SeriesPosition)
+	}
+	p = audibleProduct{Series: []audibleSeries{{Title: "Umbrella"}}}
+	if b := p.toBook("us"); b.Series != "Umbrella" || b.SeriesPosition != "" {
+		t.Errorf("series %q %q", b.Series, b.SeriesPosition)
+	}
+}

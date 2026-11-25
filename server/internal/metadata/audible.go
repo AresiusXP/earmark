@@ -62,10 +62,19 @@ func (p audibleProduct) toBook(region string) model.Book {
 		Region:      region,
 		ReleaseYear: yearOf(firstNonEmpty(p.ReleaseDate, p.IssueDate)),
 	}
+	// A book may belong to an umbrella series without a position ("The Cosmere") besides its
+	// numbered one: prefer the numbered series.
 	if len(p.Series) > 0 {
-		b.Series = strings.TrimSpace(p.Series[0].Title)
+		s := p.Series[0]
+		for _, c := range p.Series {
+			if strings.TrimSpace(c.Sequence) != "" && strings.TrimSpace(c.Title) != "" {
+				s = c
+				break
+			}
+		}
+		b.Series = strings.TrimSpace(s.Title)
 		if b.Series != "" {
-			b.SeriesPosition = strings.TrimSpace(p.Series[0].Sequence)
+			b.SeriesPosition = strings.TrimSpace(s.Sequence)
 		}
 	}
 	b.Description = firstNonEmpty(stripHTML(p.MerchandisingSumm), stripHTML(p.PublisherSummary))

@@ -565,6 +565,46 @@ paths:
       responses:
         "200": {$ref: "#/components/responses/BookList"}
         "400": {$ref: "#/components/responses/InvalidRequest"}
+  /v1/home:
+    get:
+      tags: [catalog]
+      operationId: home
+      summary: Named shelves of the Discover screen
+      description: |
+        Shelves built for the caller from their library: "next in series" (books after the last one
+        read or 80 % listened to, for up to 2 series), "more from an author" (authors of recently
+        started books, up to 2), best sellers, up to 3 genre rows (rotating weekly) and new
+        releases, in this order. A book appears in one shelf only and never when it is already in
+        the library; shelves with too few books are left out, so the list may be empty. At most 12
+        books per shelf, not paged. `private, no-store`.
+      responses:
+        "200":
+          description: Shelves (never null).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shelves]
+                properties:
+                  shelves:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, kind, books]
+                      properties:
+                        id: {type: string, description: Stable id of the shelf (use as list key).}
+                        kind:
+                          type: string
+                          description: Clients ignore unknown kinds.
+                          enum: [next_in_series, more_from_author, bestsellers, genre, new_releases]
+                        arg:
+                          type: string
+                          description: |
+                            `next_in_series`: series title; `more_from_author`: author name; `genre`: one of
+                            thriller, scifi, romance, biography, history, business (the client translates it).
+                            Absent for the other kinds.
+                        books: {type: array, items: {$ref: "#/components/schemas/Book"}}
+        "502": {description: "`upstream_failed`: the catalog could not be reached.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
   /v1/books/{asin}:
     get:
       tags: [catalog]
