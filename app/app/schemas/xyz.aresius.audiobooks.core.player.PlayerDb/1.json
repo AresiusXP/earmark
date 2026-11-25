@@ -1,0 +1,221 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "f3d3ae53e9cdc9a73fefc4c522feccc2",
+    "entities": [
+      {
+        "tableName": "progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `asin` TEXT NOT NULL, `status` TEXT NOT NULL, `releaseHash` TEXT, `positionMs` INTEGER NOT NULL, `filePath` TEXT, `filePositionMs` INTEGER NOT NULL, `speed` REAL NOT NULL, `updatedAt` INTEGER NOT NULL, `dirty` INTEGER NOT NULL, PRIMARY KEY(`userId`, `asin`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asin",
+            "columnName": "asin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseHash",
+            "columnName": "releaseHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "positionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filePath",
+            "columnName": "filePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "filePositionMs",
+            "columnName": "filePositionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speed",
+            "columnName": "speed",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dirty",
+            "columnName": "dirty",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "asin"
+          ]
+        }
+      },
+      {
+        "tableName": "book_pref",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `asin` TEXT NOT NULL, `releaseHash` TEXT NOT NULL, `provider` TEXT, PRIMARY KEY(`userId`, `asin`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asin",
+            "columnName": "asin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseHash",
+            "columnName": "releaseHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "asin"
+          ]
+        }
+      },
+      {
+        "tableName": "file_duration",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`releaseHash` TEXT NOT NULL, `path` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, PRIMARY KEY(`releaseHash`, `path`))",
+        "fields": [
+          {
+            "fieldPath": "releaseHash",
+            "columnName": "releaseHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "releaseHash",
+            "path"
+          ]
+        }
+      },
+      {
+        "tableName": "bookmark",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` TEXT NOT NULL, `asin` TEXT NOT NULL, `serverId` TEXT, `positionMs` INTEGER NOT NULL, `note` TEXT, `createdAtMs` INTEGER NOT NULL, `deleted` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asin",
+            "columnName": "asin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "positionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_bookmark_userId_asin",
+            "unique": false,
+            "columnNames": [
+              "userId",
+              "asin"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bookmark_userId_asin` ON `${TABLE_NAME}` (`userId`, `asin`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f3d3ae53e9cdc9a73fefc4c522feccc2')"
+    ]
+  }
+}

@@ -83,6 +83,8 @@ android {
 
     lint {
         abortOnError = true
+        // Media3's @UnstableApi is androidx's lint-only opt-in marker; the player is built on exactly those APIs (version pinned in libs.versions.toml).
+        disable += "UnsafeOptInUsageError"
         checkReleaseBuilds = false
     }
 
@@ -153,6 +155,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(libs.tink.android)
+
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.session)
+    implementation(libs.media3.datasource.okhttp)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
