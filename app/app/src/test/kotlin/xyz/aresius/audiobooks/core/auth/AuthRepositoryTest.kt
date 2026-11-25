@@ -157,4 +157,29 @@ class AuthRepositoryTest {
         assertNull(app.sessions.load())
         assertEquals(0, server.requestsTo("DELETE", "/v1/me/devices/d1").size)
     }
+
+    private val devicesOfThisPhone = """{"devices":[{"id":"d1","name":"Tablet","created_at":"2026-11-25T10:00:00Z","current":true}]}"""
+
+    @Test fun aRevokeThatAnswers401MeansTheTokenIsAlreadyDeadSoThisDeviceIsSignedOut() = runBlocking<Unit> {
+        app.sessions.save(testSession(server.baseUrl))
+        server.onJson("GET", "/v1/me/devices", devicesOfThisPhone)
+        server.on("DELETE", "/v1/me/devices/d1", FakeServer.error(401, "unauthorized"))
+        server.on("POST", "/v1/auth/refresh", FakeServer.error(401, "unauthorized"))
+        val event = async(start = CoroutineStart.UNDISPATCHED) { app.signedOut.events.first() }
+        auth.signOut()
+        assertNull(app.sessions.load())
+        assertEquals(1, server.requestsTo("DELETE", "/v1/me/devices/d1").size, "no retry loop on 401")
+        assertEquals(SignOutReason.RefreshRejected, withTimeout(3000) { event.await() })
+    }
+
+    @Test fun aRevokeThatIs204SignsOutWithoutAnyRefreshAttempt() = runBlocking<Unit> {
+        app.sessions.save(testSession(server.baseUrl))
+        server.onJson("GET", "/v1/me/devices", devicesOfThisPhone)
+        server.on("DELETE", "/v1/me/devices/d1", FakeServer.empty(204))
+        val event = async(start = CoroutineStart.UNDISPATCHED) { app.signedOut.events.first() }
+        auth.signOut()
+        assertNull(app.sessions.load())
+        assertEquals(SignOutReason.UserRequested, withTimeout(3000) { event.await() })
+        assertTrue(server.requestsTo("POST", "/v1/auth/refresh").isEmpty())
+    }
 }

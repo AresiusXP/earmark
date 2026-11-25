@@ -32,6 +32,13 @@ class FakePlayerDao : PlayerDao {
     override suspend fun putPref(pref: BookPrefEntity) { prefs[pref.userId to pref.asin] = pref }
     override suspend fun durations(hash: String) = durations.values.filter { it.releaseHash == hash }
     override suspend fun putDuration(row: FileDurationEntity) { durations[row.releaseHash to row.path] = row }
+    override suspend fun unreportedDurations() = durations.values.filter { !it.reported }.sortedWith(compareBy({ it.releaseHash }, { it.path }))
+    override suspend fun markReported(hash: String, path: String, durationMs: Long): Int {
+        val row = durations[hash to path] ?: return 0
+        if (row.durationMs != durationMs) return 0
+        durations[hash to path] = row.copy(reported = true)
+        return 1
+    }
 
     override fun observeBookmarks(userId: String, asin: String): Flow<List<BookmarkEntity>> =
         bookmarkRows.map { rows -> rows.filter { it.userId == userId && it.asin == asin && !it.deleted }.sortedWith(compareBy({ it.positionMs }, { it.id })) }

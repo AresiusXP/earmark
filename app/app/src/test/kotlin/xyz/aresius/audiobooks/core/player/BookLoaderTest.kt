@@ -139,16 +139,52 @@ class BookLoaderTest {
     }
 
     @Test
-    fun `a cached page without a usable provider is refreshed once before asking for a key`() = runTest {
-        val stale = ApiResult.Success(BookDetail(testBook("B001"), null, listOf(release("a", debrid = emptyList()))))
-        val fresh = ApiResult.Success(BookDetail(testBook("B001"), null, listOf(release("a"))))
-        val catalog = FakeCatalog(stale, ApiResult.Success(Chapters("B001", 0, emptyList())), fresh)
-        val plan = assertIs<LoadResult.Ready>(BookLoader(catalog, local, sync, dao, cache, sessions, { null }, { 5L }).load("B001", null)).plan
-        assertEquals(Provider.TorBox, plan.provider)
-        assertEquals(listOf(false, true), catalog.refreshes)
-        val noKeyAtAll = FakeCatalog(stale, ApiResult.Success(Chapters("B001", 0, emptyList())))
-        assertEquals(FailureKind.NeedsSource, assertIs<LoadResult.Failure>(BookLoader(noKeyAtAll, local, sync, dao, cache, sessions, { null }, { 5L }).load("B001", null)).kind)
-        assertEquals(listOf(false, true), noKeyAtAll.refreshes)
+    fun `a page without a usable provider is not asked for twice, the catalog decides how fresh it is`() = runTest {
+        val noKey = ApiResult.Success(BookDetail(testBook("B001"), null, listOf(release("a", debrid = emptyList()))))
+        val catalog = FakeCatalog(noKey, ApiResult.Success(Chapters("B001", 0, emptyList())))
+        val r = BookLoader(catalog, local, sync, dao, cache, sessions, { null }, { 5L }).load("B001", null)
+        assertEquals(FailureKind.NeedsSource, assertIs<LoadResult.Failure>(r).kind)
+        assertEquals(listOf(false), catalog.refreshes)
+    }
+
+    @Test
+    fun `the book page's durations are the initial ones, matched by path, and this phone's own measurement wins`() = runTest {
+        val listed = listOf(TorrentFile(0, "B/1.mp3", 1000, 61_000), TorrentFile(1, "B/2.mp3", 1000, 62_000), TorrentFile(2, "B/3.mp3", 1000))
+        dao.putDuration(FileDurationEntity("a", "B/2.mp3", 62_500))
+        // The server's `files` and `torrent_files` can carry different indexes: only the path matches them.
+        val rel = release("a", fileList = listed).copy(torrentFiles = listOf(TorrentFile(7, "B/3.mp3", 1000, 63_000), TorrentFile(8, "B/1.mp3", 1000, 99_000)))
+        val plan = assertIs<LoadResult.Ready>(loader(listOf(rel)).load("B001", null)).plan
+        assertEquals(listOf(61_000L, 62_500L, 63_000L), plan.files.map { it.durationMs })
+        assertEquals(listOf(61_000L, 62_000L, 63_000L), plan.files.map { it.serverDurationMs }, "files first, torrent_files only fills the gaps")
+        assertEquals(listOf(0, 1, 2), plan.files.map { it.index })
+    }
+
+    @Test
+    fun `torrent file durations are used when the release only has a client reported list`() = runTest {
+        val rel = release("a", fileList = emptyList()).copy(torrentFiles = listOf(TorrentFile(0, "B/1.mp3", 1000, 61_000), TorrentFile(1, "B/2.mp3", 1000)))
+        assertEquals(listOf(61_000L, null), loader(listOf(rel)).filesOf("B001", rel).map { it.durationMs })
+    }
+
+    @Test
+    fun `durations also come with the provider's file list`() = runTest {
+        val rel = release("a", fileList = listOf(TorrentFile(0, "B/1.mp3", 1000, 61_000)))
+        val plan = PlayPlan("u1", testBook("B001"), rel, Provider.TorBox, emptyList(), null, null)
+        val withFiles = loader(listOf(rel)).withProviderFiles(plan, listOf(TorrentFile(4, "B/1.mp3", 1000), TorrentFile(5, "B/2.mp3", 1000)))
+        assertEquals(listOf(61_000L, null), withFiles.files.map { it.durationMs })
+        assertEquals(listOf(4, 5), withFiles.files.map { it.index })
+    }
+
+    @Test
+    fun `a learned duration is stored for reporting unless the server already knows one, and a repeat keeps its flag`() = runTest {
+        val l = loader(listOf(release("a")))
+        l.learnDuration("a", "B/1.mp3", 61_000)
+        l.learnDuration("a", "B/2.mp3", 62_000, serverKnows = true)
+        assertEquals(listOf("B/1.mp3"), dao.unreportedDurations().map { it.path })
+        dao.markReported("a", "B/1.mp3", 61_000)
+        l.learnDuration("a", "B/1.mp3", 61_000)
+        assertTrue(dao.unreportedDurations().isEmpty(), "the same measurement again is not reported again")
+        l.learnDuration("a", "B/1.mp3", 61_500)
+        assertEquals(listOf(61_500L), dao.unreportedDurations().map { it.durationMs })
     }
 
     @Test
