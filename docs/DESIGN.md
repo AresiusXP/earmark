@@ -354,7 +354,8 @@ provider index); consumers match by path, never by index.
   patterns, not the music-specific code). Own signing key `/home/aresius/android/keys/audiobooks*` (USER MUST BACK UP).
   `versionCode = X*10000+Y*100+Z`. Build with `source /home/aresius/android/env.sh`.
 * Player: one timeline per book over its ordered files; chapters from the server, falling back to one chapter per file when
-  the Audible total differs from the files' total by more than 2 %. Skip back/forward 30 s (configurable), speed 0.5-3x per
+  the Audible total (with the branding `intro_ms`/`outro_ms` the release may have cut taken into account) differs from the files' total by more
+  than 2 %. Skip back/forward 30 s (configurable), speed 0.5-3x per
   book, sleep timer (end of chapter / N minutes), bookmarks, resume (local every few seconds + on pause, synced to the server;
   last write wins on the client clock), MediaSession so lock screen, headset buttons and Android Auto work.
   Layout and decisions of the built player: see "Player (Phase 3)" below.
@@ -383,6 +384,9 @@ provider index); consumers match by path, never by index.
   `-`, spaces, tabs and line breaks and folds `I`/`L` to `1` and `O` to `0` (`TestCodeFormatAndTypedCodes`), so the app may send any spelling. `HEAD` on the download
   route is its own operation in the contract (`headDownloadFile`). `DELETE /v1/me/devices/{id}` with the current device's id is the sign-out (204, then that
   device's tokens are 401; `TestSignOutOfTheCurrentDevice`). Every operation that can answer `400 invalid_request` declares `components.responses.InvalidRequest` (with examples).
+* Contract v1.1 in the app: see `app/README.md` ("Contract v1.1 in the app"): durations in and out, chapter alignment with `intro_ms`/`outro_ms`, bookmark
+  `client_id`, `finished_at` for "delete N days after finished" and the LRU of finished books, the book page being `no-store` (the app keeps a 5 s copy
+  and re-asks when the screen resumes), sign-out on 204 or 401.
 * Visual design ("reading room": paper, ink, persimmon; Fraunces + Hanken Grotesk; cover-derived color; wavy progress): `app/DESIGN.md`.
 * Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.
@@ -438,14 +442,16 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
   ExoPlayer; `PlaybackCore` is its brain (load, ticker, sleep timer, smart rewind, persistence, errors). The UI never touches the player: it
   reads `PlayerHub` (a `StateFlow<PlayerState>`, same process) and sends commands through a `MediaController` (`PlaybackController`; book-level
   custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close).
-* **One timeline per book.** `BookTimeline(files, catalog runtime)` maps book position <-> (file, offset); unknown file durations are
-  estimated (rest of the runtime by size) until ExoPlayer has prepared the file, then learned and stored (`file_duration`). One ExoPlayer item
+* **One timeline per book.** `BookTimeline(files, catalog runtime)` maps book position <-> (file, offset); a file's initial duration is what this
+  phone measured, else `duration_ms` of the book page (matched by path), else estimated (rest of the runtime by size) until ExoPlayer has prepared
+  the file; then it is learned and stored (`file_duration`) and, when the server had none, reported once in a batch (`POST /v1/releases/{hash}/durations`). One ExoPlayer item
   per file, next item preloaded. The media session sees a `BookPlayer` (`ForwardingSimpleBasePlayer`): the book as a playlist of CHAPTERS
   (position inside the chapter, next/previous = chapter, skip back/forward cross chapter and file borders), so lock screen, headset buttons
   and Android Auto speak chapters while the app's own seek bar covers the whole book.
-* **Chapters.** `/v1/books/{asin}/chapters` marks are used as they are when the Audible runtime is within 2 % of the files' total (an estimated
-  total counts), else one chapter per file (`ChapterSource.Files`, the sheet says why). Marks are not stretched: an intro or outro of unknown
-  length shifts them by an unknowable amount. Embedded M4B chapters are not read (Media3 does not expose them).
+* **Chapters.** `/v1/books/{asin}/chapters` marks are used when the Audible runtime, trimmed by the branding the release cut, is within 2 % of the
+  files' total (an estimated total counts), else one chapter per file (`ChapterSource.Files`, the sheet says why). The exact rule (four candidate
+  lengths from `intro_ms`/`outro_ms`, the closest wins, shift by `intro_ms` when the intro is cut) is in `app/README.md` ("Contract v1.1 in the app").
+  Marks are not stretched. Embedded M4B chapters are not read (Media3 does not expose them).
 * **Streaming.** `StreamLinkResolver` asks the server (authenticated client, no redirect following) and reads `Location`; the CDN hop is a
   PLAIN OkHttp client without the auth interceptor, so the token only ever reaches the server's host. 202 -> `Preparing` (visible state, the
   core polls `prepare` and resumes), 403 `no_debrid_key`/`bad_debrid_key` -> "Add a debrid key", other answers are typed errors; a broken stream
@@ -458,7 +464,8 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
   `updated_at` of the local row and the server entry. Finished = last 30 s (or 5 % of a short book) or 99 %; a finished book restarts from 0.
 * **Controls.** Skip 10/15/30/45/60 s (Settings > Playback, separate back/forward), speed 0.5-3.0 on a 0.05 grid saved per book, sleep timer
   (end of chapter / 5-60 min, fades the last 10 s, shake or button extends; runs in the service), smart rewind (>1 min pause: 5/10/15 s back;
-  also on resume from a saved position), bookmarks (local first, mirrored to `/bookmarks`, offline-safe).
+  also on resume from a saved position), bookmarks (local first, mirrored to `/bookmarks` with a generated `client_id` so a retried create never duplicates; offline-safe; the server adds the
+  book to the library when needed).
 * **Release choice.** `ReleaseChooser`: remembered choice per book > best ranked release the user can stream, cached first > best with local files.
 * **UI.** Player (always dark, cover-derived colors, `docs/design/design-player.jpg`), mini player above the bottom bar, Discover hero and Library
   rows play, Book detail shows the chosen release, its files, the catalog chapters and the needs-key / preparing / failed states, with Play and the

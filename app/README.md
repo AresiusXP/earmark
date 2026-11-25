@@ -52,7 +52,8 @@ core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Cat
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
 core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
               (chapters as the session playlist), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
-              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository, SleepTimerLogic,
+              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository (client_id),
+              DurationReporter (POST durations), SleepTimerLogic,
               PlayerHub (state) + PlaybackController (commands), PlayerPreferences (skip lengths, smart rewind)
 core/download  offline downloads (Phase 3b), see below; feature/download = its UI
 core/torrent   TorrentEngine (contract) + LibTorrentEngine (libtorrent4j, Phase 4): metadata fetch, selective download, TorrentPolicy (opt-in, VPN, Wi-Fi,
@@ -105,6 +106,45 @@ The player consumes downloads through the `LocalFiles` interface (`core/download
 holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it, and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
 `ReleaseRepository` has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
 
+## Contract v1.1 in the app
+
+Everything the server added in v1.1 (`api/openapi.yaml`, see its diff since `f523b7d`) is used; every new field is optional on the wire (`ignoreUnknownKeys`,
+absent = null), so an older server keeps working.
+
+* **Durations in** (`BookLoader.filesOf`): the initial length of each file of the timeline is, by PATH, what this phone measured itself
+  (`file_duration`), else `duration_ms` of the book page (`files` first, `torrent_files` for the gaps; other phones reported it), else the
+  estimate from the catalog runtime (`BookTimeline`). ExoPlayer's own measurement replaces any of them once the file is prepared.
+* **Durations out** (`DurationReporter`, `POST /v1/releases/{hash}/durations`): only lengths ExoPlayer measured here by preparing the file and for
+  which the book page had none. Best effort and never in the way of playback: a few seconds (20 s) after the first new length, and when playback
+  pauses or closes, ONE request per release carries everything pending (at most 2000 entries, 1 s to 48 h; anything else is never sent). Each
+  file is marked `reported` when the server answered (the server keeps the first value ever reported and says which paths it ignored: nothing to
+  resend) or refused it for good (400, 404); offline, 429, 5xx and 401 keep the rows and the progress-sync worker retries when there is a network
+  (also at app start). A learned duration from before this version is sent once.
+* **Chapter alignment** (`ChapterMap.align`): the Audible marks (`/chapters`) and `runtime_ms` are measured on the Audible edition WITH its
+  branding: `intro_ms` ("This is Audible") at the start and `outro_ms` at the end (absent = 0). A release may have cut either, so the files can have
+  four lengths: `runtime`, `runtime - intro`, `runtime - outro`, `runtime - intro - outro`. The one closest to the files' total wins (a tie, and
+  every case without branding data, picks the plain `runtime`, which is exactly the old rule). The marks are used when that length is within **2 %**
+  of the files' total (an estimated total counts); else one chapter per file. When the winner has the intro cut, every mark moves earlier by
+  `intro_ms` (a mark inside the cut intro starts at 0; one that lies wholly inside it is dropped); marks past the end are clipped. Marks are
+  never stretched. Because the server's `duration_ms` makes the files' total exact from the start, the alignment is right at once for a release
+  other phones already reported.
+* **Bookmarks** (`BookmarkRepository`): every bookmark gets a UUID `client_id` when it is made and keeps it across retries, so a create whose answer
+  was lost is simply repeated and the server returns the bookmark it has (also at the 500 limit). A row from before v1.1 gets its id the first time
+  it is sent (stored before the request). The server adds a book that is not in the library yet, as `saved`; so there is no waiting for a library
+  entry any more: 404 (unknown book) and 400 drop the bookmark, 409 `limit_reached`, 429 and network failures are tried again. A merge of the server's
+  list adopts the server id of a local row with the same `client_id` instead of adding it twice. Playing still `PUT`s the library entry.
+* **Book page caching**: `GET /v1/books/{asin}` is `private, no-store` (it mixes in `cached` and `usable`). The app has no OkHttp cache; the Room
+  copy (`cache_entry`) is reused for 5 seconds only (`CatalogRepositoryImpl.BOOK_FRESH_MS`: the screen and the player opening the same book) and
+  as the offline fallback (marked stale). The Book screen asks again whenever it is resumed (`BookViewModel.onResumed`, e.g. back from Settings
+  after adding a debrid key). Discover and search keep their 5 minutes (`max-age=300`).
+* **Downloads**: `LibraryEntry.finished_at` (server time the status became finished; stored as `library_entry.finishedAtMs`) drives "delete N days
+  after finishing" and the LRU order of finished books; an entry without it (older server, cached before v1.1) falls back to `updated_at`. The
+  player's own write into the library cache keeps the cached finish time, or stamps the moment it happened, until a refresh brings the server's.
+* **Sign-out**: `DELETE /v1/me/devices/{own id}` answering 204 or 401 (the token is already dead) both mean signed out; any other answer, a hung
+  or unreachable server also ends signed out, within a few seconds.
+* **Databases**: `audiobooks_player.db` and `audiobooks.db` are version 2 with real migrations (`PlayerDb.MIGRATION_1_2`, `AudiobooksDb.MIGRATION_1_2`;
+  `RoomMigrationTest`): progress, unsynced bookmarks, learned durations and the offline caches survive the update.
+
 ## Flows
 
 * **Onboarding** (`feature/onboarding`): server URL (default `https://earmark.aresius.xyz`, changeable) -> "I have an invite code" / "First
@@ -148,6 +188,10 @@ before the server implements catalog, releases and library.
    `/cdn/` with Range support, see `DemoDownloads`; the debug FakeBackend is the only server involved). A search for `error` returns a 503 to show
    the error state. State lives in memory: it resets when the app process dies (a stored session then continues as the demo admin, with a TorBox key).
 
+The demo backend speaks contract v1.1 too: `POST /v1/releases/{hash}/durations` (first writer wins, bounds checked; the stored lengths show up as `duration_ms`
+on the book page, and the demo book's m4b release starts with 60 s parts reported), `intro_ms`/`outro_ms` on the chapters of the generated books, `finished_at`
+on library entries, idempotent bookmarks with `client_id` (the book is added as saved when needed) and `Cache-Control: private, no-store` on the book page.
+
 Against a real server in development use `http://10.0.2.2:<port>` (the emulator's host) or, in debug builds, any LAN address.
 
 ## BitTorrent engine (debug harness, tests)
@@ -186,11 +230,12 @@ Own emulator, never a shared one: `emulator -avd audiobooks_pixel -port 5570 -re
 ## Tests
 
 `./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine (+ Robolectric for Room/WorkManager). API client (error parsing, retry,
-Retry-After, refresh, sign-out, token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup,
+Retry-After, refresh, sign-out (204 and 401 alike), token never sent to other hosts), the contract coverage test, DTO parsing (v1.1 fields), auth, repositories, session cleanup,
 the updater, WCAG contrast of both palettes, the ViewModels (onboarding, debrid, BitTorrent, settings, Google account, admin, discover, search,
-book, library, player), the Google flow state machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409),
+book, library, player; their `state` is a `combine().stateIn()` pipeline fed from OkHttp threads too, so a test never reads `state.value` right
+after a write: it waits with `awaitState`, see `testutil/Rules.kt`), the Google flow state machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409),
 the QR encoder, code normalisation. Player: `BookTimeline` mapping (randomised), chapter fallback, sleep timer, smart rewind / finished / speed rules,
-`ReleaseChooser`, resume + sync queue and last-write-wins against a fake `PlayerDao`/server, bookmarks, the stream link (302/202/403/404/429/502, token
+`ReleaseChooser`, resume + sync queue and last-write-wins against a fake `PlayerDao`/server, bookmarks (client_id, lost answers), duration reporting and chapter alignment (intro/outro), the stream link (302/202/403/404/429/502, token
 only to the server) on MockWebServer, the book loader (local-first, remembered release, offline chapters), shake detection, preferences. Downloads:
 `core/download/*Test` (path safety, Range resume / atomic rename / 202 and JSON never saved / redirect without Authorization / error mapping, Wi-Fi
 gating with a fake network, LRU eviction, orphans, per-user isolation, LocalFiles, TorrentSource with a fake engine, worker retry/backoff).
