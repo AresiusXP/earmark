@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -108,30 +109,65 @@ func (c *Client) Book(ctx context.Context, region, asin string) (model.Book, err
 }
 
 type audnexusChapters struct {
-	Chapters []struct {
+	RuntimeMs int64 `json:"runtimeLengthMs"`
+	Chapters  []struct {
 		Title    string `json:"title"`
 		StartMs  int    `json:"startOffsetMs"`
 		LengthMs int    `json:"lengthMs"`
 	} `json:"chapters"`
 }
 
+// ChapterList is the chapter marks of one book. RuntimeMs is 0 when Audnexus did not say.
+type ChapterList struct {
+	RuntimeMs int64
+	Chapters  []Chapter
+}
+
 // Chapters returns the chapter markers of an ASIN, or ErrNotFound.
 func (c *Client) Chapters(ctx context.Context, region, asin string) ([]Chapter, error) {
-	if !ValidASIN(asin) {
-		return nil, ErrInvalidASIN
-	}
-	r, err := MarketplaceRegion(region)
+	cl, err := c.ChapterList(ctx, region, asin)
 	if err != nil {
 		return nil, err
 	}
+	return cl.Chapters, nil
+}
+
+// ChapterList returns the chapter marks and the total runtime of an ASIN, or ErrNotFound. Answers
+// are cached in memory (see chapterTTL / chapterMissTTL); errors other than ErrNotFound are not.
+func (c *Client) ChapterList(ctx context.Context, region, asin string) (ChapterList, error) {
+	if !ValidASIN(asin) {
+		return ChapterList{}, ErrInvalidASIN
+	}
+	r, err := MarketplaceRegion(region)
+	if err != nil {
+		return ChapterList{}, err
+	}
+	key := r + "\x00" + asin
+	if cl, miss, ok := c.chapters.get(key, c.clock()); ok {
+		if miss {
+			return ChapterList{}, &HTTPError{Service: "audnexus", Status: http.StatusNotFound}
+		}
+		return cl, nil
+	}
 	var ac audnexusChapters
 	v := url.Values{"region": {r}}
-	if err := c.getJSON(ctx, "audnexus", c.audnexusURL()+"/books/"+asin+"/chapters?"+v.Encode(), &ac); err != nil {
-		return nil, err
+	err = c.getJSON(ctx, "audnexus", c.audnexusURL()+"/books/"+asin+"/chapters?"+v.Encode(), &ac)
+	if errors.Is(err, ErrNotFound) {
+		now := c.clock()
+		c.chapters.put(key, ChapterList{}, true, now, now.Add(chapterMissTTL))
+		return ChapterList{}, err
 	}
-	out := make([]Chapter, 0, len(ac.Chapters))
+	if err != nil {
+		return ChapterList{}, err
+	}
+	out := ChapterList{RuntimeMs: max(ac.RuntimeMs, 0), Chapters: make([]Chapter, 0, len(ac.Chapters))}
 	for _, ch := range ac.Chapters {
-		out = append(out, Chapter{Title: ch.Title, StartMs: ch.StartMs, LengthMs: ch.LengthMs})
+		if ch.StartMs < 0 || ch.LengthMs < 0 {
+			continue
+		}
+		out.Chapters = append(out.Chapters, Chapter{Title: strings.TrimSpace(ch.Title), StartMs: ch.StartMs, LengthMs: ch.LengthMs})
 	}
+	now := c.clock()
+	c.chapters.put(key, out, false, now, now.Add(chapterTTL))
 	return out, nil
 }

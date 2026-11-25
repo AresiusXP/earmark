@@ -122,6 +122,17 @@ type Client struct {
 	MaxBodyBytes int64
 	// Timeout bounds one request on top of the caller's context; 0 means 15s.
 	Timeout time.Duration
+	// Now overrides the clock of the chapter cache (tests).
+	Now func() time.Time
+
+	chapters chapterCache
+}
+
+func (c *Client) clock() time.Time {
+	if c.Now != nil {
+		return c.Now()
+	}
+	return time.Now()
 }
 
 // New returns a Client with sane defaults.
