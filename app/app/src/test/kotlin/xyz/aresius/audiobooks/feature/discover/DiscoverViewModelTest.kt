@@ -16,6 +16,9 @@ import org.junit.Rule
 import xyz.aresius.audiobooks.core.network.AudiobooksJson
 import xyz.aresius.audiobooks.core.network.Me
 import xyz.aresius.audiobooks.feature.common.Load
+import xyz.aresius.audiobooks.core.player.PlayerPhase
+import xyz.aresius.audiobooks.core.player.PlayerState
+import xyz.aresius.audiobooks.testutil.FakePlayerControls
 import xyz.aresius.audiobooks.testutil.FakeServer
 import xyz.aresius.audiobooks.testutil.MainDispatcherRule
 import xyz.aresius.audiobooks.testutil.Samples
@@ -27,12 +30,13 @@ class DiscoverViewModelTest {
 
     private val server = FakeServer()
     private val app = TestApp(server)
+    private val player = FakePlayerControls()
 
     @AfterTest fun tearDown() = server.close()
 
     private fun vm(hour: Int = 20): DiscoverViewModel {
         server.on("GET", "/v1/me/library", FakeServer.error(500, "upstream_failed"))
-        return DiscoverViewModel(app.catalog, app.library, app.me) { hour }
+        return DiscoverViewModel(app.catalog, app.library, app.me, player) { hour }
     }
 
     @Test fun greetingFollowsTheHour() {
@@ -70,7 +74,7 @@ class DiscoverViewModelTest {
             "GET", "/v1/me/library",
             """{"entries":[${Samples.libraryEntry("B000000001", "saved", 50, position = 0)},${Samples.libraryEntry("B000000002", "listening", 30, position = 0)},${Samples.libraryEntry("B000000003", "listening", 20, position = 900000)},${Samples.libraryEntry("B000000004", "listening", 10, position = 100000)}]}""",
         )
-        val vm = DiscoverViewModel(app.catalog, app.library, app.me) { 20 }
+        val vm = DiscoverViewModel(app.catalog, app.library, app.me, player) { 20 }
         val s = vm.state.awaitState { it.continueListening != null }
         assertEquals("B000000003", s.continueListening?.book?.asin, "saved and zero-progress entries are no hero")
     }
@@ -110,7 +114,7 @@ class DiscoverViewModelTest {
 
     private fun refreshingVm(net: NetworkEvents = FakeNetwork(), now: () -> Long = { app.now }): DiscoverViewModel {
         server.on("GET", "/v1/me/library", FakeServer.error(500, "upstream_failed"))
-        return DiscoverViewModel(app.catalog, app.library, app.me, net, debounceMs = 50, clock = now) { 20 }
+        return DiscoverViewModel(app.catalog, app.library, app.me, player, net, debounceMs = 50, clock = now) { 20 }
     }
 
     @Test fun theOfflineBannerGoesAsSoonAsTheNetworkReturns() = runBlocking<Unit> {
@@ -161,5 +165,24 @@ class DiscoverViewModelTest {
         vm.state.awaitState { it.books is Load.Failed }
         net.flow.emit(Unit)
         assertEquals(1, (vm.state.awaitState { it.books is Load.Content<*> }.books as Load.Content).value.size)
+    }
+
+    @Test fun theHeroTogglesAndShowsPauseWhileItsBookPlays() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/discover", Samples.books("B000000001"))
+        server.onJson("GET", "/v1/me/library", """{"entries":[${Samples.libraryEntry("B000000003", "listening", 20, position = 900000)}]}""")
+        val vm = DiscoverViewModel(app.catalog, app.library, app.me, player) { 20 }
+        var s = vm.state.awaitState { it.continueListening != null }
+        assertFalse(s.continueInPlayer, "nothing is loaded: the button starts the book")
+        player.mutableState.value = PlayerState(phase = PlayerPhase.Ready, asin = "B000000003", playing = true, positionMs = 1_200_000)
+        s = vm.state.awaitState { it.continuePlaying }
+        assertTrue(s.continueInPlayer)
+        assertEquals(1_200_000L, s.continuePositionMs)
+        player.mutableState.value = PlayerState(phase = PlayerPhase.Ready, asin = "B000000003", playing = false)
+        s = vm.state.awaitState { it.continueInPlayer && !it.continuePlaying }
+        assertFalse(s.continueBusy)
+        vm.togglePlay()
+        assertEquals(listOf("toggle"), player.calls)
+        player.mutableState.value = PlayerState(phase = PlayerPhase.Loading, asin = "B000000003")
+        assertTrue(vm.state.awaitState { it.continueBusy }.continueInPlayer)
     }
 }

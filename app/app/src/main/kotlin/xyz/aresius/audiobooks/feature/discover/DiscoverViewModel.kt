@@ -29,6 +29,8 @@ import xyz.aresius.audiobooks.core.network.ApiResult
 import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.LibraryEntry
 import xyz.aresius.audiobooks.core.network.LibraryStatus
+import xyz.aresius.audiobooks.core.player.PlayerControls
+import xyz.aresius.audiobooks.core.player.PlayerPhase
 import xyz.aresius.audiobooks.feature.common.Load
 
 data class DiscoverUiState(
@@ -43,6 +45,13 @@ data class DiscoverUiState(
     val name: String? = null,
     /** The listening entry with progress that was touched last: the "Continue listening" hero. */
     val continueListening: LibraryEntry? = null,
+    /** The player holds the hero's book (playing, paused or restored after a restart): its button toggles playback and its body opens the player. */
+    val continueInPlayer: Boolean = false,
+    val continuePlaying: Boolean = false,
+    /** The hero's book is being opened, prepared by the provider or buffering. */
+    val continueBusy: Boolean = false,
+    /** The live position of the hero's book while the player holds it (the library entry only changes every 30 s). */
+    val continuePositionMs: Long? = null,
 )
 
 @OptIn(FlowPreview::class)
@@ -51,21 +60,28 @@ class DiscoverViewModel(
     private val catalog: CatalogRepository,
     private val library: LibraryRepository,
     me: MeRepository,
+    private val player: PlayerControls,
     networkEvents: NetworkEvents = NoNetworkEvents,
     private val debounceMs: Long = REFRESH_DEBOUNCE_MS,
     private val clock: () -> Long = System::currentTimeMillis,
     private val hourNow: () -> Int,
 ) : ViewModel() {
     @Inject
-    constructor(catalog: CatalogRepository, library: LibraryRepository, me: MeRepository, networkEvents: NetworkEvents) :
-        this(catalog, library, me, networkEvents, REFRESH_DEBOUNCE_MS, System::currentTimeMillis, { LocalTime.now().hour })
+    constructor(catalog: CatalogRepository, library: LibraryRepository, me: MeRepository, player: PlayerControls, networkEvents: NetworkEvents) :
+        this(catalog, library, me, player, networkEvents, REFRESH_DEBOUNCE_MS, System::currentTimeMillis, { LocalTime.now().hour })
 
     private val local = MutableStateFlow(DiscoverUiState(greeting = greetingForHour(hourNow())))
 
-    val state: StateFlow<DiscoverUiState> = combine(local, me.me, library.entries) { l, user, entries ->
+    val state: StateFlow<DiscoverUiState> = combine(local, me.me, library.entries, player.state) { l, user, entries, playing ->
+        val hero = entries.firstOrNull { it.status == LibraryStatus.LISTENING && it.positionMs > 0 }
+        val mine = hero != null && playing.asin == hero.book.asin && playing.hasBook
         l.copy(
             name = user?.displayName,
-            continueListening = entries.firstOrNull { it.status == LibraryStatus.LISTENING && it.positionMs > 0 },
+            continueListening = hero,
+            continueInPlayer = mine,
+            continuePlaying = mine && playing.playing,
+            continuePositionMs = if (mine) playing.positionMs else null,
+            continueBusy = mine && (playing.buffering || playing.phase == PlayerPhase.Loading || playing.phase is PlayerPhase.Preparing),
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
 
@@ -88,6 +104,9 @@ class DiscoverViewModel(
         if (local.value.refreshing) return
         start(refresh)
     }
+
+    /** The hero's round button while the player holds its book: pause when it plays, play (also after a restart) when it does not. */
+    fun togglePlay() = player.togglePlay()
 
     /** Discover is on screen again: the app returned to the foreground or the tab was reopened. */
     fun onResumed() {

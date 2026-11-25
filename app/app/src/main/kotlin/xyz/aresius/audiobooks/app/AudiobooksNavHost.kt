@@ -61,7 +61,7 @@ fun AudiobooksNavHost(navController: NavHostController, isAdmin: Boolean, modifi
                 popEnterTransition = { fadeIn(tween(220)) },
                 popExitTransition = { fadeOut(tween(160)) },
             ) {
-                screen<Routes.Discover> { DiscoverScreen(onBook = openBook, onPlay = playEntry) }
+                screen<Routes.Discover> { DiscoverScreen(onBook = openBook, onPlay = playEntry, onOpenPlayer = openPlayer) }
                 screen<Routes.Search> { SearchScreen(onBook = openBook) }
                 screen<Routes.Library> { LibraryScreen(onBook = openBook, onPlay = playEntry, onDownloads = { navController.navigate(Routes.Downloads) }) }
                 screen<Routes.Settings> { SettingsScreen(isAdmin = isAdmin, onUsers = { navController.navigate(Routes.Users) }, onDownloads = { navController.navigate(Routes.Downloads) }) }
