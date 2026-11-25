@@ -3,9 +3,11 @@ package metadata
 import (
 	"context"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/AresiusXP/earmark/server/internal/model"
 )
@@ -225,8 +227,9 @@ func (c *Client) listProducts(ctx context.Context, region string, v url.Values) 
 	return list.Products, r, nil
 }
 
-// Search queries the Audible catalog. language ("en", "nl", "" any) is applied client-side
-// because the API has no language filter; items whose language is unknown are kept.
+// Search queries the Audible catalog. language ("en", "nl", "es", "" any) is applied client-side
+// because the API has no language filter; items whose language is unknown are kept. For "es" the
+// es marketplace is asked as well as region (see searchRegions) and the results are merged.
 func (c *Client) Search(ctx context.Context, region, language, query string) ([]model.Book, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -236,15 +239,85 @@ func (c *Client) Search(ctx context.Context, region, language, query string) ([]
 	v.Set("keywords", query)
 	v.Set("num_results", strconv.Itoa(maxResults))
 	v.Set("products_sort_by", "Relevance")
-	ps, r, err := c.listProducts(ctx, region, v)
-	if err != nil {
-		return nil, err
+	return c.listBooks(ctx, region, language, v, true)
+}
+
+// listBooks runs the catalog query v on every marketplace that carries language (just region
+// unless multi) and merges the cleaned results round-robin, deduped by ASIN. One marketplace
+// failing is fine as long as another one answered.
+func (c *Client) listBooks(ctx context.Context, region, language string, v url.Values, multi bool) ([]model.Book, error) {
+	regions := []string{region}
+	if multi {
+		regions = searchRegions(region, language)
 	}
-	return cleanBooks(ps, r, language), nil
+	if len(regions) == 1 {
+		ps, r, err := c.listProducts(ctx, regions[0], v)
+		if err != nil {
+			return nil, err
+		}
+		return cleanBooks(ps, r, language), nil
+	}
+	lists := make([][]model.Book, len(regions))
+	errs := make([]error, len(regions))
+	var wg sync.WaitGroup
+	for i, rg := range regions {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ps, r, err := c.listProducts(ctx, rg, cloneValues(v))
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			lists[i] = cleanBooks(ps, r, language)
+		}()
+	}
+	wg.Wait()
+	failed := 0
+	for _, err := range errs {
+		if err != nil {
+			failed++
+		}
+	}
+	if failed == len(regions) {
+		return nil, errs[0]
+	}
+	return mergeBooks(lists), nil
+}
+
+func cloneValues(v url.Values) url.Values {
+	out := make(url.Values, len(v))
+	for k, vs := range v {
+		out[k] = slices.Clone(vs)
+	}
+	return out
+}
+
+// mergeBooks interleaves the lists (first of each, second of each...) and drops repeated ASINs.
+func mergeBooks(lists [][]model.Book) []model.Book {
+	out := []model.Book{}
+	seen := map[string]bool{}
+	for i := 0; ; i++ {
+		more := false
+		for _, l := range lists {
+			if i >= len(l) {
+				continue
+			}
+			more = true
+			if b := l[i]; !seen[b.ASIN] {
+				seen[b.ASIN] = true
+				out = append(out, b)
+			}
+		}
+		if !more {
+			return out
+		}
+	}
 }
 
 // Discover lists best sellers. page is 0-based. For languages the API cannot filter on
-// (nl), a seed keyword biases the listing and results are filtered client-side.
+// (nl, es), a seed keyword biases the listing and results are filtered client-side. For "es" the
+// es marketplace is asked as well as region.
 func (c *Client) Discover(ctx context.Context, region, language string, page int) ([]model.Book, error) {
 	return c.DiscoverCategory(ctx, region, language, "", page)
 }
@@ -264,11 +337,8 @@ func (c *Client) DiscoverCategory(ctx context.Context, region, language, categor
 	if categoryID != "" {
 		v.Set("category_id", categoryID)
 	}
-	ps, r, err := c.listProducts(ctx, region, v)
-	if err != nil {
-		return nil, err
-	}
-	return cleanBooks(ps, r, language), nil
+	// Category ids belong to one marketplace, so a category listing never fans out.
+	return c.listBooks(ctx, region, language, v, categoryID == "")
 }
 
 // audibleBook fetches one product from the catalog API.
@@ -285,7 +355,8 @@ func (c *Client) audibleBook(ctx context.Context, region, asin string) (model.Bo
 		return model.Book{}, err
 	}
 	b := one.Product.toBook(r)
-	if b.ASIN == "" {
+	// A marketplace that does not carry the ASIN answers 200 with a bare {asin} stub.
+	if b.ASIN == "" || b.Title == "" {
 		return model.Book{}, ErrNotFound
 	}
 	return b, nil

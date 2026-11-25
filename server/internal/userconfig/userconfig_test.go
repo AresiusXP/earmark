@@ -78,6 +78,19 @@ func TestNormalize(t *testing.T) {
 			t.Errorf("%s: expected error", name)
 		}
 	}
+	for name, langs := range map[string][]string{
+		"spanish": {"es"}, "all three": {"en", "nl", "es"}, "spanish first": {"es", "en"},
+	} {
+		c, err := (Config{Languages: langs}).Normalize()
+		if err != nil || !reflect.DeepEqual(c.Languages, langs) {
+			t.Errorf("%s: languages %v, err %v", name, c.Languages, err)
+		}
+	}
+	for name, langs := range map[string][]string{"portuguese": {"es", "pt"}, "upper case": {"ES"}} {
+		if _, err := (Config{Languages: langs}).Normalize(); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
 	if c, _ := (Config{MaxReleases: 99}).Normalize(); c.MaxReleases != 20 {
 		t.Errorf("max releases clamp: %d", c.MaxReleases)
 	}

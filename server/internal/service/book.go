@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -300,6 +301,13 @@ func (s *Service) searchReleases(ctx context.Context, book model.Book) {
 	if series := searchTitle(book.Series); series != "" && !strings.EqualFold(series, q.Title) {
 		queries = append(queries, sources.Query{Title: series, Author: q.Author})
 	}
+	// Indexes match accents literally: "Cien años de soledad" does not find "Cien anos de soledad"
+	// nor the other way round, and Spanish releases are named both ways.
+	for _, qq := range slices.Clone(queries) {
+		if f, ok := foldQuery(qq); ok {
+			queries = append(queries, f)
+		}
+	}
 	nSources := 0
 	for _, src := range s.d.Sources {
 		if src != nil {
@@ -385,6 +393,12 @@ func (s *Service) searchReleases(ctx context.Context, book model.Book) {
 	if err := s.d.Store.MarkReleasesSearched(pctx, book.ASIN, s.now()); err != nil {
 		s.log.Warn("mark searched failed", "asin", book.ASIN, "err", err)
 	}
+}
+
+// foldQuery is q without accents (lowercase); ok is false when q has no accents to fold.
+func foldQuery(q sources.Query) (sources.Query, bool) {
+	f := sources.Query{Title: match.FoldAccents(q.Title), Author: match.FoldAccents(q.Author), Language: q.Language}
+	return f, f.Title != strings.ToLower(q.Title) || f.Author != strings.ToLower(q.Author)
 }
 
 // searchTitle is the main title: no subtitle after ':' and no "(Unabridged)" style groups.

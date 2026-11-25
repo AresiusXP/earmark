@@ -80,7 +80,9 @@ func (a audnexusBook) toBook(region string) model.Book {
 }
 
 // Book returns details for an ASIN: Audnexus first, the Audible catalog when Audnexus has
-// no such item in the region. Returns ErrNotFound when neither knows it.
+// no such item in the region. When the ASIN is unknown there, the es marketplace (us when the
+// region is es) is tried too: a Spanish book is only known where it was listed. The returned
+// Book.Region is where it was found. Returns ErrNotFound when nobody knows it.
 func (c *Client) Book(ctx context.Context, region, asin string) (model.Book, error) {
 	if !ValidASIN(asin) {
 		return model.Book{}, ErrInvalidASIN
@@ -89,9 +91,20 @@ func (c *Client) Book(ctx context.Context, region, asin string) (model.Book, err
 	if err != nil {
 		return model.Book{}, err
 	}
+	b, err := c.bookIn(ctx, r, asin)
+	if errors.Is(err, ErrNotFound) {
+		if alt, aerr := c.bookIn(ctx, bookFallbackRegion(r), asin); aerr == nil {
+			return alt, nil
+		}
+	}
+	return b, err
+}
+
+// bookIn is Book for one resolved region.
+func (c *Client) bookIn(ctx context.Context, r, asin string) (model.Book, error) {
 	var ab audnexusBook
 	v := url.Values{"region": {r}}
-	err = c.getJSON(ctx, "audnexus", c.audnexusURL()+"/books/"+asin+"?"+v.Encode(), &ab)
+	err := c.getJSON(ctx, "audnexus", c.audnexusURL()+"/books/"+asin+"?"+v.Encode(), &ab)
 	switch {
 	case err == nil:
 		b := ab.toBook(r)

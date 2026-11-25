@@ -48,6 +48,16 @@ var (
 	marsianer     = model.Book{Title: "Der Marsianer", Authors: []string{"Andy Weir"}, Language: "de", RuntimeMin: 660}
 	chirurg       = model.Book{Title: "De chirurg", Authors: []string{"Tess Gerritsen"}, Language: "nl", RuntimeMin: 600}
 	cafe          = model.Book{Title: "Café Müller", Authors: []string{"Zoë Brontë"}, Language: "en", RuntimeMin: 300}
+
+	cienES = model.Book{Title: "Cien años de soledad", Authors: []string{"Gabriel García Márquez"},
+		Narrators: []string{"Rubén Cruz"}, Language: "es", RuntimeMin: 1000}
+	cienEN = model.Book{Title: "One Hundred Years of Solitude", Authors: []string{"Gabriel García Márquez", "Gregory Rabassa - translator"},
+		Language: "en", RuntimeMin: 900}
+	sombraES = model.Book{Title: "La sombra del viento", Authors: []string{"Carlos Ruiz Zafón"}, Language: "es",
+		Series: "El Cementerio de los Libros Olvidados", SeriesPosition: "1", RuntimeMin: 900}
+	cholera = model.Book{Title: "El amor en los tiempos del cólera", Subtitle: "[Love in the Time of Cholera]",
+		Authors: []string{"Gabriel García Márquez"}, Language: "es", RuntimeMin: 1000}
+	quijote = model.Book{Title: "¡Ay, qué pingüino! ¿Dónde está el niño?", Authors: []string{"Ñoño Pérez"}, Language: "es", RuntimeMin: 120}
 )
 
 func TestScore(t *testing.T) {
@@ -114,6 +124,29 @@ func TestScore(t *testing.T) {
 		{"german release for english book", martian, "The Martian - Andy Weir - Hörbuch [MP3]", 0, false, "language mismatch"},
 		{"english martian vs german book", marsianer, "The Martian - Andy Weir [MP3]", 0, false, ""},
 		{"dutch hobbit vs english book", hobbitEN, "De Hobbit - J.R.R. Tolkien luisterboek audioboek", 0, false, ""},
+
+		// --- Spanish ---
+		{"spanish book, tagged release", cienES, "Gabriel García Márquez - Cien años de soledad [Audiolibro] [Castellano]", 0, true, "language es matches"},
+		{"spanish release without accents", cienES, "Gabriel Garcia Marquez - Cien anos de soledad [MP3]", 0, true, ""},
+		{"spanish release, surname first and no accents", cienES, "Garcia Marquez, Gabriel - Cien anos de soledad [Audiolibro]", 0, true, ""},
+		{"spanish release, title - author, voz humana", sombraES, "La sombra del viento - Carlos Ruiz Zafón (Narrado por Sergio Pablos) [Voz humana]", 0, true, "language es matches"},
+		{"spanish series prefix", sombraES, "Carlos Ruiz Zafon - El cementerio de los libros olvidados 1 - La sombra del viento - Audiolibro [Español Latino]", 0, true, ""},
+		{"spanish subtitle in brackets is optional", cholera, "Gabriel García Márquez - El amor en los tiempos del cólera [Audiolibro] [Latino]", 0, true, ""},
+		{"spanish title with ¿¡ ñ ü", quijote, "Ñoño Pérez - Ay que pinguino Donde esta el nino [Audiolibro]", 0, true, ""},
+		{"upper-case accents fold", cienES, "GABRIEL GARCÍA MÁRQUEZ - CIEN AÑOS DE SOLEDAD [AUDIOLIBRO]", 0, true, ""},
+		{"english book, english release (spanish author)", cienEN, "Gabriel García Márquez - One Hundred Years of Solitude [M4B]", 0, true, ""},
+		{"english release for spanish book", cienES, "Gabriel García Márquez - One Hundred Years of Solitude [English] [M4B]", 0, false, ""},
+		{"english-tagged copy of the spanish title", cienES, "Gabriel García Márquez - Cien años de soledad [English]", 0, false, "language mismatch"},
+		{"spanish release for english book", cienEN, "Gabriel García Márquez - Cien años de soledad [Castellano]", 0, false, ""},
+		{"spanish-tagged copy of the english title", cienEN, "Gabriel García Márquez - One Hundred Years of Solitude [Castellano]", 0, false, "language mismatch"},
+		{"other book of the same author", cienES, "Gabriel García Márquez - El amor en los tiempos del cólera [Audiolibro]", 0, false, ""},
+		{"other title, other author", cienES, "Claudio Cerdán - Cien años de perdón [Audiolibro]", 0, false, ""},
+		{"other book of the same series", sombraES, "Carlos Ruiz Zafón - El juego del ángel (El cementerio de los libros olvidados 2) [Audiolibro]", 0, false, ""},
+		{"spanish collection", cienES, "Gabriel García Márquez - Colección de audiolibros - Cien años de soledad, El coronel no tiene quien le escriba", 0, false, "collection"},
+		{"spanish trilogy word", cienES, "Gabriel García Márquez - Trilogía - Cien años de soledad [Audiolibro]", 0, false, "collection"},
+		{"spanish dramatisation", cienES, "Gabriel García Márquez - Cien años de soledad - Dramatización radiofónica", 0, false, "dramatisation"},
+		{"spanish abridged", cienES, "Gabriel García Márquez - Cien años de soledad (versión abreviada) [Audiolibro]", 0, false, "abridged"},
+		{"spanish unabridged", cienES, "Gabriel García Márquez - Cien años de soledad (Sin abreviar) [Audiolibro]", 0, true, ""},
 
 		// --- negatives: collections ---
 		{"box set", martian, "Andy Weir - The Martian + Artemis Box Set [M4B]", 0, false, "collection"},
@@ -223,10 +256,28 @@ func TestNormalise(t *testing.T) {
 		"Café Müller – Ünïcode":                  "cafe muller   unicode",
 		"Die Heiligtümer des Todes":              "die heiligtumer des todes",
 		"Fußball":                                "fussball",
+		"¿Dónde está el niño? ¡Ay, pingüino!":    "donde esta el nino ay pinguino",
+		"GARCÍA MÁRQUEZ":                         "garcia marquez",
 	}
 	for in, want := range tests {
 		if got := strings.Join(strings.Fields(fold(in)), " "); got != strings.Join(strings.Fields(want), " ") {
 			t.Errorf("fold(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFoldAccents(t *testing.T) {
+	tests := map[string]string{
+		"Cien años de soledad": "cien anos de soledad",
+		"Carlos Ruiz Zafón":    "carlos ruiz zafon",
+		"¿Qué pingüino?":       "¿que pinguino?",
+		"Dune":                 "dune",
+		"":                     "",
+		"Zoë Brontë – Café":    "zoe bronte – cafe",
+	}
+	for in, want := range tests {
+		if got := FoldAccents(in); got != want {
+			t.Errorf("FoldAccents(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 var (
 	validRegions   = []string{"us", "uk", "de", "fr", "it", "es", "ca", "au", "in", "nl"}
-	validLanguages = []string{"en", "nl"}
+	validLanguages = []string{"en", "nl", "es"}
 	validFormats   = []string{"", "m4b", "mp3"}
 	validProviders = []string{"torbox", "realdebrid"}
 	validModes     = []string{"auto", "debrid", "p2p"}

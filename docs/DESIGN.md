@@ -9,7 +9,7 @@ Source of truth. Phase 0 decisions are marked **TBD(phase0)** until the experime
 * Debrid: TorBox (batch cache check) and Real-Debrid (re-added 2026-11-25 for the app, see "App direction"). Real-Debrid had been dropped on 2026-11-16; the Provider interface made it easy to bring back.
 * Metadata: Audible catalog search + Audnexus (ASIN ids), Open Library fallback.
 * Sources: Knaben (audiobook category 1003000) and AudioBook Bay (`sources/abb.go`, scraper: search page + detail page for the info hash; mirrors in `ABB_BASE_URLS`, `off` disables; queries must be lowercase or the site redirects to its front page; titles are sometimes scrambled by one letter, the matcher tolerates that). `TorrentsCSV` (`sources/torrentscsv.go`: torrents-csv.com JSON API, info hashes included; 1 req/s limiter, 30 min cache; `TORRENTS_CSV=off` disables) and `SolidTorrents` (`sources/solidtorrents.go`: the site now lives on bitsearch.eu, solidtorrents.to only redirects there; the free tier allows 200 requests per day, so results are cached for 6 h and the `x-ratelimit-*` headers are honoured: at <= 20 requests left, or after a 429, it answers `ErrRateLimited` until the reset time, fallback 1 h; `SOLIDTORRENTS=off` disables). Both search the title only (full-text AND on torrent names, many audiobook names lack the author) and drop ebook/video names and anything under 20 MB. Generic Torznab / Prowlarr only if coverage is still thin.
-* Languages: English and Dutch (Audible marketplaces us/uk and nl/de as needed).
+* Languages: English, Dutch and Spanish (`en`, `nl`, `es`; Audible marketplaces us/uk, nl via us, es + us for Spanish, see "Metadata findings").
 * Config sealed in the addon URL (AES-GCM, server secret); private instance.
 * Prowlarr in the cluster: decided in Phase 3.
 
@@ -37,7 +37,43 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   (`metadata.MarketplaceRegion`), Audnexus knows Dutch ASINs only under `region=us`.
 * Audible's `language=` parameter is ignored: Dutch search = Dutch keywords +
   `content_type=Product` + client-side filter on the `language` field. Dutch Discover seeds the
-  keyword `verhaal`. Dutch coverage is thin: Open Library fallback matters for nl.
+  keyword `verhaal`. Dutch coverage is thin: Open Library fallback matters for nl (not implemented
+  yet: no Open Library client exists in `server/internal/metadata`, nl and es both rely on Audible).
+* **Spanish (`es`), live checks 2026-11-25.** The `es` marketplace is the Spain catalogue (all
+  `language: spanish`, big); com/us holds the Latin-American catalogue and Spanish editions of
+  its own, with *different ASINs* for the same recording (Cien años de soledad: `1481518429` on
+  es, `B00RDN6DO4` on com; La Sombra del Viento `8408216783` answers on es, us, uk and de). So
+  when a user lists `es`, `Search`/`Discover` ask the user's marketplace (`nl` maps to us) and
+  `es`, in parallel, filter client-side on `language == spanish` (-> `es`), and merge round-robin
+  deduped by ASIN (`metadata.searchRegions`, `listBooks`); one marketplace failing is tolerated.
+  Spanish Discover seeds the keyword `novela` (without it com BestSellers is 100% English; with
+  it 48-49 of 50 are Spanish on both). A category-restricted Discover never fans out (category ids
+  are per marketplace).
+* **Audnexus and the catalog product endpoint know an ASIN only in the region it was listed in:**
+  es ASINs answer `region=es` and 404 under `us`/`uk`/`de`; com-only ASINs answer `region=us` only.
+  The Audible product endpoint of a marketplace that does not carry the ASIN answers 200 with a
+  bare `{"product":{"asin":...}}` stub (treated as not found). The book detail call only has the ASIN
+  and the user's region, so `metadata.Client.Book` retries `es` (`us` when the region is `es`)
+  when the ASIN is unknown, and `Book.Region` records where it was found; `Service.ChapterList` then
+  asks that stored region first.
+* **Spanish releases** (`parse`, `match`): language `es` from `[Spanish]`, `Español`, `Castellano`,
+  `Latino`, `Español Latino` (bracket/segment/end only, like the other language words), `[ES]`, `[ESP]`,
+  `[SPA]`, or implied by `audiolibro`, `voz humana/virtual`, `narrado por`, `leído por`, `narración`
+  (Italian `audiolibro ITA` is recognised first: `ita` -> `it`). Uploader tags such as `[Voz Jorge]` and
+  `y pdf` are noise. `Narrado por`/`Leído por`/`Narrador:` give the narrator; `Libro/Tomo/Volumen N`
+  give the series position; `colección`, `trilogía`, `libros 1-3` mark packs; `dramatización`,
+  `radioteatro` mark dramatisations; `abreviado` is abridged, `sin abreviar` unabridged.
+  `match.fold` folds diacritics on both sides (`ñ`->`n`, `á`->`a`, `ü`->`u`, `¿¡` are dropped), so
+  "Cien anos de soledad" and "Cien años de soledad" match; the Spanish articles/conjunctions
+  (`los las del al y un una lo`) are stopwords. A wrong-language release scores -0.40 (an English
+  copy of a Spanish book and the other way round), and `filterReleases` drops releases explicitly in
+  an unwanted language (ranking is by the user's language order, then format, bitrate, score).
+* **Spanish source queries**: the indexes match accents literally (live: Knaben "cien años de
+  soledad" 2 hits, "cien anos de soledad" 0; torrents-csv and bitsearch return different hits for the
+  two spellings), and Spanish releases are named both ways. `Service.searchReleases` therefore also runs
+  the accent-folded, lowercase query (`match.FoldAccents`) when the title or author has accents.
+  ABB needs lowercase queries (the capital letter redirect) and accepts accented ones
+  (`?s=cien+a%c3%b1os+de+soledad` -> 6 results).
 * `num_results` max 50, `page` 0-based. Knaben: `seeders` field, uppercase hex hash.
 
 ## Implementation notes (Phase 1)

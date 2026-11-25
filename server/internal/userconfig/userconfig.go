@@ -30,7 +30,7 @@ type Config struct {
 	// Debrid maps a provider name ("torbox", "realdebrid") to the user's API key.
 	Debrid       map[string]string `json:"d,omitempty"`
 	Region       string            `json:"r,omitempty"`  // Audible marketplace, default "us"
-	Languages    []string          `json:"l,omitempty"`  // "en", "nl"; empty = ["en"]
+	Languages    []string          `json:"l,omitempty"`  // "en", "nl", "es"; empty = ["en"]
 	PreferFormat string            `json:"f,omitempty"`  // "m4b", "mp3" or "" (m4b first)
 	ShowUncached bool              `json:"u,omitempty"`  // list releases not cached anywhere
 	MaxReleases  int               `json:"mr,omitempty"` // releases shown per book, default 5
@@ -38,7 +38,7 @@ type Config struct {
 
 var (
 	validRegions   = []string{"us", "uk", "de", "fr", "it", "es", "ca", "au", "in", "nl"}
-	validLanguages = []string{"en", "nl"}
+	validLanguages = []string{"en", "nl", "es"}
 	validFormats   = []string{"", "m4b", "mp3"}
 )
 

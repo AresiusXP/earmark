@@ -293,3 +293,17 @@ func TestTorrentsCSVQueueBoundFailsFastAndWaitRespectsContext(t *testing.T) {
 		t.Errorf("ok=%d limited=%d canceled=%d", ok.Load(), limited.Load(), canceled.Load())
 	}
 }
+
+func TestTorrentsCSVSpanishQueryKeepsAccents(t *testing.T) {
+	var got string
+	tc := newTorrentsCSV(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query().Get("q")
+		_, _ = w.Write([]byte(`{"torrents":[]}`))
+	})
+	if _, err := tc.Search(context.Background(), Query{Title: "Cien Años de Soledad", Author: "Gabriel García Márquez"}); err != nil {
+		t.Fatal(err)
+	}
+	if got != "cien años de soledad" {
+		t.Errorf("q = %q", got)
+	}
+}

@@ -945,7 +945,15 @@ components:
       required: [region, languages, prefer_format, preferred_provider, source_mode, p2p_enabled]
       properties:
         region: {type: string, enum: [us, uk, de, fr, it, es, ca, au, in, nl]}
-        languages: {type: array, items: {type: string, enum: [en, nl]}, minItems: 1}
+        languages:
+          type: array
+          items: {type: string, enum: [en, nl, es]}
+          minItems: 1
+          description: |
+            Book languages (English, Dutch, Spanish), in order of preference; the default is `[en]`. Catalog
+            search and Discover are asked per language and merged; for `es` the server also asks the Spanish
+            Audible marketplace (`es`) when `region` is not `es`, because Spanish books are spread over both
+            catalogs. Releases explicitly tagged with another language are hidden.
         prefer_format: {type: string, enum: ["", m4b, mp3], description: Empty means m4b first.}
         preferred_provider: {oneOf: [{$ref: "#/components/schemas/Provider"}, {type: "null"}]}
         source_mode:
@@ -960,7 +968,7 @@ components:
       description: Same fields as Settings, all optional.
       properties:
         region: {type: string}
-        languages: {type: array, items: {type: string}}
+        languages: {type: array, items: {type: string, enum: [en, nl, es]}, minItems: 1}
         prefer_format: {type: string}
         preferred_provider: {oneOf: [{$ref: "#/components/schemas/Provider"}, {type: "null"}]}
         source_mode: {type: string}
@@ -1036,7 +1044,7 @@ components:
         narrators: {type: array, items: {type: string}}
         series: {type: string}
         series_position: {type: string}
-        language: {type: string}
+        language: {type: string, description: "ISO 639-1 code of the book (en, nl, es; other codes possible, empty when unknown)."}
         runtime_min: {type: integer}
         cover_url: {type: string, format: uri}
         description: {type: string}

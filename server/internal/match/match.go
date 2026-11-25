@@ -42,6 +42,8 @@ var stopwords = map[string]bool{
 	"the": true, "a": true, "an": true, "and": true, "of": true, "in": true, "to": true,
 	"de": true, "het": true, "een": true, "en": true, "der": true, "die": true, "das": true,
 	"und": true, "le": true, "la": true, "les": true, "el": true, "von": true, "van": true,
+	// Spanish
+	"los": true, "las": true, "del": true, "al": true, "y": true, "un": true, "una": true, "lo": true,
 }
 
 // Tokens that carry no title information when they show up in a release title.
@@ -52,6 +54,8 @@ var noiseTokens = map[string]bool{
 	// connecting words around narrators/authors ("The Hobbit audiobook with Rob Inglis")
 	"with": true, "by": true, "read": true, "reading": true, "narrated": true, "narrator": true,
 	"performed": true, "cd": true, "cds": true, "disc": true, "discs": true, "unabr": true,
+	// Spanish release tags
+	"audiolibro": true, "audiolibros": true, "narrado": true, "castellano": true, "espanol": true, "latino": true,
 }
 
 var accentFold = map[rune]string{
@@ -68,19 +72,34 @@ var accentFold = map[rune]string{
 
 var (
 	reBookParens  = regexp.MustCompile(`[(\[][^)\]]*[)\]]`)
-	reBookSuffix  = regexp.MustCompile(`(?i)[,:\-–]?\s*\b(?:book|volume|vol\.?|part)\s*\d+\s*$`)
+	reBookSuffix  = regexp.MustCompile(`(?i)[,:\-–]?\s*\b(?:book|volume|vol\.?|part|libro|tomo|volumen|parte)\s*\d+\s*$`)
 	reBookUnabr   = regexp.MustCompile(`(?i)\bunabridged\b`)
-	reCollections = regexp.MustCompile(`(?i)\bbox\s?-?sets?\b|\bboxed\s+set\b|\bcollections?\b|\banthology\b|\bomnibus\b|\bcompendium\b|\bbundel\b|\bverzameling\b|\bpack\b|\b(?:tri|du|tetra|penta|hexa|quadri)logy\b|\btrilogie\b|\bcomplete\b.{0,30}\b(?:series|serie|saga|collection|audiobooks?|books|set|works|cycle)\b|\bseries\s*\(?\s*complete\b|\balle\s+delen\b|\b(?:all|alle)\s+\d+\b|\b\d+\s+(?:books|boeken|audiobooks|delen)\b|\b(?:books?|boeken|deel|delen|vol(?:umes?)?)\s*\d+\s*(?:-|–|to|tot|t/m|through|&)\s*\d+`)
+	reCollections = regexp.MustCompile(`(?i)\bbox\s?-?sets?\b|\bboxed\s+set\b|\bcollections?\b|\banthology\b|\bomnibus\b|\bcompendium\b|\bbundel\b|\bverzameling\b|\bpack\b|\b(?:tri|du|tetra|penta|hexa|quadri)logy\b|\btrilogie\b|\bcolecci[oó]n\b|\b(?:trilog|tetralog|pentalog)[ií]a\b|\bsaga\s+completa\b|\bobras\s+completas\b|\bcomplete\b.{0,30}\b(?:series|serie|saga|collection|audiobooks?|books|set|works|cycle)\b|\bseries\s*\(?\s*complete\b|\balle\s+delen\b|\b(?:all|alle)\s+\d+\b|\b\d+\s+(?:books|boeken|audiobooks|delen)\b|\blibros?\s*\d+\s*(?:-|–|al|a|y)\s*\d+|\b(?:books?|boeken|deel|delen|vol(?:umes?)?)\s*\d+\s*(?:-|–|to|tot|t/m|through|&)\s*\d+`)
 	reNumberRange = regexp.MustCompile(`(?i)(?:^|[^\d-])(\d{1,2})\s*(?:-|–|to|tot|t/m|through)\s*(\d{1,2})(?:[^\d]|$)`)
 	reSeriesWord  = regexp.MustCompile(`(?i)\bseries\b`)
 	// A dramatisation / radio play is a different work from the book read aloud.
-	reDrama = regexp.MustCompile(`(?i)\bradio\s+(?:drama|play|dramati[sz]ation)\b|\bdramati[sz](?:ation|ed)\b|\bhoorspel\b|\bhörspiel\b`)
+	reDrama = regexp.MustCompile(`(?i)\bradio\s+(?:drama|play|dramati[sz]ation)\b|\bdramati[sz](?:ation|ed)\b|\bhoorspel\b|\bhörspiel\b|\bdramatizaci[oó]n\b|\bdramatizad[oa]\b|\bradioteatro\b|\bradionovela\b`)
 	// "Abr" / "Abridged" but not "Unabridged".
-	reAbridged = regexp.MustCompile(`(?i)(?:^|[^a-z])abr(?:idged)?(?:[^a-z]|$)`)
+	reAbridged = regexp.MustCompile(`(?i)(?:^|[^a-z])abr(?:idged)?(?:[^a-z]|$)|\babreviad[oa]\b`)
 	// Scene/uploader tags such as "JD07", "x3m2" (letters and digits mixed, short).
 	reGroupTag     = regexp.MustCompile(`^(?:[a-z]+\d+[a-z0-9]*|\d+[a-z]+[a-z0-9]*)$`)
 	reSurnameNoise = regexp.MustCompile(`^(?:jr|sr|ii|iii|phd|dr|md)$`)
 )
+
+// FoldAccents lowercases s and replaces accented letters by their base letters ("Cien años de
+// soledad" -> "cien anos de soledad"), the same folding Score applies to both sides of a
+// comparison. Source queries use it to also find releases named without accents.
+func FoldAccents(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if f, ok := accentFold[r]; ok {
+			b.WriteString(f)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
 
 func fold(s string) string {
 	var b strings.Builder

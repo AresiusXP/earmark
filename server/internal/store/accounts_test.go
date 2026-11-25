@@ -688,6 +688,14 @@ func TestAccountsMigrationConstraints(t *testing.T) {
 			t.Errorf("%s: invalid row accepted", name)
 		}
 	}
+	for name, q := range map[string]string{
+		"spanish": `INSERT INTO users (display_name, role, languages) VALUES ('es', 'user', '{es}')`,
+		"all":     `INSERT INTO users (display_name, role, languages) VALUES ('all', 'user', '{en,nl,es}')`,
+	} {
+		if _, err := e.db.pool.Exec(ctx, q); err != nil {
+			t.Errorf("%s: valid row rejected: %v", name, err)
+		}
+	}
 	if _, err := e.db.pool.Exec(ctx, `INSERT INTO user_debrid_keys (user_id, provider, sealed_key, fingerprint, status)
 		VALUES (gen_random_uuid(), 'torbox', 's', 'f', 'ok')`); err == nil {
 		t.Error("a key for a user that does not exist was accepted")
