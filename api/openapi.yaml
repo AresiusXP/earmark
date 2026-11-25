@@ -627,8 +627,9 @@ paths:
       operationId: reportTorrentFiles
       description: |
         A phone that fetched the torrent metadata reports the file list (names and sizes only). Stored only when
-        the server has no client-reported list for this hash yet; at most 2000 files, paths at most 512 bytes.
-        Returns the stored list.
+        the server has no client-reported list for this hash yet; at most 2000 files, paths at most 512 bytes
+        (separators `\` become `/`, empty and `.` segments are dropped, `..` and control characters are `400`).
+        Returns the stored list (without `duration_ms`, which only the book page carries).
       parameters:
         - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
       requestBody:
@@ -650,6 +651,66 @@ paths:
                 required: [torrent_files]
                 properties:
                   torrent_files: {type: array, items: {$ref: "#/components/schemas/TorrentFile"}}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+
+  /v1/releases/{hash}/durations:
+    post:
+      tags: [releases]
+      operationId: reportDurations
+      description: |
+        A phone that decoded the audio files it downloaded reports their durations (the real length is what a
+        player needs; Audible's total is only an estimate). They come back as `duration_ms` on the files of the
+        book page (`files` and `torrent_files`).
+
+        Each `path` is normalised like in `torrent-files` (`\` becomes `/`, empty and `.` segments dropped) and must
+        equal the normalised path of an AUDIO file in one of the release's known file lists (`files` or
+        `torrent_files`, the full lists, also of a pack). Entries whose path is not there are ignored, never stored
+        (counted in `ignored`). `duration_ms` is between 1000 (1 s) and 172800000 (48 h), else the whole request
+        is `400`. At most 2000 entries, at most one per normalised path (a duplicate is `400`), body at most 2 MiB.
+
+        **First writer wins** per (release, path): a stored duration is never replaced. A later report that differs
+        (another user, another rip of the same torrent) is ignored; the response carries the stored value for
+        every accepted path, so the caller sees what everybody sees. Reporting the same value again is a no-op.
+        Unknown release: `404`.
+      parameters:
+        - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [durations]
+              properties:
+                durations:
+                  type: array
+                  minItems: 1
+                  maxItems: 2000
+                  items:
+                    type: object
+                    required: [path, duration_ms]
+                    properties:
+                      path: {type: string, maxLength: 512}
+                      duration_ms: {type: integer, format: int64, minimum: 1000, maximum: 172800000}
+      responses:
+        "200":
+          description: The stored durations (normalised paths, request order) of the matched entries, and how many entries were ignored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [durations, ignored]
+                properties:
+                  durations:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, duration_ms]
+                      properties:
+                        path: {type: string}
+                        duration_ms: {type: integer, format: int64}
+                  ignored: {type: integer, minimum: 0, description: Entries whose path is in no known audio file list of the release.}
         "400": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
 
@@ -962,6 +1023,14 @@ components:
         index: {type: integer, minimum: 0}
         path: {type: string, maxLength: 512}
         size: {type: integer, format: int64, minimum: 0}
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 1000
+          description: |
+            Audio duration reported by a phone (`POST /v1/releases/{hash}/durations`). Present only on the files of
+            a book page (`ReleaseView.files` / `torrent_files`) and only when known; absent otherwise. Read only:
+            ignored in requests.
     Chapters:
       type: object
       required: [asin, runtime_ms, chapters]

@@ -331,6 +331,104 @@ func (p *Postgres) SaveClientFiles(ctx context.Context, infoHash string, files [
 	return stored, created, err
 }
 
+// ---- reported file durations ----------------------------------------------------------------
+
+// SaveFileDurations stores the durations whose (release, path) has none yet (first writer wins, a
+// stored value is never replaced) and returns, in input order, the stored duration of every path:
+// the caller's own when it was new, the earlier one otherwise. The caller has already checked that
+// every path is in a known file list of the release. An unknown release is library.ErrUnknownRelease.
+func (p *Postgres) SaveFileDurations(ctx context.Context, infoHash string, ds []library.FileDuration) ([]library.FileDuration, error) {
+	h, err := normHash(infoHash)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(ds))
+	durs := make([]int64, len(ds))
+	for i, d := range ds {
+		paths[i], durs[i] = d.Path, d.DurationMs
+	}
+	out := make([]library.FileDuration, 0, len(ds))
+	err = p.inTx(ctx, "save file durations", func(tx pgx.Tx) error {
+		out = out[:0]
+		if len(ds) == 0 {
+			return nil
+		}
+		// One report at a time per release: two overlapping reports cannot deadlock on each other's rows.
+		if err := lockKey(ctx, tx, "durations:"+h); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO release_file_durations (info_hash, path, duration_ms)
+			SELECT $1, t.p, t.d FROM unnest($2::text[], $3::bigint[]) AS t(p, d)
+			ON CONFLICT (info_hash, path) DO NOTHING`, h, paths, durs); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT path, duration_ms FROM release_file_durations WHERE info_hash = $1 AND path = ANY($2)`, h, paths)
+		if err != nil {
+			return err
+		}
+		stored := map[string]int64{}
+		for rows.Next() {
+			var (
+				path string
+				d    int64
+			)
+			if err := rows.Scan(&path, &d); err != nil {
+				rows.Close()
+				return err
+			}
+			stored[path] = d
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, d := range ds {
+			if v, ok := stored[d.Path]; ok {
+				out = append(out, library.FileDuration{Path: d.Path, DurationMs: v})
+			}
+		}
+		return nil
+	})
+	if isFKViolation(err) {
+		return nil, library.ErrUnknownRelease
+	}
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FileDurations returns the reported durations per release hash and normalised path (absent: none).
+func (p *Postgres) FileDurations(ctx context.Context, infoHashes []string) (map[string]map[string]int64, error) {
+	out := map[string]map[string]int64{}
+	if len(infoHashes) == 0 {
+		return out, nil
+	}
+	hs, err := normHashes(infoHashes)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := p.pool.Query(ctx, `SELECT info_hash, path, duration_ms FROM release_file_durations WHERE info_hash = ANY($1)`, hs)
+	if err != nil {
+		return nil, fmt.Errorf("store: file durations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			h, path string
+			d       int64
+		)
+		if err := rows.Scan(&h, &path, &d); err != nil {
+			return nil, fmt.Errorf("store: file durations: %w", err)
+		}
+		if out[h] == nil {
+			out[h] = map[string]int64{}
+		}
+		out[h][path] = d
+	}
+	return out, rows.Err()
+}
+
 // ---- releases by hash -----------------------------------------------------------------------
 
 // GetRelease returns nil when the hash is unknown.

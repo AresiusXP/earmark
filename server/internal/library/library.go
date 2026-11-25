@@ -18,6 +18,10 @@ const (
 	MaxBookmarks = 500  // bookmarks per book
 	MaxPathBytes = 512
 	MaxNoteChars = 280
+
+	MaxDurations  = 2000                // entries of one durations report
+	MinDurationMs = 1000                // 1 s
+	MaxDurationMs = 48 * 60 * 60 * 1000 // 48 h
 )
 
 // Errors returned by the Store.
@@ -76,6 +80,12 @@ type Bookmark struct {
 	Note       string
 	CreatedAt  time.Time
 	ClientID   string // "" when the client sent none
+}
+
+// FileDuration is the audio duration of one file of a release, by normalised path.
+type FileDuration struct {
+	Path       string
+	DurationMs int64
 }
 
 // Store is the persistence port.

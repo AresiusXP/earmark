@@ -241,6 +241,14 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   * **torrent-files**: <= 2000 files, index unique >= 0, size >= 0, path normalised (`\` -> `/`, empty and `.` segments dropped), rejected
     when it has control chars/NUL, a `..` segment, invalid UTF-8 or > 512 bytes; body <= 2 MiB; stored once per hash; later calls
     get the stored list back; unknown release 404.
+  * **durations** (contract v1.1, `releases.go` `durations`, migration `0014_release_file_durations.sql`): phones that decoded their files report
+    `{path, duration_ms}`; table `release_file_durations(info_hash FK cascade, path, duration_ms CHECK 1000..172800000, PRIMARY KEY (info_hash, path))`.
+    `model.NormalizePath` is the single path normaliser (also used by `torrent-files`); a reported path is stored only when its normalised form is that
+    of an AUDIO file in `release_files` or `release_client_files` of the hash (anything else is counted in `ignored`, never stored), <= 2000 entries,
+    one per normalised path, body <= 2 MiB, any out-of-range value is 400 for the whole request. `SaveFileDurations` is first-writer-wins
+    (`ON CONFLICT DO NOTHING` under a per-release advisory lock, so overlapping reports cannot deadlock) and returns the stored values; a later differing report
+    from another user is ignored. `service.withDurations` (optional `DurationStore` on the `UserStore`, /v1 book page only) sets `File.DurationMs` on copies
+    of `files` and `torrent_files` by normalised path; Stremio is untouched. No reporter is recorded.
   * **Library**: every query carries `user_id`; PUT is an upsert of the whole entry with last-write-wins on `updated_at`
     (`WHERE stored.updated_at <= excluded.updated_at`: an equal timestamp is applied so retries are idempotent, an older write returns
     the stored entry); `updated_at` more than 24 h in the future is `400` (otherwise one wild clock would lock the other devices out);

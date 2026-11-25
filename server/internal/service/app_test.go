@@ -20,6 +20,7 @@ type fakeUserStore struct {
 	clientFiles map[string][]model.File
 	userAvail   map[string]bool // fingerprint|provider|hash
 	queried     []string        // fingerprints asked for
+	durations   map[string]map[string]int64
 }
 
 func newFakeUserStore() *fakeUserStore {
@@ -60,6 +61,18 @@ func (u *fakeUserStore) SetUserAvailability(context.Context, string, string, str
 	return nil
 }
 
+func (u *fakeUserStore) FileDurations(_ context.Context, hs []string) (map[string]map[string]int64, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	out := map[string]map[string]int64{}
+	for _, h := range hs {
+		if d, ok := u.durations[h]; ok {
+			out[h] = d
+		}
+	}
+	return out, nil
+}
+
 func withUserStore(us *fakeUserStore) func(*env, *Deps) {
 	return func(_ *env, d *Deps) { d.UserStore = us }
 }
@@ -71,6 +84,39 @@ func bookFor(t *testing.T, e *env, keys ...UserKey) *BookPage {
 		t.Fatalf("BookFor: %v", err)
 	}
 	return p
+}
+
+func TestBookForAddsReportedDurations(t *testing.T) {
+	us := newFakeUserStore()
+	e := newEnv(t, withUserStore(us))
+	e.seedFresh(model.Release{InfoHash: h(1), Title: "Frank Herbert - Dune m4b", Size: 1, Magnet: "magnet:?xt=urn:btih:" + h(1), Parsed: model.ParsedTitle{Format: "m4b", Language: "en"}})
+	e.store.files[h(1)] = []model.File{{Index: 4, Path: `d\2.mp3`, Size: 2}, {Index: 3, Path: "d/1.mp3", Size: 1}}
+	us.clientFiles[h(1)] = []model.File{{Index: 1, Path: "d/2.mp3", Size: 2}, {Index: 0, Path: "d/1.mp3", Size: 1}}
+	us.durations = map[string]map[string]int64{h(1): {"d/2.mp3": 7000}, h(9): {"d/1.mp3": 1}}
+
+	r := bookFor(t, e).Releases[0]
+	got := func(fs []model.File) map[string]int64 {
+		m := map[string]int64{}
+		for _, f := range fs {
+			m[f.Path] = f.DurationMs
+		}
+		return m
+	}
+	if g := got(r.TorrentFiles); g["d/2.mp3"] != 7000 || g["d/1.mp3"] != 0 {
+		t.Fatalf("torrent_files: %v", g)
+	}
+	if g := got(r.Files); g[`d\2.mp3`] != 7000 || g["d/1.mp3"] != 0 { // matched by normalised path
+		t.Fatalf("files: %v", g)
+	}
+	// The stored lists are not touched (copies are filled).
+	if e.store.files[h(1)][0].DurationMs != 0 || us.clientFiles[h(1)][0].DurationMs != 0 {
+		t.Fatal("durations leaked into the stored file lists")
+	}
+	// Without a duration store (or without reports) the page is the same, durations 0.
+	us.durations = nil
+	if g := got(bookFor(t, e).Releases[0].TorrentFiles); g["d/2.mp3"] != 0 {
+		t.Fatalf("%v", g)
+	}
 }
 
 func TestBookForListsEveryReleaseWithoutKeys(t *testing.T) {

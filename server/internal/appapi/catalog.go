@@ -58,12 +58,14 @@ type fileDTO struct {
 	Index int    `json:"index"`
 	Path  string `json:"path"`
 	Size  int64  `json:"size"`
+	// DurationMs is reported by phones (POST /v1/releases/{hash}/durations); omitted when unknown.
+	DurationMs int64 `json:"duration_ms,omitempty"`
 }
 
 func toFiles(fs []model.File) []fileDTO {
 	out := make([]fileDTO, len(fs))
 	for i, f := range fs {
-		out[i] = fileDTO{Index: f.Index, Path: f.Path, Size: f.Size}
+		out[i] = fileDTO{Index: f.Index, Path: f.Path, Size: f.Size, DurationMs: f.DurationMs}
 	}
 	return out
 }

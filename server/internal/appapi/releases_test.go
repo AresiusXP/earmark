@@ -645,6 +645,94 @@ func TestTorrentFilesValidationAndStoreOnce(t *testing.T) {
 	}
 }
 
+func TestDurationsValidationAndFirstWriterWins(t *testing.T) {
+	e := newRelEnv(t, 5)
+	h := h40('a')
+	e.addRelease(h)
+	e.store.files[h] = []model.File{{Index: 3, Path: "Disc 1/01.mp3", Size: 1}, {Index: 4, Path: "Disc 1/cover.jpg", Size: 1}}
+	e.store.clientFiles[h] = []model.File{{Index: 0, Path: "Disc 1/02.mp3", Size: 1}, {Index: 1, Path: "Disc 1/03.m4b", Size: 1}}
+	post := func(user, hash string, body any) reply {
+		return e.call(e.app.durations, user, "POST", "/v1/releases/"+hash+"/durations", body, map[string]string{"hash": hash})
+	}
+	d := func(p string, ms any) map[string]any { return map[string]any{"path": p, "duration_ms": ms} }
+	body := func(ds ...any) map[string]any { return map[string]any{"durations": ds} }
+	many := make([]any, 2001)
+	for i := range many {
+		many[i] = d(fmt.Sprintf("Disc 1/%d.mp3", i), 5000)
+	}
+	bad := []struct {
+		name string
+		hash string
+		body any
+	}{
+		{"empty list", h, body()},
+		{"missing durations", h, map[string]any{}},
+		{"2001 entries", h, map[string]any{"durations": many}},
+		{"under 1 s", h, body(d("Disc 1/01.mp3", 999))},
+		{"zero", h, body(d("Disc 1/01.mp3", 0))},
+		{"negative", h, body(d("Disc 1/01.mp3", -5))},
+		{"over 48 h", h, body(d("Disc 1/01.mp3", 48*3600*1000+1))},
+		{"missing duration", h, body(map[string]any{"path": "Disc 1/01.mp3"})},
+		{"duration is a string", h, body(d("Disc 1/01.mp3", "5000"))},
+		{"fractional", h, body(d("Disc 1/01.mp3", 5000.5))},
+		{"dot dot", h, body(d("../Disc 1/01.mp3", 5000))},
+		{"NUL", h, body(d("Disc 1/0\x001.mp3", 5000))},
+		{"control", h, body(d("Disc 1/0\n1.mp3", 5000))},
+		{"empty path", h, body(d("", 5000))},
+		{"513 bytes", h, body(d(strings.Repeat("a", 513), 5000))},
+		{"duplicate normalised path", h, body(d("Disc 1/01.mp3", 5000), d(`Disc 1\01.mp3`, 5000))},
+		{"not json", h, "{"},
+		{"trailing brace", h, `{"durations":[{"path":"a.mp3","duration_ms":5000}]}}`},
+		{"body over the limit", h, `{"durations":[{"path":"` + strings.Repeat("a", maxTorrentFilesBody) + `","duration_ms":5000}]}`},
+		{"bad hash", "xyz", body(d("Disc 1/01.mp3", 5000))},
+	}
+	for _, c := range bad {
+		t.Run(c.name, func(t *testing.T) {
+			post("u1", c.hash, c.body).errCode(t, 400, "invalid_request")
+			if len(e.store.durations) != 0 {
+				t.Fatal("a rejected report was stored")
+			}
+		})
+	}
+	post("u1", h40('f'), body(d("Disc 1/01.mp3", 5000))).errCode(t, 404, "not_found")
+
+	// Bounds are inclusive; paths are matched by normalised path against BOTH lists (audio only);
+	// unknown paths and non-audio files are ignored and never stored.
+	r := post("u1", h, body(d(`Disc 1\01.mp3`, 1000), d("/Disc 1//02.mp3", 48*3600*1000), d("Disc 1/03.m4b", 123456),
+		d("Disc 1/cover.jpg", 5000), d("Disc 1/unknown.mp3", 5000), d("01.mp3", 5000)))
+	r.status(t, 200)
+	m := r.json(t)
+	got := m["durations"].([]any)
+	if len(got) != 3 || m["ignored"] != float64(3) || got[0].(map[string]any)["path"] != "Disc 1/01.mp3" || got[0].(map[string]any)["duration_ms"] != float64(1000) ||
+		got[1].(map[string]any)["duration_ms"] != float64(48*3600*1000) {
+		t.Fatalf("%s", r.Body.String())
+	}
+	if len(e.store.durations[h]) != 3 || e.store.durations[h]["Disc 1/unknown.mp3"] != 0 || e.store.durations[h]["Disc 1/cover.jpg"] != 0 {
+		t.Fatalf("stored: %v", e.store.durations[h])
+	}
+	// First writer wins: a later differing report (another user) is ignored and the stored value comes back.
+	r = post("u2", h, body(d("Disc 1/01.mp3", 9999), d("Disc 1/02.mp3", 48*3600*1000)))
+	r.status(t, 200)
+	got = r.json(t)["durations"].([]any)
+	if len(got) != 2 || got[0].(map[string]any)["duration_ms"] != float64(1000) || e.store.durations[h]["Disc 1/01.mp3"] != 1000 {
+		t.Fatalf("%s", r.Body.String())
+	}
+	// A release without any known file list has nothing to match: everything is ignored.
+	h2 := h40('b')
+	e.addRelease(h2)
+	r = post("u1", h2, body(d("a.mp3", 5000)))
+	r.status(t, 200)
+	if m := r.json(t); len(m["durations"].([]any)) != 0 || m["ignored"] != float64(1) || len(e.store.durations[h2]) != 0 {
+		t.Fatalf("%s", r.Body.String())
+	}
+	// Exactly 2000 entries are fine.
+	r = post("u1", h, map[string]any{"durations": many[:2000]})
+	r.status(t, 200)
+	if m := r.json(t); m["ignored"] != float64(2000) {
+		t.Fatalf("%s", r.Body.String())
+	}
+}
+
 func TestPrepareDTOShapes(t *testing.T) {
 	d := toPrepareDTO(prepResult{State: "preparing", HasProgress: true, Progress: 0})
 	if d.Progress == nil || *d.Progress != 0 {

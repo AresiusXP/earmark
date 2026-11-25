@@ -627,6 +627,94 @@ func TestClientFilesStoredOnce(t *testing.T) {
 	}
 }
 
+func TestFileDurationsFirstWriterWins(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	h1, h2 := hash(1), hash(2)
+	if err := s.UpsertReleases(ctx, []model.Release{sampleRelease(h1, 1), sampleRelease(h2, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	fd := func(p string, ms int64) library.FileDuration { return library.FileDuration{Path: p, DurationMs: ms} }
+
+	got, err := s.SaveFileDurations(ctx, h1, []library.FileDuration{fd("b.mp3", 2000), fd("a.mp3", 1000)})
+	if err != nil || !reflect.DeepEqual(got, []library.FileDuration{fd("b.mp3", 2000), fd("a.mp3", 1000)}) {
+		t.Fatalf("input order is kept: %+v %v", got, err)
+	}
+	// A later, differing report is ignored; the stored values are returned (new paths are added).
+	got, err = s.SaveFileDurations(ctx, h1, []library.FileDuration{fd("a.mp3", 9999), fd("c.mp3", 3000), fd("b.mp3", 2000)})
+	if err != nil || !reflect.DeepEqual(got, []library.FileDuration{fd("a.mp3", 1000), fd("c.mp3", 3000), fd("b.mp3", 2000)}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// Per release: the same path of another release is independent.
+	if _, err := s.SaveFileDurations(ctx, h2, []library.FileDuration{fd("a.mp3", 7000)}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.FileDurations(ctx, []string{h1, h2, hash(3)})
+	want := map[string]map[string]int64{h1: {"a.mp3": 1000, "b.mp3": 2000, "c.mp3": 3000}, h2: {"a.mp3": 7000}}
+	if err != nil || !reflect.DeepEqual(all, want) {
+		t.Fatalf("%v %v", all, err)
+	}
+	if m, err := s.FileDurations(ctx, nil); err != nil || len(m) != 0 {
+		t.Fatalf("%v %v", m, err)
+	}
+	if got, err := s.SaveFileDurations(ctx, h1, nil); err != nil || len(got) != 0 {
+		t.Fatalf("an empty report: %v %v", got, err)
+	}
+
+	// An unknown release is refused and nothing is stored.
+	if _, err := s.SaveFileDurations(ctx, hash(9), []library.FileDuration{fd("a.mp3", 5000)}); !errors.Is(err, library.ErrUnknownRelease) {
+		t.Fatalf("unknown release: %v", err)
+	}
+	// The table enforces the bounds and the path rules too.
+	for name, d := range map[string]library.FileDuration{
+		"under 1 s": fd("x.mp3", 999), "over 48 h": fd("x.mp3", 48*3600*1000+1), "empty path": fd("", 5000), "long path": fd(string(make([]byte, 513)), 5000),
+	} {
+		if _, err := s.SaveFileDurations(ctx, h1, []library.FileDuration{d}); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if n := count(t, s, `SELECT count(*) FROM release_file_durations`); n != 4 {
+		t.Fatalf("rows = %d", n)
+	}
+	// Overlapping reports at the same time agree on one value per path and never deadlock.
+	var wg sync.WaitGroup
+	res := make([][]library.FileDuration, 8)
+	for i := range res {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ds := []library.FileDuration{fd("r1.mp3", int64(1000+i)), fd("r2.mp3", int64(2000+i)), fd("r3.mp3", int64(3000+i))}
+			if i%2 == 1 {
+				ds[0], ds[2] = ds[2], ds[0]
+			}
+			var err error
+			if res[i], err = s.SaveFileDurations(ctx, h2, ds); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	byPath := map[string]int64{}
+	for i, r := range res {
+		if len(r) != 3 {
+			t.Fatalf("report %d: %+v", i, r)
+		}
+		for _, d := range r {
+			if v, ok := byPath[d.Path]; ok && v != d.DurationMs {
+				t.Fatalf("%s: %d vs %d", d.Path, v, d.DurationMs)
+			}
+			byPath[d.Path] = d.DurationMs
+		}
+	}
+	// Deleting the release removes its durations.
+	if _, err := s.pool.Exec(ctx, `DELETE FROM releases WHERE info_hash = $1`, h1); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, s, `SELECT count(*) FROM release_file_durations WHERE info_hash = $1`, h1); n != 0 {
+		t.Fatalf("durations outlived the release: %d", n)
+	}
+}
+
 func TestReleaseByHash(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()

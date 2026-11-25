@@ -189,7 +189,7 @@ func TestNewRoutesRequireAuthExceptAppUpdate(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{"GET", "/v1/search?q=dune"}, {"GET", "/v1/discover"}, {"GET", "/v1/books/" + duneASIN}, {"GET", "/v1/books/" + duneASIN + "/chapters"},
 		{"POST", "/v1/releases/" + h + "/prepare"}, {"GET", "/v1/releases/" + h + "/files/0/download?provider=torbox"},
-		{"HEAD", "/v1/releases/" + h + "/files/0/download?provider=torbox"}, {"POST", "/v1/releases/" + h + "/torrent-files"},
+		{"HEAD", "/v1/releases/" + h + "/files/0/download?provider=torbox"}, {"POST", "/v1/releases/" + h + "/torrent-files"}, {"POST", "/v1/releases/" + h + "/durations"},
 		{"GET", "/v1/me/library"}, {"GET", "/v1/me/library/" + duneASIN}, {"PUT", "/v1/me/library/" + duneASIN}, {"DELETE", "/v1/me/library/" + duneASIN},
 		{"GET", "/v1/me/library/" + duneASIN + "/bookmarks"}, {"POST", "/v1/me/library/" + duneASIN + "/bookmarks"},
 		{"DELETE", "/v1/me/library/" + duneASIN + "/bookmarks/x"},
@@ -744,6 +744,47 @@ func TestReleaseRoutesOverHTTP(t *testing.T) {
 		x := x.(map[string]any)
 		if x["info_hash"] == a && (len(x["torrent_files"].([]any)) != 2 || len(x["files"].([]any)) != 0) {
 			t.Fatalf("%v", x)
+		}
+	}
+
+	// durations: only paths of the release's known lists, first writer wins, shown on the book page.
+	if _, err := e.db.SaveFilesIfAbsent(context.Background(), a, []model.File{{Index: 3, Path: "Disc 1/01.mp3", Size: 1}, {Index: 4, Path: "Disc 1/02.mp3", Size: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	dur := "/v1/releases/" + a + "/durations"
+	r = e.req("POST", dur, bob.access, map[string]any{"durations": []any{
+		map[string]any{"path": `Disc 1\01.mp3`, "duration_ms": 60_000}, map[string]any{"path": "Disc 1/02.mp3", "duration_ms": 120_000},
+		map[string]any{"path": "Disc 1/nope.mp3", "duration_ms": 5000}}})
+	r.status(t, 200)
+	if m := r.json(t); len(m["durations"].([]any)) != 2 || m["ignored"] != float64(1) || r.cacheControl() != "no-store" {
+		t.Fatalf("%s", r.Body.String())
+	}
+	r = e.req("POST", dur, admin.access, map[string]any{"durations": []any{map[string]any{"path": "Disc 1/01.mp3", "duration_ms": 61_000}}})
+	if m := r.json(t)["durations"].([]any); len(m) != 1 || m[0].(map[string]any)["duration_ms"] != float64(60_000) {
+		t.Fatalf("first writer wins: %s", r.Body.String())
+	}
+	e.req("POST", dur, admin.access, map[string]any{"durations": []any{map[string]any{"path": "Disc 1/01.mp3", "duration_ms": 10}}}).errCode(t, 400, "invalid_request")
+	e.req("POST", "/v1/releases/"+h40('f')+"/durations", admin.access, map[string]any{"durations": []any{map[string]any{"path": "a.mp3", "duration_ms": 5000}}}).errCode(t, 404, "not_found")
+	rel = e.req("GET", "/v1/books/"+duneASIN, bob.access, nil).json(t)["releases"].([]any)
+	for _, x := range rel {
+		x := x.(map[string]any)
+		if x["info_hash"] != a {
+			continue
+		}
+		for _, list := range []string{"files", "torrent_files"} {
+			fs := x[list].([]any)
+			if len(fs) != 2 || fs[0].(map[string]any)["duration_ms"] != float64(60_000) || fs[1].(map[string]any)["duration_ms"] != float64(120_000) {
+				t.Fatalf("%s: %v", list, fs)
+			}
+		}
+	}
+	for _, x := range rel { // a release without reports has no duration_ms keys at all
+		if x := x.(map[string]any); x["info_hash"] != a {
+			for _, f := range x["files"].([]any) {
+				if _, has := f.(map[string]any)["duration_ms"]; has {
+					t.Fatalf("%v", f)
+				}
+			}
 		}
 	}
 

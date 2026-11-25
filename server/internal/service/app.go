@@ -80,6 +80,46 @@ type UserStore interface {
 	SetUserAvailability(ctx context.Context, fingerprint, provider, infoHash string, cached bool, at time.Time) error
 }
 
+// DurationStore is implemented by the UserStore when it keeps durations reported by phones (optional).
+type DurationStore interface {
+	// FileDurations returns the reported durations per release hash and normalised path.
+	FileDurations(ctx context.Context, infoHashes []string) (map[string]map[string]int64, error)
+}
+
+// withDurations fills File.DurationMs of the page's files (copying the slices) from the reports.
+func (s *Service) withDurations(ctx context.Context, rels []ReleaseView) {
+	ds, ok := s.d.UserStore.(DurationStore)
+	if !ok || len(rels) == 0 {
+		return
+	}
+	hs := make([]string, len(rels))
+	for i, v := range rels {
+		hs[i] = v.Release.InfoHash
+	}
+	got, err := ds.FileDurations(ctx, hs)
+	if err != nil {
+		s.log.Warn("load file durations failed", "err", err)
+		return
+	}
+	fill := func(fs []model.File, byPath map[string]int64) []model.File {
+		if len(fs) == 0 || len(byPath) == 0 {
+			return fs
+		}
+		out := slices.Clone(fs)
+		for i := range out {
+			if p, ok := model.NormalizePath(out[i].Path); ok {
+				out[i].DurationMs = byPath[p]
+			}
+		}
+		return out
+	}
+	for i := range rels {
+		byPath := got[rels[i].Release.InfoHash]
+		rels[i].Files = fill(rels[i].Files, byPath)
+		rels[i].TorrentFiles = fill(rels[i].TorrentFiles, byPath)
+	}
+}
+
 // BookFor returns the book page for the /v1 API. Like Book it looks for releases when none are
 // known or the last search is stale, but it lists every release (nothing is hidden for being
 // uncached), adds the phone-reported file lists, and takes the caller's keys explicitly.
