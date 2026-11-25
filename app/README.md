@@ -2,7 +2,7 @@
 
 Kotlin + Jetpack Compose, single module `:app`, package `xyz.aresius.audiobooks`. Design: `../docs/DESIGN.md` ("App direction") and
 `DESIGN.md` (visual design). Server contract: `../api/openapi.yaml` (binding; `ContractTest` fails when a path of the contract has no
-method in `AudiobooksApi`). Phase 2 skeleton plus Phase 3b offline downloads (core/download); the audio player and the BitTorrent engine land in their own phases.
+method in `AudiobooksApi`). Phase 2 skeleton, Phase 3b offline downloads (`core/download`), Phase 4 BitTorrent engine (`core/torrent`); the audio player (`core/player`) comes from its own branch.
 
 ## Build and test
 
@@ -96,6 +96,12 @@ PathSafety            every server-provided path is untrusted: absolute paths, `
   binding), `SessionWipeHook` (core/data; sign-out/user switch wipes the downloads through it).
 * UI: Book detail (`DownloadButton`, `DownloadStatus`, `ReleaseDownloadButton`: the player can reuse them), Downloads screen (Library toolbar and
   Settings), Settings > Downloads (`DownloadSettingsSection`), Library "Downloaded" badge/filter that also works offline.
+core/torrent TorrentEngine (contract) + LibTorrentEngine (libtorrent4j): metadata fetch, selective download, TorrentPolicy (opt-in, VPN, Wi-Fi,
+              battery, seeding), TorrentSettings (DataStore), AndroidDeviceStateMonitor, TorrentService (foreground, dataSync) + resume worker,
+              TorrentPaths (zip-slip), TorrentStore (resume data in the no-backup dir). Binding: di/TorrentModule. Details: DESIGN.md "BitTorrent engine".
+
+Slots for later phases: `core/player` (Media3 service), `core/download` (WorkManager + engines) next to `core/data`; `ReleaseRepository`
+already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
 
 ## Flows
 
@@ -137,14 +143,30 @@ before the server implements catalog, releases and library.
 
 Against a real server in development use `http://10.0.2.2:<port>` (the emulator's host) or, in debug builds, any LAN address.
 
+## BitTorrent engine (debug harness, tests)
+
+* Debug screen: `adb -s emulator-5600 shell am start -n xyz.aresius.audiobooks/.debug.TorrentDebugActivity` (debug builds only, `src/debug`): paste a
+  magnet (public domain only), list files, tick files (tick order = download order), download, pause (= cancel the collector), remove. It shows
+  the policy inputs and the engine activity; the foreground service notification appears while a download is collected.
+* `./gradlew :app:connectedDebugAndroidTest` (needs an emulator; `export ANDROID_SERIAL=emulator-<port>` so a physical device is never used):
+  `LibTorrentEngineTest` generates a torrent at test time and seeds it from a second libtorrent session on 127.0.0.1 (no trackers, no DHT, no
+  real swarm): metadata fetch, selective download (unselected files are never created), VPN drop / return, cancel + resume from disk, seeding
+  policy, malicious paths, production session settings. `TorrentServiceTest` covers the foreground service and, with
+  `-Pandroid.testInstrumentationRunnerArguments.fgsTimeout=true` after `adb shell device_config put activity_manager data_sync_fgs_timeout_duration 20000`,
+  the Android 15 dataSync timeout. `RealSwarmSmokeTest` is a manual, off-by-default test against a real LibriVox magnet
+  (`-Pandroid.testInstrumentationRunnerArguments.librivoxMagnet=...`; your IP is visible in a real swarm: run it behind a VPN).
+* Release ships `arm64-v8a` only; debug adds `x86_64` for the emulator (`ndk.abiFilters` per build type in `app/build.gradle.kts`).
+
 ## Tests
 
-`./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine. API client (error parsing, retry, Retry-After, refresh, sign-out,
-token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup, the updater, WCAG contrast
-of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, Google account, admin, discover, search, book, library), the Google flow state
-machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409), the QR encoder, code
-normalisation. The app uses no regular expressions (plain string code), so there is no `AppRegexIcuTest` (add one, run on an emulator, with
-the first regex).
+`./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine (+ Robolectric for Room/WorkManager). API client (error parsing, retry,
+Retry-After, refresh, sign-out, token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup,
+the updater, WCAG contrast of both palettes, the ViewModels (onboarding, debrid, BitTorrent, settings, Google account, admin, discover, search,
+book, library), the Google flow state machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409),
+the QR encoder, code normalisation. Downloads: `core/download/*Test` (path safety, Range resume / atomic rename / 202 and JSON never saved /
+redirect without Authorization / error mapping, Wi-Fi gating with a fake network, LRU eviction, orphans, per-user isolation, LocalFiles,
+TorrentSource with a fake engine, worker retry/backoff). BitTorrent: policy / path / planner / settings tests (`core/torrent`). The app uses no
+regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
 
 ## Sign in with Google
 
@@ -153,9 +175,3 @@ with `filterByAuthorizedAccounts(false)` and no auto-select). The WEB client ID 
 (default in `app/build.gradle.kts`, override with `-PgoogleServerClientId=...`); the Android OAuth clients (package + debug/release signing
 SHA-1) are registered in Google Cloud, nothing in code. Never log or store an ID token. Real sign-in needs a Google account on the device:
 emulators and phones without one show "no Google account" (card stays, codes work).
-of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). Downloads:
-`core/download/*Test` (path safety, Range resume / atomic rename / 202 and JSON never saved / redirect without Authorization / error mapping
-with MockWebServer, Wi-Fi gating with a fake network, LRU eviction, orphans, per-user isolation, LocalFiles, TorrentSource with a fake engine,
-worker retry/backoff with WorkManager's test helpers); they run on Robolectric (real in-memory Room). `ContractTest` currently fails on
-the Google sign-in paths of the contract until core/auth gains those methods. The app uses no regular expressions, so there is no
-`AppRegexIcuTest` (add one, run on an emulator, with the first regex).

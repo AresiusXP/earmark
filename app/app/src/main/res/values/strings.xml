@@ -372,4 +372,35 @@
     <string name="library_downloaded_badge">Downloaded</string>
     <string name="library_filter_downloaded">Downloaded</string>
     <string name="library_downloaded_offline_hint">Offline: showing what is on this phone.</string>
+    <string name="torrent_channel_name">BitTorrent downloads</string>
+    <string name="torrent_channel_desc">Shown while audiobooks are downloading over BitTorrent.</string>
+    <string name="torrent_notif_title">Downloading audiobooks (BitTorrent)</string>
+    <string name="torrent_notif_connecting">Connecting…</string>
+    <string name="torrent_notif_progress">%1$s of %2$s · %3$s/s · %4$d peers</string>
+    <string name="torrent_notif_eta">%1$s left</string>
+    <string name="torrent_notif_paused_vpn">Paused: connect your VPN to continue</string>
+    <string name="torrent_notif_paused_wifi">Paused: waiting for Wi-Fi</string>
+    <string name="torrent_notif_paused_battery">Paused: the battery is low</string>
+    <string name="torrent_notif_paused_user">Paused</string>
+    <string name="torrent_notif_seeding">Seeding to ratio 1.0 (Wi-Fi, charging)</string>
+    <string name="torrent_action_pause">Pause</string>
+    <string name="torrent_action_resume">Resume</string>
+    <string name="torrent_action_stop">Stop</string>
+    <string name="torrent_timeout_title">BitTorrent downloads paused</string>
+    <string name="torrent_timeout_text">Android limits long background downloads. Open the app to continue.</string>
+    <string name="torrent_options_title">Safety</string>
+    <string name="torrent_vpn_title">Only use BitTorrent when a VPN is active</string>
+    <string name="torrent_vpn_desc">Downloads pause at once when the VPN drops. Recommended.</string>
+    <string name="torrent_vpn_off_title">Turn off the VPN requirement?</string>
+    <string name="torrent_vpn_off_message">Without it BitTorrent also runs without a VPN, and your IP address is visible in the swarm.</string>
+    <string name="torrent_vpn_off_confirm">Turn off</string>
+    <string name="torrent_mobile_title">Allow mobile data</string>
+    <string name="torrent_mobile_desc">Off: BitTorrent only uses Wi-Fi.</string>
+    <string name="torrent_seed_title">Keep sharing until ratio 1.0</string>
+    <string name="torrent_seed_desc">Only on Wi-Fi while charging. Off: uploading stops as soon as a download is done.</string>
+    <string name="torrent_limits_title">Limits</string>
+    <string name="torrent_down_limit">Download limit (KiB/s, 0 = none)</string>
+    <string name="torrent_up_limit">Upload limit (KiB/s, 0 = none)</string>
+    <string name="torrent_max_connections">Maximum connections</string>
+    <string name="torrent_max_active">Maximum active torrents</string>
 </resources>

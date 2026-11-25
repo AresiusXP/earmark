@@ -60,10 +60,12 @@ android {
             applicationIdSuffix = ""
             // Debug builds only: the in-process FakeBackend (see app/README.md) and plain http to any host.
             buildConfigField("boolean", "DEBUG_TOOLS", "true")
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         }
         release {
             isDebuggable = false
             buildConfigField("boolean", "DEBUG_TOOLS", "false")
+            ndk { abiFilters += listOf("arm64-v8a") }
             // TODO: enable R8 (isMinifyEnabled/isShrinkResources) once keep rules cover Hilt, Room and serialization.
             isMinifyEnabled = false
             signingConfig = if (hasReleaseSigning) {
@@ -165,6 +167,11 @@ dependencies {
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
     implementation(libs.play.services.code.scanner)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.libtorrent4j)
+    implementation(libs.libtorrent4j.android.arm64)
+    // x86_64 only so the emulator can run the engine; release ships arm64-v8a only (see the abiFilters in buildTypes).
+    debugImplementation(libs.libtorrent4j.android.x86)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
@@ -179,6 +186,8 @@ dependencies {
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.kotlin.test)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.compose.bom))
     debugImplementation(libs.compose.ui.test.manifest)
 }
