@@ -455,6 +455,9 @@
     <string name="book_chapters_title">Hoofdstukken</string>
     <string name="book_chapters_empty">De catalogus heeft geen hoofdstukken voor dit boek; de speler volgt de audiobestanden.</string>
     <string name="library_play">Speel %1$s af</string>
+    <string name="release_cache_unknown">Cache niet gecontroleerd</string>
+    <string name="book_release_files_none">Nog geen bestandenlijst</string>
+    <string name="book_release_more">Meer over deze uitgave</string>
     <string name="torrent_channel_name">BitTorrent-downloads</string>
     <string name="torrent_channel_desc">Zichtbaar zolang audioboeken via BitTorrent worden gedownload.</string>
     <string name="torrent_notif_title">Audioboeken downloaden (BitTorrent)</string>

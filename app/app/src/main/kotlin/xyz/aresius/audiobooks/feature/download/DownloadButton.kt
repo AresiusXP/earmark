@@ -32,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
+import xyz.aresius.audiobooks.core.design.CompactButton
 import xyz.aresius.audiobooks.core.design.SecondaryButton
 import xyz.aresius.audiobooks.core.design.Spacing
 import xyz.aresius.audiobooks.core.design.WavyProgressBar
@@ -135,7 +136,7 @@ fun DownloadStatus(asin: String, modifier: Modifier = Modifier, title: String = 
     }
 }
 
-/** The text button on a release card: "Download this release", or the state when this release is the one downloading / downloaded. */
+/** The compact outlined button on a release card: "Download this release", or the state when this release is the one downloading / downloaded. */
 @Composable
 fun ReleaseDownloadButton(book: Book, release: ReleaseView, modifier: Modifier = Modifier, viewModel: DownloadControlsViewModel = hiltViewModel()) {
     val state by viewModel.state(book.asin).collectAsStateWithLifecycle()
@@ -144,7 +145,5 @@ fun ReleaseDownloadButton(book: Book, release: ReleaseView, modifier: Modifier =
     val mine = hash == release.infoHash
     val label = if (mine && state != BookDownloadState.None) state.buttonLabel() else stringResource(R.string.download_button_release)
     val enabled = if (mine) state is BookDownloadState.Failed else state == BookDownloadState.None && viewModel.canDownload(release)
-    TextButton(onClick = { if (mine && state is BookDownloadState.Failed) viewModel.retry(book.asin) else start() }, enabled = enabled, modifier = modifier) {
-        Text(label, color = MaterialTheme.colorScheme.onSurface)
-    }
+    CompactButton(label, onClick = { if (mine && state is BookDownloadState.Failed) viewModel.retry(book.asin) else start() }, enabled = enabled, modifier = modifier)
 }

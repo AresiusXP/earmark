@@ -1,6 +1,8 @@
 package xyz.aresius.audiobooks.feature.book
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,10 +21,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +65,7 @@ import xyz.aresius.audiobooks.core.design.CoverShape
 import xyz.aresius.audiobooks.core.design.DetailTopBar
 import xyz.aresius.audiobooks.core.design.ErrorState
 import xyz.aresius.audiobooks.core.design.LoadingShimmer
+import xyz.aresius.audiobooks.core.design.PillShape
 import xyz.aresius.audiobooks.core.design.PrimaryButton
 import xyz.aresius.audiobooks.core.design.SecondaryButton
 import xyz.aresius.audiobooks.core.design.Spacing
@@ -282,26 +289,41 @@ private fun ReleasesHeader(count: Int, searchedAt: String?, stale: Boolean, refr
     }
 }
 
+/**
+ * One release. Every card has the same four blocks in the same places: the title, the facts (format, size, seeders), the status line (cached
+ * per provider, then "usable via") and the actions: the persimmon pill for "Listen with this release" (the chosen one shows a quiet "Listening
+ * with this one" pill of the same size), then the outlined Download pill and an overflow menu that holds "Show files".
+ */
 @Composable
 private fun ReleaseCard(release: ReleaseView, book: Book, chosen: Boolean, onChoose: () -> Unit, modifier: Modifier = Modifier) {
     var showFiles by remember(release.infoHash) { mutableStateOf(false) }
+    var menu by remember(release.infoHash) { mutableStateOf(false) }
     val files = release.files.ifEmpty { release.torrentFiles }
     Card(modifier.fillMaxWidth(), shape = CardShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            Text(release.title, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
+            Text(release.title, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 release.format?.takeIf { it.isNotBlank() }?.let { Badge(it.uppercase(), style = BadgeStyle.Accent) }
                 Badge(formatSize(release.size))
                 Badge(stringResource(R.string.release_seeders, release.seeders))
                 release.bitrateKbps?.let { Badge(stringResource(R.string.release_bitrate, it)) }
                 if (release.collection) Badge(stringResource(R.string.release_collection))
-                release.cacheBadges().forEach { badge ->
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val cache = release.cacheBadges()
+                cache.forEach { badge ->
                     if (badge.cached) Badge(stringResource(R.string.release_cached, badge.provider.label()), style = BadgeStyle.Mustard)
                     else Badge(stringResource(R.string.release_not_cached, badge.provider.label()))
                 }
+                if (cache.isEmpty()) Badge(stringResource(R.string.release_cache_unknown))
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.release_usable_via), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    stringResource(R.string.release_usable_via),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 5.dp),
+                )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
                     release.usableVia().forEach { via ->
                         when (via) {
@@ -312,30 +334,50 @@ private fun ReleaseCard(release: ReleaseView, book: Book, chosen: Boolean, onCho
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                if (chosen) Badge(stringResource(R.string.book_release_chosen), style = BadgeStyle.Ok)
-                else TextButton(onClick = onChoose) { Text(stringResource(R.string.book_release_choose), color = MaterialTheme.colorScheme.onSurface) }
-                ReleaseDownloadButton(book, release)
-            }
-            if (files.isEmpty()) {
-                Text(stringResource(R.string.book_release_files_unknown), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                TextButton(onClick = { showFiles = !showFiles }) {
-                    Text(
-                        stringResource(R.string.book_release_files, files.size) + " · " + stringResource(if (showFiles) R.string.book_release_files_hide else R.string.book_release_files_show),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+            if (chosen) ChosenPill() else PrimaryButton(stringResource(R.string.book_release_choose), onClick = onChoose)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                ReleaseDownloadButton(book, release, modifier = Modifier.weight(1f))
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.book_release_more)) }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    when {
+                                        files.isEmpty() -> stringResource(R.string.book_release_files_none)
+                                        showFiles -> stringResource(R.string.book_release_files_hide)
+                                        else -> stringResource(R.string.book_release_files_show) + " · " + stringResource(R.string.book_release_files, files.size)
+                                    },
+                                )
+                            },
+                            enabled = files.isNotEmpty(),
+                            onClick = { menu = false; showFiles = !showFiles },
+                        )
+                    }
                 }
-                if (showFiles) {
-                    files.forEach { f ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                            Text(f.path.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(formatSize(f.size), style = MaterialTheme.typography.bodySmall.merge(xyz.aresius.audiobooks.core.design.TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+            }
+            if (showFiles) {
+                files.forEach { f ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        Text(f.path.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(formatSize(f.size), style = MaterialTheme.typography.bodySmall.merge(xyz.aresius.audiobooks.core.design.TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
+    }
+}
+
+/** Same size as the persimmon pill it replaces on the release that is being listened to. */
+@Composable
+private fun ChosenPill() {
+    Row(
+        Modifier.fillMaxWidth().height(56.dp).border(BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary), PillShape),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+        Text(stringResource(R.string.book_release_chosen), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
     }
 }
 

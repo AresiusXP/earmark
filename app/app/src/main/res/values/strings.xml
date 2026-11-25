@@ -455,6 +455,9 @@
     <string name="book_chapters_title">Chapters</string>
     <string name="book_chapters_empty">The catalog has no chapters for this book; the player follows the audio files.</string>
     <string name="library_play">Play %1$s</string>
+    <string name="release_cache_unknown">Cache not checked</string>
+    <string name="book_release_files_none">No file list yet</string>
+    <string name="book_release_more">More about this release</string>
     <string name="torrent_channel_name">BitTorrent downloads</string>
     <string name="torrent_channel_desc">Shown while audiobooks are downloading over BitTorrent.</string>
     <string name="torrent_notif_title">Downloading audiobooks (BitTorrent)</string>

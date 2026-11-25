@@ -140,6 +140,30 @@ fun SecondaryButton(
     }
 }
 
+/**
+ * The quiet pill for secondary actions inside cards: ink label (14 sp medium, one line, never wraps), hairline outline, 48 dp high so every
+ * card lines up. The loud action of a card is a [PrimaryButton].
+ */
+@Composable
+fun CompactButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(48.dp),
+        shape = PillShape,
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (enabled) 1f else 0.4f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+}
+
 @Preview
 @Composable
 private fun ControlsPreview() = AudiobooksPreviewSurface {
@@ -155,5 +179,6 @@ private fun ControlsPreview() = AudiobooksPreviewSurface {
         PrimaryButton("Continue", onClick = {})
         PrimaryButton("Continue", onClick = {}, loading = true)
         SecondaryButton("Skip", onClick = {})
+        CompactButton("Download this release", onClick = {})
     }
 }
