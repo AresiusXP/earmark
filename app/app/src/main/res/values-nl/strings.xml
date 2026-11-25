@@ -458,6 +458,10 @@
     <string name="release_cache_unknown">Cache niet gecontroleerd</string>
     <string name="book_release_files_none">Nog geen bestandenlijst</string>
     <string name="book_release_more">Meer over deze uitgave</string>
+    <string name="player_book_elapsed">Boek %1$s</string>
+    <string name="player_chapter_progress">Hoofdstuk %1$s van %2$s · %3$s resterend</string>
+    <string name="player_estimate_info">Waarom is dit bij benadering?</string>
+    <string name="player_estimate_explainer">Sommige bestandslengtes zijn nog schattingen. Ze worden exact zodra de bestanden zijn afgespeeld, en de resterende tijd wordt dan bijgewerkt.</string>
     <string name="torrent_channel_name">BitTorrent-downloads</string>
     <string name="torrent_channel_desc">Zichtbaar zolang audioboeken via BitTorrent worden gedownload.</string>
     <string name="torrent_notif_title">Audioboeken downloaden (BitTorrent)</string>

@@ -11,8 +11,8 @@ fun formatClock(ms: Long): String {
     return if (h > 0) "$h:${two(m)}:${two(s)}" else "$m:${two(s)}"
 }
 
-/** Time left, with a minus; a leading "~" while some lengths are still estimates. */
-fun formatRemaining(ms: Long, estimated: Boolean = false): String = (if (estimated) "~-" else "-") + formatClock(ms)
+/** Time left with a minus: "-16:09:28". The "~" of an estimated length is drawn by [TimeLeftLabel] (with its explanation), not baked in here. */
+fun formatRemaining(ms: Long): String = "-" + formatClock(ms)
 
 /** 1.0 -> "1", 1.25 -> "1.25", 1.5 -> "1.5" (the decimal separator follows [locale]). */
 fun formatSpeed(speed: Float, locale: Locale = Locale.getDefault()): String =

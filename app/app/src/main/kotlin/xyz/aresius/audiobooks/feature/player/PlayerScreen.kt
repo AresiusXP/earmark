@@ -199,7 +199,10 @@ private fun ReadyBlock(state: PlayerState, viewModel: PlayerViewModel, bookmarkC
                 Text(chapter.displayTitle(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        stringResource(R.string.player_chapter_times, formatClock(state.chapterPositionMs), formatClock(state.chapterDurationMs)),
+                        stringResource(
+                            R.string.player_chapter_progress,
+                            formatClock(state.chapterPositionMs), formatClock(state.chapterDurationMs), formatRemaining(state.chapterDurationMs - state.chapterPositionMs),
+                        ),
                         style = MaterialTheme.typography.labelMedium.merge(TabularFigures),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -284,9 +287,9 @@ private fun Scrubber(state: PlayerState, onSeek: (Long) -> Unit) {
             tickFractions = ticks,
             height = 40.dp,
         )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatClock(shown), style = MaterialTheme.typography.labelLarge.merge(TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(formatRemaining(total - shown, !state.durationExact), style = MaterialTheme.typography.labelLarge.merge(TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(stringResource(R.string.player_book_elapsed, formatClock(shown)), style = MaterialTheme.typography.labelLarge.merge(TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TimeLeftLabel(total - shown, estimated = !state.durationExact)
         }
     }
 }
