@@ -9,7 +9,7 @@ import java.time.format.FormatStyle
 import java.util.Locale
 import xyz.aresius.audiobooks.R
 
-/** 1536 -> "1.5 KB", 3.2e9 -> "3.0 GB" (decimal-free below 1 KB). Units are the same in English and Dutch. */
+/** 1536 -> "1.5 KB", 3.2e9 -> "3.0 GB" (decimal-free below 1 KB). Units are the same in English, Dutch and Spanish. */
 fun formatSize(bytes: Long, locale: Locale = Locale.getDefault()): String {
     if (bytes < 1024) return "$bytes B"
     val units = listOf("KB", "MB", "GB", "TB")

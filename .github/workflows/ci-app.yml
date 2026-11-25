@@ -56,11 +56,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # The strings table generates both languages: a hand edit of strings.xml would be overwritten.
+      # The tables generate en, nl and es (the generator fails on a missing/orphan Spanish string or different format arguments):
+      # a hand edit of strings.xml would be overwritten.
       - name: Strings are in sync with the generator
         run: |
+          python3 scripts/test_gen_strings.py
           python3 scripts/gen_strings.py
           git diff --exit-code -- app/src/main/res
+          test -z "$(git status --porcelain -- app/src/main/res)"
 
       - name: Unit tests, lint and debug APK
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace

@@ -381,14 +381,21 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         val q = request.url.queryParameter("q").orEmpty().trim()
         if (q.length < 2) return error(request, 400, "invalid_request", "q must have at least 2 characters")
         if (q.equals("error", ignoreCase = true)) return error(request, 503, "upstream_failed", "demo failure: search is down", retryAfter = 0)
-        val hits = books.filter { b -> listOf(b.title, b.authors.joinToString(), b.narrators.joinToString(), b.series.orEmpty()).any { it.contains(q, ignoreCase = true) } }
+        val hits = visibleBooks().filter { b -> listOf(b.title, b.authors.joinToString(), b.narrators.joinToString(), b.series.orEmpty()).any { it.contains(q, ignoreCase = true) } }
         return json(request, BookListResponse(hits))
     }
 
     private fun discover(request: Request): Response {
         val page = request.url.queryParameter("page")?.toIntOrNull() ?: 0
         val from = page * PAGE_SIZE
-        return json(request, BookListResponse(if (from >= books.size) emptyList() else books.subList(from, minOf(books.size, from + PAGE_SIZE))))
+        val shelf = visibleBooks()
+        return json(request, BookListResponse(if (from >= shelf.size) emptyList() else shelf.subList(from, minOf(shelf.size, from + PAGE_SIZE))))
+    }
+
+    /** The catalog as the user's content languages see it: the Spanish demo books show only with "es" selected, right after the demo book (the others are always listed, as before). */
+    private fun visibleBooks(): List<Book> {
+        val (spanish, rest) = books.partition { it.language == "es" }
+        return if ("es" in user().settings.languages) rest.take(1) + spanish + rest.drop(1) else rest
     }
 
     private fun bookRoutes(request: Request, path: List<String>): Response {
@@ -657,6 +664,18 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
                 description = "Three one-minute parts served by the local audio fixture: streaming, chapters, speed, sleep timer and bookmarks can be tried in minutes.",
                 releaseYear = 2026, genres = listOf("Demo"),
             )
+            val spanish = listOf(
+                Triple("Don Quijote de la Mancha", "Miguel de Cervantes", "Demo Narrador"),
+                Triple("Martín Fierro", "José Hernández", "Demo Narrador"),
+            ).mapIndexed { i, (title, author, narrator) ->
+                val asin = "B0DEMOES0${i + 1}"
+                Book(
+                    asin = asin, title = title, authors = listOf(author), narrators = listOf(narrator), language = "es", runtimeMin = 600 + i * 90,
+                    coverUrl = "http://$HOST/covers/$asin.png",
+                    description = "$title, de $author, leído por $narrator. Una entrada de demostración servida por el FakeBackend: el texto, la portada y las ediciones se generan.",
+                    releaseYear = 1605 + i * 270, genres = listOf("Clásicos", "Ficción"),
+                )
+            }
             return listOf(demo) + seeds.mapIndexed { i, (title, author, narrator) ->
                 val asin = "B0DEMO%04d".format(i)
                 Book(
@@ -667,7 +686,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
                     description = "$title by $author, read by $narrator. A demo entry served by the in-process FakeBackend: the text, the cover and the releases are generated.",
                     releaseYear = 1850 + i * 5, genres = listOf("Classics", "Fiction"),
                 )
-            }
+            } + spanish
         }
     }
 }

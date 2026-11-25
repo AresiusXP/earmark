@@ -122,6 +122,7 @@ private fun DownloadRow(item: DownloadedBook, onClick: () -> Unit, onDelete: () 
         book = item.book,
         onClick = onClick,
         supporting = state.statusText(),
+        supportingMaxLines = 3,
         progress = (state as? BookDownloadState.Downloading)?.fraction,
         trailing = {
             if (state is BookDownloadState.Failed) TextButton(onClick = onRetry) { Text(stringResource(R.string.download_button_retry), color = MaterialTheme.colorScheme.onSurface) }

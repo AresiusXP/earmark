@@ -164,7 +164,8 @@ fun PrimaryButton(
         if (loading) {
             CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.5.dp)
         } else {
-            Text(text, style = ButtonLabel)
+            // Longer translations ("Verificar y guardar" in a half-width button) shrink to one line instead of being clipped by the fixed height.
+            Text(text, style = ButtonLabel, maxLines = 1, autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = 20.sp, stepSize = 1.sp))
         }
     }
 }

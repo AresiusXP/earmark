@@ -70,7 +70,7 @@ class DiscoverViewModel(
     constructor(catalog: CatalogRepository, library: LibraryRepository, me: MeRepository, player: PlayerControls, networkEvents: NetworkEvents) :
         this(catalog, library, me, player, networkEvents, REFRESH_DEBOUNCE_MS, System::currentTimeMillis, { LocalTime.now().hour })
 
-    private val local = MutableStateFlow(DiscoverUiState(greeting = greetingForHour(hourNow())))
+    private val local = MutableStateFlow(DiscoverUiState(greeting = greetingForHour(hourNow(), eveningFromHour())))
 
     val state: StateFlow<DiscoverUiState> = combine(local, me.me, library.entries, player.state) { l, user, entries, playing ->
         val hero = entries.firstOrNull { it.status == LibraryStatus.LISTENING && it.positionMs > 0 }
@@ -128,7 +128,7 @@ class DiscoverViewModel(
 
     private fun start(refresh: Boolean) {
         loadJob?.cancel()
-        local.update { it.copy(refreshing = true, greeting = greetingForHour(hourNow()), books = if (it.books is Load.Content) it.books else Load.Loading) }
+        local.update { it.copy(refreshing = true, greeting = greetingForHour(hourNow(), eveningFromHour()), books = if (it.books is Load.Content) it.books else Load.Loading) }
         loadJob = viewModelScope.launch {
             val r = catalog.discover(0, refresh)
             nextPage = 1

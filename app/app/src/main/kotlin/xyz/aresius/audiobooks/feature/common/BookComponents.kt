@@ -52,6 +52,7 @@ fun BookRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     supporting: String? = null,
+    supportingMaxLines: Int = 1,
     progress: Float? = null,
     badge: String? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -69,7 +70,7 @@ fun BookRow(
                 Text(authors, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (supporting != null) {
-                Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = supportingMaxLines, overflow = TextOverflow.Ellipsis)
             }
             if (badge != null) Badge(badge, Modifier.padding(top = 4.dp), style = BadgeStyle.Ok)
             if (progress != null) {
