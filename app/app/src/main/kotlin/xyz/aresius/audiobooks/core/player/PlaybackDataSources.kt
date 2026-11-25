@@ -29,7 +29,7 @@ object StreamUri {
 /**
  * The data sources of the player: `file://` (downloaded files) and https straight through ExoPlayer's defaults, and `audiobook://`
  * resolved by [StreamLinkResolver] to the CDN link, which a PLAIN OkHttp client (no auth interceptor: the token never reaches the CDN)
- * then reads with Range requests. Streams have no call timeout (a book is listened to for hours), only a read timeout.
+ * then reads with Range requests (it follows the CDN's redirects). Streams have no call timeout (a book is listened to for hours), only a read timeout.
  */
 @Singleton
 class PlaybackDataSources(
@@ -41,12 +41,12 @@ class PlaybackDataSources(
     constructor(@ApplicationContext context: Context, clients: HttpClientFactory, sessions: SessionStore) : this(
         context,
         StreamLinkResolver({ clients.api() }, { sessions.snapshot()?.serverUrl }),
-        { clients.plain() },
+        { clients.cdn() },
     )
 
     fun factory(): DataSource.Factory {
         val http = OkHttpDataSource.Factory(
-            cdnClient().newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).readTimeout(30, TimeUnit.SECONDS).followRedirects(true).followSslRedirects(true).build(),
+            cdnClient().newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).readTimeout(30, TimeUnit.SECONDS).build(),
         ).setUserAgent("Audiobooks")
         val upstream = DefaultDataSource.Factory(context, http)
         return ResolvingDataSource.Factory(upstream) { spec -> resolve(spec) }
