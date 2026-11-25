@@ -17,7 +17,7 @@ type Book struct {
 	Narrators      []string
 	Series         string // empty when standalone
 	SeriesPosition string // "1", "2.5"; empty when unknown
-	Language       string // ISO 639-1: "en", "nl"
+	Language       string // ISO 639-1: "en", "nl", "es"
 	RuntimeMin     int
 	CoverURL       string
 	Description    string

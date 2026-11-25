@@ -468,12 +468,19 @@ func TestMeSettings(t *testing.T) {
 	if s["p2p_enabled"] != false || s["preferred_provider"] != nil || s["region"] != "nl" || s["source_mode"] != "p2p" {
 		t.Fatalf("settings = %v", s)
 	}
+	// Spanish is a book language of its own
+	r = e.do("PATCH", "/v1/me", admin.access, map[string]any{"settings": map[string]any{"languages": []string{"es", "en", "nl"}}})
+	r.status(t, 200)
+	if got := r.json(t)["settings"].(map[string]any)["languages"].([]any); len(got) != 3 || got[0] != "es" || got[1] != "en" || got[2] != "nl" {
+		t.Fatalf("languages = %v", got)
+	}
 	// an empty PATCH is allowed and changes nothing
 	e.do("PATCH", "/v1/me", admin.access, map[string]any{}).status(t, 200)
 
 	for name, body := range map[string]any{
 		"bad region":        map[string]any{"settings": map[string]any{"region": "zz"}},
 		"bad language":      map[string]any{"settings": map[string]any{"languages": []string{"fr"}}},
+		"spanish + french":  map[string]any{"settings": map[string]any{"languages": []string{"es", "fr"}}},
 		"empty languages":   map[string]any{"settings": map[string]any{"languages": []string{}}},
 		"bad format":        map[string]any{"settings": map[string]any{"prefer_format": "ogg"}},
 		"bad provider":      map[string]any{"settings": map[string]any{"preferred_provider": "alldebrid"}},

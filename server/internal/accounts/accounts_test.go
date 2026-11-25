@@ -444,6 +444,13 @@ func TestSettingsPatch(t *testing.T) {
 		{"region", SettingsPatch{Region: s("nl")}, false, func(x Settings) bool { return x.Region == "nl" }},
 		{"unknown region", SettingsPatch{Region: s("xx")}, true, nil},
 		{"languages deduplicated", SettingsPatch{Languages: langs("nl", "en", "nl")}, false, func(x Settings) bool { return len(x.Languages) == 2 && x.Languages[0] == "nl" }},
+		{"spanish", SettingsPatch{Languages: langs("es")}, false, func(x Settings) bool { return len(x.Languages) == 1 && x.Languages[0] == "es" }},
+		{"all three languages keep their order", SettingsPatch{Languages: langs("es", "en", "nl", "es")}, false, func(x Settings) bool {
+			return strings.Join(x.Languages, ",") == "es,en,nl"
+		}},
+		{"spanish region and language", SettingsPatch{Region: s("es"), Languages: langs("es", "en")}, false, func(x Settings) bool { return x.Region == "es" && len(x.Languages) == 2 }},
+		{"upper-case language is unknown", SettingsPatch{Languages: langs("ES")}, true, nil},
+		{"portuguese is not supported", SettingsPatch{Languages: langs("es", "pt")}, true, nil},
 		{"empty languages", SettingsPatch{Languages: langs()}, true, nil},
 		{"unknown language", SettingsPatch{Languages: langs("en", "fr")}, true, nil},
 		{"format mp3", SettingsPatch{PreferFormat: s("mp3")}, false, func(x Settings) bool { return x.PreferFormat == "mp3" }},
