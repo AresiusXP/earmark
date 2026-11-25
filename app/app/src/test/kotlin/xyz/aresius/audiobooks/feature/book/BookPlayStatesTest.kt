@@ -1,11 +1,14 @@
 package xyz.aresius.audiobooks.feature.book
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import xyz.aresius.audiobooks.core.player.FailureKind
@@ -19,6 +22,7 @@ import xyz.aresius.audiobooks.testutil.FakeServer
 import xyz.aresius.audiobooks.testutil.MainDispatcherRule
 import xyz.aresius.audiobooks.testutil.Samples
 import xyz.aresius.audiobooks.testutil.TestApp
+import xyz.aresius.audiobooks.testutil.await
 import xyz.aresius.audiobooks.testutil.awaitState
 
 /** What the book page lets the user do about listening: which release, whether Play is possible, what the player is doing. */
@@ -34,9 +38,19 @@ class BookPlayStatesTest {
     private val a = "a".repeat(40)
     private val b = "b".repeat(40)
 
-    @AfterTest fun tearDown() = server.close()
+    private val viewModels = ArrayList<BookViewModel>()
+
+    @AfterTest fun tearDown() = runBlocking<Unit> {
+        try {
+            // HTTP callbacks can still resume Main after an assertion; finish the scopes before the rule resets it.
+            viewModels.forEach { it.viewModelScope.coroutineContext[Job]!!.cancelAndJoin() }
+        } finally {
+            server.close()
+        }
+    }
 
     private fun vm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library, controls, local, app.me, prefetch)
+        .also { viewModels.add(it) }
 
     private fun serve(releases: String) {
         server.onJson("GET", "/v1/books/$asin", Samples.bookDetail(releases = releases))
@@ -128,7 +142,7 @@ class BookPlayStatesTest {
         val release = (vm.state.awaitState { it.detail is Load.Content<*> }.detail as Load.Content).value.releases.last()
         vm.choose(release)
         vm.state.awaitState { it.chosen?.release?.infoHash == b }
-        assertEquals(b, prefetch.calls.last().first)
+        assertEquals(b, server.await { prefetch.calls.lastOrNull()?.first?.takeIf { it == b } })
     }
 
     @Test fun `nothing is warmed without a usable key, for downloaded books, or when the player already has the book`() = runBlocking<Unit> {
