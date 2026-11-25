@@ -378,6 +378,10 @@ provider index); consumers match by path, never by index.
   characters) are normalised like the server does and shown as QR + blocks of five + Copy/Share + countdown; the sign-in screens take
   paste or Google's code scanner (no camera permission). Sign-out never waits for the server. `PATCH /v1/me` clears
   `preferred_provider` with an explicit JSON `null`.
+* Contract v1.1 text (no behaviour change): codes are 26 Crockford characters shown `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX`; the server's `normCode` already ignores case,
+  `-`, spaces, tabs and line breaks and folds `I`/`L` to `1` and `O` to `0` (`TestCodeFormatAndTypedCodes`), so the app may send any spelling. `HEAD` on the download
+  route is its own operation in the contract (`headDownloadFile`). `DELETE /v1/me/devices/{id}` with the current device's id is the sign-out (204, then that
+  device's tokens are 401; `TestSignOutOfTheCurrentDevice`). Every operation that can answer `400 invalid_request` declares `components.responses.InvalidRequest` (with examples).
 * Visual design ("reading room": paper, ink, persimmon; Fraunces + Hanken Grotesk; cover-derived color; wavy progress): `app/DESIGN.md`.
 * Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.

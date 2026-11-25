@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -178,6 +179,62 @@ func (e *env) invite(admin session) string {
 
 func (e *env) join(admin session, name string) session {
 	return e.session(e.do("POST", "/v1/auth/join", "", map[string]any{"invite_code": e.invite(admin), "display_name": name, "device_name": name + " phone"}))
+}
+
+func TestCodeFormatAndTypedCodes(t *testing.T) {
+	e := newEnv(t)
+	admin := e.bootstrap()
+	shape := regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){5}-[0-9A-HJKMNP-TV-Z]{2}$`) // 26 characters, a dash every 4
+	// Every spelling a person may type or paste joins: lower case, no dashes, spaces, line breaks.
+	spell := []func(string) string{
+		strings.ToLower,
+		func(c string) string { return strings.ReplaceAll(c, "-", "") },
+		func(c string) string { return strings.ReplaceAll(c, "-", " ") },
+		func(c string) string { return "  " + strings.ToLower(strings.ReplaceAll(c, "-", "\t")) + "\r\n" },
+		func(c string) string { return strings.ReplaceAll(c, "-", "- ") },
+	}
+	for i, f := range spell {
+		code := e.invite(admin)
+		if !shape.MatchString(code) {
+			t.Fatalf("invite code %q is not 26 base32 characters with a dash every 4", code)
+		}
+		e.do("POST", "/v1/auth/join", "", map[string]any{"invite_code": f(code), "display_name": "U", "device_name": "p"}).status(t, 200)
+		if i == 0 { // single use, whatever the spelling
+			e.do("POST", "/v1/auth/join", "", map[string]any{"invite_code": code, "display_name": "U", "device_name": "p"}).errCode(t, 401, "unauthorized")
+		}
+	}
+	for _, f := range spell {
+		lc := e.do("POST", "/v1/me/devices/link-code", admin.access, nil)
+		lc.status(t, 200)
+		code := lc.json(t)["link_code"].(string)
+		if !shape.MatchString(code) {
+			t.Fatalf("link code %q has the wrong shape", code)
+		}
+		e.do("POST", "/v1/auth/link", "", map[string]any{"link_code": f(code), "device_name": "d"}).status(t, 200)
+	}
+}
+
+func TestSignOutOfTheCurrentDevice(t *testing.T) {
+	e := newEnv(t)
+	admin := e.bootstrap()
+	phone := e.session(e.do("POST", "/v1/auth/link", "", map[string]any{"link_code": e.do("POST", "/v1/me/devices/link-code", admin.access, nil).json(t)["link_code"], "device_name": "Phone"}))
+	var current string
+	for _, d := range e.do("GET", "/v1/me/devices", phone.access, nil).json(t)["devices"].([]any) {
+		if d := d.(map[string]any); d["current"] == true {
+			current = d["id"].(string)
+		}
+	}
+	if current == "" {
+		t.Fatal("no current device")
+	}
+	// A device may sign itself out: 204, and its tokens stop working at once.
+	e.do("DELETE", "/v1/me/devices/"+current, phone.access, nil).status(t, 204)
+	e.do("GET", "/v1/me", phone.access, nil).errCode(t, 401, "unauthorized")
+	e.do("POST", "/v1/auth/refresh", "", map[string]any{"refresh_token": phone.refresh}).errCode(t, 401, "unauthorized")
+	// Repeating it with the same (now dead) token is 401: a client treats 204 and 401 as "signed out".
+	e.do("DELETE", "/v1/me/devices/"+current, phone.access, nil).errCode(t, 401, "unauthorized")
+	// The user's other devices are unaffected.
+	e.do("GET", "/v1/me", admin.access, nil).status(t, 200)
 }
 
 func TestVersionAndBootstrap(t *testing.T) {
