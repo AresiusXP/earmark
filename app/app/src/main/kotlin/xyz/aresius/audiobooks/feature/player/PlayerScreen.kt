@@ -54,6 +54,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -263,8 +265,10 @@ private fun Scrubber(state: PlayerState, onSeek: (Long) -> Unit) {
     val ticks = remember(state.chapters, state.durationMs) {
         if (state.chapters.size in 2..MAX_TICKS) state.chapters.drop(1).map { it.startMs.toFloat() / total } else null
     }
+    val described = stringResource(R.string.player_chapter_times, formatClock(shown), formatClock(total))
     Column(Modifier.fillMaxWidth()) {
         WavyProgressBar(
+            modifier = Modifier.semantics { stateDescription = described },
             progress = fraction,
             playing = state.playing && scrub == null,
             restingAmplitude = 0.35f,

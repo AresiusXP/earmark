@@ -2,7 +2,7 @@
 
 Kotlin + Jetpack Compose, single module `:app`, package `xyz.aresius.audiobooks`. Design: `../docs/DESIGN.md` ("App direction") and
 `DESIGN.md` (visual design). Server contract: `../api/openapi.yaml` (binding; `ContractTest` fails when a path of the contract has no
-method in `AudiobooksApi`). This is the Phase 2 skeleton: no audio player and no download or torrent engine yet.
+method in `AudiobooksApi`). Phase 3 adds the audiobook player (streaming first); downloads and the torrent engine arrive on their own branches.
 
 ## Build and test
 
@@ -13,7 +13,7 @@ cd app
 ```
 
 Toolchain: Gradle 9.9.1 (wrapper), AGP 9.5.1 (built-in Kotlin), Kotlin 2.4.21 + Compose compiler plugin (all warnings are errors), KSP,
-Hilt, Room, Retrofit + kotlinx-serialization, Coil 3, Palette, Tink. compileSdk 37 (install `platforms;android-37.0`), targetSdk 35,
+Hilt, Room, Retrofit + kotlinx-serialization, Coil 3, Palette, Tink, Media3 (ExoPlayer + session), WorkManager. compileSdk 37 (install `platforms;android-37.0`), targetSdk 35,
 minSdk 26. Versions live in `gradle/libs.versions.toml`. Strings: edit the table in `scripts/gen_strings.py` and run it (it writes English and
 Dutch together, so no key can miss a translation; CI checks they are in sync).
 
@@ -47,15 +47,20 @@ core/auth     Session + SessionStore (Tink AES-GCM, Android Keystore master key,
 core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Catalog/Library/Me/Debrid/Admin/Release repositories,
               AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends)
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
+core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
+              (chapters as the session playlist), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
+              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository, SleepTimerLogic,
+              PlayerHub (state) + PlaybackController (commands), PlayerPreferences (skip lengths, smart rewind)
 core/design   "Reading room" theme: Color, Type (Fraunces + Hanken Grotesk), Shape, Motion, WavyProgressBar, CoverColors (Palette), components
-feature/*     one package per screen: XxxScreen + XxxViewModel (Hilt, StateFlow, Load<T> = loading / content / failed with retry)
+feature/*     one package per screen (player: PlayerScreen, MiniPlayer, sheets, Settings > Playback): XxxScreen + XxxViewModel (Hilt, StateFlow, Load<T> = loading / content / failed with retry)
               onboarding, discover, search, book, library, settings, admin (Users), debrid + bittorrent (shared by onboarding and Settings), update
 di/           Hilt modules; src/debug and src/release each provide the (debug-only) interceptors
 app/          Routes (typed), AppRoot (onboarding gate / shell), BottomBar, NavHost (shared-element transition cover -> Book detail)
 ```
 
-Slots for later phases: `core/player` (Media3 service), `core/download` (WorkManager + engines) next to `core/data`; `ReleaseRepository`
-already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
+Slot for later phases: `core/download` (WorkManager + engines) next to `core/data`; the player consumes it through the `LocalFiles` interface
+(`core/download/LocalFiles.kt`): a complete local file always wins over streaming. `ReleaseRepository` has `prepare`, `downloadLink` and
+`reportTorrentFiles`.
 
 ## Flows
 
@@ -65,9 +70,13 @@ already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
   default OFF; turning it on needs a confirmation; sets `p2p_enabled` and a coherent `source_mode` through `PATCH /v1/me`). A kill
   during the last two steps resumes there.
 * **Main**: Discover, Search, Library, Settings (bottom bar); Book detail (cover, people, series, runtime, description, ranked releases with
-  format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key). Play and Download are
-  present and answer "Coming in a later phase".
-* **Settings**: account name, region, languages, preferred format, source mode, wallpaper colors (opt-in, Android 12+), debrid keys
+  format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key). **Play** streams (or
+  plays local files) with the chosen release ("Listen with this release", remembered per book; default = best release the user can stream, cached
+  first), shows the file list, the catalog chapters and the needs-key / preparing / failed states; Download still answers "Coming in a later phase".
+* **Player**: full-screen (cover-derived dark page, whole-book wavy seek bar with chapter ticks, skip, chapters, speed, sleep timer, bookmarks), a
+  mini player above the bottom bar on every screen, notification and lock-screen controls, playback with the screen off. Details:
+  `../docs/DESIGN.md` ("Player (Phase 3)").
+* **Settings**: playback (skip back/forward 10/15/30/45/60 s, smart rewind), account name, region, languages, preferred format, source mode, wallpaper colors (opt-in, Android 12+), debrid keys
   (add/replace/check/remove with status, the key is never shown again), BitTorrent switch with warning, devices (revoke, "Link another
   device" code), version + update check, sign out (revokes this device on the server first). Admins also see **Users and invites**
   (users with disable/enable; invites: the code is shown once with a Copy button, revoke).
@@ -88,9 +97,31 @@ before the server implements catalog, releases and library.
 
 Against a real server in development use `http://10.0.2.2:<port>` (the emulator's host) or, in debug builds, any LAN address.
 
+## Player on an emulator
+
+The debug FakeBackend streams a local audio fixture: the demo book **Demo: Three Short Parts** (3 min, 3 x 1 min parts, in the library as
+"Continue listening") has real chapters; every other demo book streams the same three files too. Cached releases are `ready` at once, the
+64 kbit/s release is "preparing" for four polls (progress 20-80 %) first. The first-setup user has no debrid key (Play asks for one); a
+process restart continues as the default admin WITH a TorBox key, so a reinstall during development streams at once.
+
+```bash
+cd app
+python3 scripts/audio_fixture.py &            # generates 3 x 60 s MP3 with ffmpeg in /tmp/opencode/audio-fixture, serves them with Range
+                                              # support on 0.0.0.0:8765 (the emulator sees it as http://10.0.2.2:8765) and logs every request
+                                              # with its Range and whether an Authorization header came along (it never does)
+./gradlew :app:installDebug                   # then: demo backend, First setup, Skip, Skip, restart the app, Continue listening -> play
+```
+
+Own emulator, never a shared one: `emulator -avd audiobooks_pixel -port 5570 -read-only -no-audio -no-window`, `ANDROID_SERIAL=emulator-5570`.
+
 ## Tests
 
 `./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine. API client (error parsing, retry, Retry-After, refresh, sign-out,
 token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup, the updater, WCAG contrast
-of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). The app uses no
+of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library, player). Player:
+`BookTimeline` mapping (randomised), chapter fallback, sleep timer, smart rewind / finished / speed rules, `ReleaseChooser`, resume + sync queue and
+last-write-wins against a fake `PlayerDao`/server, bookmarks, the stream link (302/202/403/404/429/502, token only to the server) on MockWebServer,
+the book loader (local-first, remembered release, offline chapters), shake detection, preferences. `./gradlew :app:connectedDebugAndroidTest`
+(set `ANDROID_SERIAL`) runs `BookPlayerTest` (the session's chapter view on a real ExoPlayer over generated WAV files), `PlaybackDataSourcesTest`
+(the real data source against two MockWebServers: Range, no token on the CDN) and `PlaybackServiceTest` (service + MediaController). The app uses no
 regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
