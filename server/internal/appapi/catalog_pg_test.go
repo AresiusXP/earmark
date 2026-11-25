@@ -545,7 +545,26 @@ func TestBookmarksOverHTTP(t *testing.T) {
 	now := time.Now().UnixMilli()
 	path := "/v1/me/library/" + duneASIN + "/bookmarks"
 
-	e.req("POST", path, admin.access, map[string]any{"position_ms": 1}).errCode(t, 404, "not_found") // not in the library yet
+	// A book that is not in the library is added as `saved` first; an unknown ASIN is still 404 and adds nothing.
+	e.req("POST", "/v1/me/library/B000000000/bookmarks", admin.access, map[string]any{"position_ms": 1}).errCode(t, 404, "not_found")
+	e.req("GET", "/v1/me/library/B000000000", admin.access, nil).errCode(t, 404, "not_found")
+	e.req("POST", "/v1/me/library/lowercase/bookmarks", admin.access, map[string]any{"position_ms": 1}).errCode(t, 400, "invalid_request")
+	auto := e.req("POST", path, admin.access, map[string]any{"position_ms": 7, "client_id": "11111111-2222-3333-4444-555555555555"})
+	auto.status(t, 200)
+	if m := auto.json(t); m["client_id"] != "11111111-2222-3333-4444-555555555555" || m["position_ms"] != float64(7) {
+		t.Fatalf("%s", auto.Body.String())
+	}
+	ent := e.req("GET", "/v1/me/library/"+duneASIN, admin.access, nil)
+	ent.status(t, 200)
+	if m := ent.json(t); m["status"] != "saved" || m["updated_at"] != float64(0) || m["finished_at"] != nil || m["book"].(map[string]any)["title"] != "Dune" {
+		t.Fatalf("auto-added entry: %s", ent.Body.String())
+	}
+	if e.req("GET", "/v1/me/library/"+duneASIN, bob.access, nil).Code != 404 {
+		t.Fatal("the auto-added entry must belong to the caller only")
+	}
+	// Any later write wins over the auto-added entry (updated_at 0), whatever the clock of the device.
+	e.putEntry(admin, duneASIN, map[string]any{"status": "listening", "updated_at": 1}).status(t, 200)
+	e.req("DELETE", "/v1/me/library/"+duneASIN, admin.access, nil).status(t, 204) // bookmarks go with it
 	e.putEntry(admin, duneASIN, map[string]any{"status": "listening", "updated_at": now}).status(t, 200)
 	e.putEntry(bob, duneASIN, map[string]any{"status": "listening", "updated_at": now}).status(t, 200)
 
@@ -556,6 +575,43 @@ func TestBookmarksOverHTTP(t *testing.T) {
 		t.Fatalf("%s", r.Body.String())
 	}
 	e.req("POST", path, admin.access, map[string]any{"position_ms": 100}).status(t, 200)
+
+	// Idempotent create with a client_id: a repeat returns the existing bookmark (200, unchanged).
+	cid := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	first := e.req("POST", path, admin.access, map[string]any{"position_ms": 500, "note": "first", "client_id": cid})
+	first.status(t, 200)
+	again := e.req("POST", path, admin.access, map[string]any{"position_ms": 999, "note": "second try", "client_id": cid})
+	again.status(t, 200)
+	if f, g := first.json(t), again.json(t); f["id"] != g["id"] || g["position_ms"] != float64(500) || g["note"] != "first" || g["client_id"] != cid || g["created_at"] != f["created_at"] {
+		t.Fatalf("a repeated client_id must return the existing bookmark: %s / %s", first.Body.String(), again.Body.String())
+	}
+	bobs := e.req("POST", path, bob.access, map[string]any{"position_ms": 500, "client_id": cid}) // unique per user
+	bobs.status(t, 200)
+	if bobs.json(t)["id"] == first.json(t)["id"] {
+		t.Fatal("client_id is per user")
+	}
+	if n := len(e.req("GET", path, bob.access, nil).json(t)["bookmarks"].([]any)); n != 1 {
+		t.Fatalf("bob has %d bookmarks", n)
+	}
+	e.req("DELETE", path+"/"+first.json(t)["id"].(string), bob.access, nil).status(t, 204) // not Bob's
+	if n := len(e.req("GET", path, admin.access, nil).json(t)["bookmarks"].([]any)); n != 3 {
+		t.Fatalf("alice has %d bookmarks, want 3 (9000, 100, 500)", n)
+	}
+	e.req("DELETE", path+"/"+first.json(t)["id"].(string), admin.access, nil).status(t, 204)
+	e.req("DELETE", path+"/"+bobs.json(t)["id"].(string), bob.access, nil).status(t, 204)
+	for name, id := range map[string]any{"empty": "", "too long": strings.Repeat("a", 65), "bad chars": "a b", "slash": "a/b", "number": 5} {
+		t.Run("client_id "+name, func(t *testing.T) {
+			e.req("POST", path, admin.access, map[string]any{"position_ms": 1, "client_id": id}).errCode(t, 400, "invalid_request")
+		})
+	}
+	e.req("POST", path, admin.access, map[string]any{"position_ms": 1, "client_id": strings.Repeat("a", 64)}).status(t, 200)
+	e.req("POST", path, admin.access, map[string]any{"position_ms": 1, "client_id": nil}).status(t, 200) // null = none
+	// Clean up what this block added, so the counts below stay as they were.
+	for _, b := range e.req("GET", path, admin.access, nil).json(t)["bookmarks"].([]any) {
+		if m := b.(map[string]any); m["position_ms"] == float64(1) && m["note"] == "" {
+			e.req("DELETE", path+"/"+m["id"].(string), admin.access, nil).status(t, 204)
+		}
+	}
 	for name, body := range map[string]any{
 		"missing position": map[string]any{"note": "x"}, "negative": map[string]any{"position_ms": -1},
 		"long note": map[string]any{"position_ms": 1, "note": strings.Repeat("é", 281)}, "control": map[string]any{"position_ms": 1, "note": "a\x01"},
@@ -600,11 +656,17 @@ func (l limitLib) PutEntry(ctx context.Context, u string, w library.Write) (libr
 	}
 	return l.Store.PutEntry(ctx, u, w)
 }
-func (l limitLib) CreateBookmark(ctx context.Context, u, a string, p int64, n string) (library.Bookmark, error) {
+func (l limitLib) EnsureSaved(ctx context.Context, u, a string) (bool, error) {
+	if l.entries {
+		return false, library.ErrLimitReached
+	}
+	return l.Store.EnsureSaved(ctx, u, a)
+}
+func (l limitLib) CreateBookmark(ctx context.Context, u, a string, p int64, n, c string) (library.Bookmark, error) {
 	if l.bookmarks {
 		return library.Bookmark{}, library.ErrLimitReached
 	}
-	return l.Store.CreateBookmark(ctx, u, a, p, n)
+	return l.Store.CreateBookmark(ctx, u, a, p, n, c)
 }
 
 func TestLimitReachedIs409(t *testing.T) {
@@ -629,6 +691,12 @@ func TestLimitReachedIs409(t *testing.T) {
 	w = call(wrapped.createBookmark, "POST", `{"position_ms":1}`, map[string]string{"asin": duneASIN})
 	if w.Code != 409 || !strings.Contains(w.Body.String(), `"limit_reached"`) {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	// A bookmark on a book outside the library adds it first, and that is limited like a PUT.
+	wrapped.d.Library = limitLib{Store: e.db, entries: true}
+	w = call(wrapped.createBookmark, "POST", `{"position_ms":1}`, map[string]string{"asin": duneASIN})
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"limit_reached"`) {
+		t.Fatalf("auto-add at the entry limit: %d %s", w.Code, w.Body.String())
 	}
 }
 

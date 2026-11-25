@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -47,7 +48,14 @@ type bookmarkDTO struct {
 	PositionMs int64     `json:"position_ms"`
 	Note       string    `json:"note"`
 	CreatedAt  time.Time `json:"created_at"`
+	ClientID   string    `json:"client_id,omitempty"`
 }
+
+func toBookmark(b library.Bookmark) bookmarkDTO {
+	return bookmarkDTO{ID: b.ID, PositionMs: b.PositionMs, Note: b.Note, CreatedAt: b.CreatedAt.UTC(), ClientID: b.ClientID}
+}
+
+var clientIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func (a *app) userID(r *http.Request) string {
 	p, _ := PrincipalFrom(r)
@@ -221,7 +229,7 @@ func (a *app) listBookmarks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]bookmarkDTO, len(bs))
 	for i, b := range bs {
-		out[i] = bookmarkDTO{ID: b.ID, PositionMs: b.PositionMs, Note: b.Note, CreatedAt: b.CreatedAt.UTC()}
+		out[i] = toBookmark(b)
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"bookmarks": out})
 }
@@ -232,8 +240,9 @@ func (a *app) createBookmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		PositionMs *int64 `json:"position_ms"`
-		Note       string `json:"note"`
+		PositionMs *int64  `json:"position_ms"`
+		Note       string  `json:"note"`
+		ClientID   *string `json:"client_id"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -243,12 +252,42 @@ func (a *app) createBookmark(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "position_ms must be >= 0 and note at most 280 characters")
 		return
 	}
-	b, err := a.d.Library.CreateBookmark(r.Context(), a.userID(r), asin, *in.PositionMs, note)
+	clientID := ""
+	if in.ClientID != nil {
+		if clientID = *in.ClientID; !clientIDRe.MatchString(clientID) {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "client_id must be 1-64 characters of A-Z, a-z, 0-9, - and _ (a UUID)")
+			return
+		}
+	}
+	uid := a.userID(r)
+	b, err := a.d.Library.CreateBookmark(r.Context(), uid, asin, *in.PositionMs, note, clientID)
+	if errors.Is(err, library.ErrNotFound) {
+		// The book is not in the library: add it as `saved` (it must exist in the catalog; the entry
+		// count limit applies), then create the bookmark.
+		u, _, serr := a.settings(r)
+		if serr != nil {
+			a.fail(w, serr)
+			return
+		}
+		if _, err := a.d.Catalog.EnsureBook(r.Context(), u.Settings.Region, asin); err != nil {
+			a.catalogFail(w, err)
+			return
+		}
+		if _, err := a.d.Library.EnsureSaved(r.Context(), uid, asin); err != nil {
+			if errors.Is(err, library.ErrUnknownBook) {
+				WriteError(w, http.StatusNotFound, "not_found", "unknown book")
+				return
+			}
+			a.libraryFail(w, err)
+			return
+		}
+		b, err = a.d.Library.CreateBookmark(r.Context(), uid, asin, *in.PositionMs, note, clientID)
+	}
 	if err != nil {
 		a.libraryFail(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, bookmarkDTO{ID: b.ID, PositionMs: b.PositionMs, Note: b.Note, CreatedAt: b.CreatedAt.UTC()})
+	WriteJSON(w, http.StatusOK, toBookmark(b))
 }
 
 func (a *app) deleteBookmark(w http.ResponseWriter, r *http.Request) {

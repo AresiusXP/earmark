@@ -248,7 +248,12 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     2000 entries per user / 500 bookmarks per book enforced under an advisory lock (`409 limit_reached`); `finished_at` (migration `0012_library_finished_at.sql`,
     server clock, `library.Write.Now`) is set when an applied write turns the status to finished, kept while writes keep it finished
     (`COALESCE(stored, new)`, so retries and equal-timestamp rewrites do not move it), cleared (null) on `saved`/`listening`; pre-existing
-    finished rows were back-filled with their last write time; deleting an entry
+    finished rows were back-filled with their last write time; **Bookmarks** (contract v1.1, migration `0013_bookmark_client_id.sql`): optional
+    `client_id` (`^[A-Za-z0-9_-]{1,64}$`, unique per (user, asin) through a partial unique index); `CreateBookmark` looks it up first, under the
+    per-(user, book) advisory lock, so a retry returns the stored bookmark unchanged (200), counts once and is answered even at the 500 limit.
+    A bookmark on a book outside the user's library makes the handler call `EnsureBook` (404 for an unknown ASIN) and `Store.EnsureSaved` (insert
+    `saved` only when absent, same advisory lock and 2000 limit as `PutEntry`, `updated_at` 0 so any later client write wins LWW), then create it;
+    deleting an entry
     deletes its bookmarks (FK cascade), deleting a user cascades everything. `user_availability` is keyed by fingerprint, not user, so
     it has no FK to `users` (its rows are harmless booleans a key can only read itself).
   * **App update** (`appupdate` + `appupdate.go`): modelled on Echoes: directory `APP_UPDATE_DIR` (default `/update`) with `update.json`

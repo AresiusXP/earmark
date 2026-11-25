@@ -721,7 +721,20 @@ paths:
     post:
       tags: [library]
       operationId: createBookmark
-      description: Limit 500 per book (`409 limit_reached`). The book must be in the library.
+      description: |
+        Creates a bookmark. Limit 500 per book (`409 limit_reached`).
+
+        **Idempotent with `client_id`.** The app generates a UUID per bookmark and sends it as `client_id`
+        (1-64 characters of `A-Z a-z 0-9 - _`, unique per user and book). A repeated POST with the same
+        `client_id` for the same book does not create anything: it answers `200` with the EXISTING bookmark
+        (its original `position_ms`, `note` and `created_at`; the new body is ignored), counts once against
+        the limit, and is also answered at the limit. Retry freely after a timeout. Without `client_id` every
+        POST creates a bookmark. `client_id` is returned on the bookmark and in the list.
+
+        **The book need not be in the library.** When it is not, it is added first as status `saved` (fetched
+        into the catalog when unknown; the 2000-entry limit of `PUT /v1/me/library/{asin}` applies: `409
+        limit_reached`), then the bookmark is created. The added entry has `updated_at` 0, so any later write
+        from any device wins last-write-wins. An ASIN that is not a known book is `404 not_found`.
       requestBody:
         required: true
         content:
@@ -732,8 +745,10 @@ paths:
               properties:
                 position_ms: {type: integer, format: int64, minimum: 0}
                 note: {type: string, maxLength: 280}
+                client_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: Client-generated id (a UUID) that makes the request idempotent.}
       responses:
-        "200": {description: Created., content: {application/json: {schema: {$ref: "#/components/schemas/Bookmark"}}}}
+        "200": {description: "The created bookmark, or the existing one when `client_id` was repeated.", content: {application/json: {schema: {$ref: "#/components/schemas/Bookmark"}}}}
+        "400": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
   /v1/me/library/{asin}/bookmarks/{bookmarkId}:
@@ -875,6 +890,7 @@ components:
         id: {type: string}
         note: {type: string}
         created_at: {type: string, format: date-time}
+        client_id: {type: string, description: The `client_id` the bookmark was created with. Absent when none was sent.}
         expires_at: {type: string, format: date-time}
     Book:
       type: object
@@ -1029,3 +1045,4 @@ components:
         position_ms: {type: integer, format: int64}
         note: {type: string}
         created_at: {type: string, format: date-time}
+        client_id: {type: string, description: The `client_id` the bookmark was created with. Absent when none was sent.}

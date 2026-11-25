@@ -133,7 +133,7 @@ func (p *Postgres) DeleteEntry(ctx context.Context, userID, asin string) error {
 }
 
 func (p *Postgres) ListBookmarks(ctx context.Context, userID, asin string) ([]library.Bookmark, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id::text, position_ms, note, created_at FROM bookmarks
+	rows, err := p.pool.Query(ctx, `SELECT id::text, position_ms, note, created_at, coalesce(client_id, '') FROM bookmarks
 		WHERE user_id = $1::uuid AND asin = $2 ORDER BY position_ms, created_at, id LIMIT $3`,
 		userID, asin, library.MaxBookmarks)
 	if err != nil {
@@ -143,7 +143,7 @@ func (p *Postgres) ListBookmarks(ctx context.Context, userID, asin string) ([]li
 	out := []library.Bookmark{}
 	for rows.Next() {
 		var b library.Bookmark
-		if err := rows.Scan(&b.ID, &b.PositionMs, &b.Note, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.PositionMs, &b.Note, &b.CreatedAt, &b.ClientID); err != nil {
 			return nil, fmt.Errorf("store: list bookmarks: %w", err)
 		}
 		out = append(out, b)
@@ -151,7 +151,7 @@ func (p *Postgres) ListBookmarks(ctx context.Context, userID, asin string) ([]li
 	return out, rows.Err()
 }
 
-func (p *Postgres) CreateBookmark(ctx context.Context, userID, asin string, positionMs int64, note string) (library.Bookmark, error) {
+func (p *Postgres) CreateBookmark(ctx context.Context, userID, asin string, positionMs int64, note, clientID string) (library.Bookmark, error) {
 	var b library.Bookmark
 	err := p.inTx(ctx, "create bookmark", func(tx pgx.Tx) error {
 		if err := lockKey(ctx, tx, "bookmarks:"+userID+":"+asin); err != nil {
@@ -165,6 +165,17 @@ func (p *Postgres) CreateBookmark(ctx context.Context, userID, asin string, posi
 		if !inLibrary {
 			return library.ErrNotFound
 		}
+		if clientID != "" {
+			err := tx.QueryRow(ctx, `SELECT id::text, position_ms, note, created_at, client_id FROM bookmarks
+				WHERE user_id = $1::uuid AND asin = $2 AND client_id = $3`, userID, asin, clientID).
+				Scan(&b.ID, &b.PositionMs, &b.Note, &b.CreatedAt, &b.ClientID)
+			if err == nil {
+				return nil // a retry: the bookmark already exists and counts once
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+		}
 		var n int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM bookmarks WHERE user_id = $1::uuid AND asin = $2`, userID, asin).Scan(&n); err != nil {
 			return err
@@ -172,9 +183,9 @@ func (p *Postgres) CreateBookmark(ctx context.Context, userID, asin string, posi
 		if n >= library.MaxBookmarks {
 			return library.ErrLimitReached
 		}
-		return tx.QueryRow(ctx, `INSERT INTO bookmarks (user_id, asin, position_ms, note)
-			VALUES ($1::uuid, $2, $3, $4) RETURNING id::text, position_ms, note, created_at`,
-			userID, asin, positionMs, note).Scan(&b.ID, &b.PositionMs, &b.Note, &b.CreatedAt)
+		return tx.QueryRow(ctx, `INSERT INTO bookmarks (user_id, asin, position_ms, note, client_id)
+			VALUES ($1::uuid, $2, $3, $4, NULLIF($5, '')) RETURNING id::text, position_ms, note, created_at, coalesce(client_id, '')`,
+			userID, asin, positionMs, note, clientID).Scan(&b.ID, &b.PositionMs, &b.Note, &b.CreatedAt, &b.ClientID)
 	})
 	switch {
 	case errors.Is(err, library.ErrNotFound):
@@ -183,6 +194,45 @@ func (p *Postgres) CreateBookmark(ctx context.Context, userID, asin string, posi
 		return library.Bookmark{}, library.ErrLimitReached
 	}
 	return b, err
+}
+
+// EnsureSaved inserts a `saved` entry when the user has none, under the same lock and limit as PutEntry.
+func (p *Postgres) EnsureSaved(ctx context.Context, userID, asin string) (bool, error) {
+	added := false
+	err := p.inTx(ctx, "ensure saved library entry", func(tx pgx.Tx) error {
+		if err := lockKey(ctx, tx, "library:"+userID); err != nil {
+			return err
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM user_library WHERE user_id = $1::uuid AND asin = $2)`,
+			userID, asin).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
+		var n int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM user_library WHERE user_id = $1::uuid`, userID).Scan(&n); err != nil {
+			return err
+		}
+		if n >= library.MaxEntries {
+			return library.ErrLimitReached
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO user_library (user_id, asin, status, updated_at) VALUES ($1::uuid, $2, 'saved', 0)`,
+			userID, asin); err != nil {
+			return err
+		}
+		added = true
+		return nil
+	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return false, library.ErrUnknownBook
+	}
+	if errors.Is(err, library.ErrLimitReached) {
+		return false, library.ErrLimitReached
+	}
+	return added, err
 }
 
 func (p *Postgres) DeleteBookmark(ctx context.Context, userID, asin, id string) error {
