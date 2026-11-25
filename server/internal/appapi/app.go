@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AresiusXP/earmark/server/internal/accounts"
 	"github.com/AresiusXP/earmark/server/internal/appupdate"
 	"github.com/AresiusXP/earmark/server/internal/debrid"
 	"github.com/AresiusXP/earmark/server/internal/library"
@@ -77,6 +78,8 @@ type app struct {
 	work *workGate
 	// appDL bounds concurrent APK downloads (the route is unauthenticated).
 	appDL chan struct{}
+	// updateCap and apkCap are global request-rate caps of the two unauthenticated update routes.
+	updateCap, apkCap *accounts.RateCap
 }
 
 // MountApp registers the catalog (search, discover, books, chapters), release (prepare, download,
@@ -95,6 +98,7 @@ func (a *API) MountApp(d AppDeps) {
 		API: a, d: d, log: d.Logger, now: d.Clock, allow: NewLinkAllowlist(d.LinkHosts),
 		links: newLinkCache(d.Clock), trk: newTracker(d.Clock), bud: newBudget(d.AddsPerHour, d.Clock),
 		work: newWorkGate(d.MaxWork, d.MaxWorkPerKey), appDL: make(chan struct{}, maxAppDownloads),
+		updateCap: accounts.NewRateCap(5, 20, d.Clock), apkCap: accounts.NewRateCap(2, 20, d.Clock),
 	}
 	a.Extend(func(r Router) {
 		m, auth := r.Mux, r.Auth

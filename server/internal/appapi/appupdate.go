@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// maxAppDownloads bounds concurrent APK downloads. The route is unauthenticated and clients
-// behind Cloudflare/Traefik are not distinguishable, so the limit is global.
+// maxAppDownloads bounds concurrent APK downloads. The routes are unauthenticated and clients
+// behind Cloudflare/Traefik are not distinguishable, so the limits (this one and the request-rate
+// caps in MountApp) are global.
 const maxAppDownloads = 4
 
 type appUpdateDTO struct {
@@ -19,6 +20,10 @@ type appUpdateDTO struct {
 }
 
 func (a *app) appUpdate(w http.ResponseWriter, _ *http.Request) {
+	if err := a.updateCap.Admit(); err != nil {
+		a.fail(w, err)
+		return
+	}
 	info, ok := a.d.Update.Info()
 	if !ok {
 		WriteJSON(w, http.StatusOK, appUpdateDTO{})
@@ -31,6 +36,10 @@ func (a *app) appUpdate(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) appUpdateAPK(w http.ResponseWriter, r *http.Request) {
+	if err := a.apkCap.Admit(); err != nil {
+		a.fail(w, err)
+		return
+	}
 	content, info, ok := a.d.Update.APK()
 	if !ok {
 		WriteError(w, http.StatusNotFound, "not_found", "no app update is bundled with this server")

@@ -249,3 +249,38 @@ func TestGoogleUnlinkIsIdempotentAndReturnsTheUser(t *testing.T) {
 		t.Fatal("unlink did not reach the store")
 	}
 }
+
+func TestGoogleNonceRateCap(t *testing.T) {
+	s, c := newGoogleService(t, &googleStub{}, &fakeVerifier{})
+	for i := 0; i < 20; i++ {
+		if _, _, err := s.GoogleNonce(); err != nil {
+			t.Fatalf("nonce %d: %v", i, err)
+		}
+	}
+	var le *LimitError
+	if _, _, err := s.GoogleNonce(); !errors.As(err, &le) || le.RetryAfter < time.Second {
+		t.Fatalf("over the cap: %v", err)
+	}
+	c.Advance(time.Second)
+	if _, _, err := s.GoogleNonce(); err != nil {
+		t.Fatalf("after the cap window: %v", err)
+	}
+}
+
+func TestRateCapExported(t *testing.T) {
+	c := newClock()
+	rc := NewRateCap(2, 3, c.Now)
+	for i := 0; i < 3; i++ {
+		if err := rc.Admit(); err != nil {
+			t.Fatalf("burst %d: %v", i, err)
+		}
+	}
+	var le *LimitError
+	if err := rc.Admit(); !errors.As(err, &le) {
+		t.Fatalf("over the burst: %v", err)
+	}
+	c.Advance(time.Second)
+	if err := rc.Admit(); err != nil {
+		t.Fatalf("after refill: %v", err)
+	}
+}
