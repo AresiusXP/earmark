@@ -320,6 +320,7 @@ type relEnv struct {
 	rd     *rdFake
 	tb     *tbFake
 	logs   *syncBuf
+	bodyMu sync.Mutex
 	bodies []string // every response body and header value seen (for the secret scan)
 	secret []string // strings that must never show up in a log or a body
 }
@@ -417,7 +418,9 @@ func (e *relEnv) call(h http.HandlerFunc, user, method, target string, body any,
 	rec.Header().Set("Cache-Control", "no-store") // what API.ServeHTTP does for every /v1 response
 	h(rec, req)
 	if loc := rec.Header().Get("Location"); loc == "" {
+		e.bodyMu.Lock()
 		e.bodies = append(e.bodies, rec.Body.String())
+		e.bodyMu.Unlock()
 	}
 	return reply{rec}
 }

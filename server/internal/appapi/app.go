@@ -69,7 +69,9 @@ type app struct {
 	bud   *budget
 	prep  flights[prepResult]
 	dl    flights[prepResult]
-	work  *workGate
+	// cold is the cold-add step of one (fingerprint, provider, hash), shared by prepare and download.
+	cold flights[coldOut]
+	work *workGate
 	// appDL bounds concurrent APK downloads (the route is unauthenticated).
 	appDL chan struct{}
 }

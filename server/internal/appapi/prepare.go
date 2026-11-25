@@ -63,10 +63,34 @@ type prepIn struct {
 	wantFiles bool // prepare: include the file list of a ready torrent
 }
 
+// coldOut is what the shared cold-add flight tells every caller of one (fingerprint, provider,
+// hash). Either the flight ends the request itself (early: a cooldown, a failed torrent, a spent
+// budget, a rejected key...), or the torrent is in the account afterwards and the caller resolves
+// its own file. did says the flight made the provider's add call itself, for fileIndex.
+type coldOut struct {
+	early   bool
+	res     prepResult
+	err     error
+	known   bool // the torrent was already in the account (no add was made)
+	did     bool
+	files   []model.File // file list learned by the cache check (TorBox)
+	idx     int
+	pending debrid.ResolveResult // the add call's answer when did and resErr == nil
+	resErr  error                // the add call's index-specific error (file not in the torrent)
+}
+
+func coldKey(fp, provider, hash string) string { return fp + "\x00" + provider + "\x00" + hash }
+
 // prepare asks the caller's provider about one release using ONLY the caller's key. It adds the
 // torrent at most once per key (the add budget applies to cold adds; polling a queued torrent is
-// free), never on !allowAdd, and returns what the provider reports. Callers coalesce it per key.
+// free) and returns what the provider reports. Callers coalesce it per key (prepare) or per file
+// (download); the cold add itself is ONE flight per (fingerprint, provider, hash) shared by both
+// routes, so concurrent prepares and downloads of any file of a torrent add it and spend the
+// budget once. A !allowAdd call (HEAD) only reads: see peek.
 func (a *app) prepare(ctx context.Context, in prepIn) (prepResult, error) {
+	if !in.allowAdd {
+		return a.peek(ctx, in)
+	}
 	fp, name, hash := in.key.Fingerprint, in.provider.Name(), in.rel.InfoHash
 	apiKey := in.key.APIKey()
 	k := prepKey{fp, name, hash}
@@ -76,69 +100,41 @@ func (a *app) prepare(ctx context.Context, in prepIn) (prepResult, error) {
 	}
 	st := a.trk.get(k)
 	now := a.now()
-	if !st.failedAt.IsZero() {
-		if now.Sub(st.failedAt) < failedTTL || !in.allowAdd {
-			return prepResult{State: stateFailed, Reason: st.failReason}, nil
-		}
-		if d, ok := in.provider.(debrid.Deleter); ok {
-			_ = d.Delete(ctx, apiKey, hash) // best effort: a failed torrent would keep failing
-		}
-		a.trk.forget(k)
-		st = prepState{}
+	if !st.failedAt.IsZero() && now.Sub(st.failedAt) < failedTTL {
+		return prepResult{State: stateFailed, Reason: st.failReason}, nil
 	}
 	if in.wantFiles && st.readyUntil.After(now) {
 		return prepResult{State: stateReady, Files: st.files}, nil
 	}
 
-	known, freeAdd := st.inAccount, false
-	var cachedFiles []model.File
-	if !known {
-		if lister, ok := in.provider.(debrid.FileLister); ok {
-			// Read-only: tells whether the torrent is already in the caller's account.
-			_, err := lister.Files(ctx, apiKey, hash)
-			switch {
-			case err == nil:
-				known = true
-			case errors.Is(err, debrid.ErrNotFound):
-			default:
-				return a.failure(in, k, err)
-			}
-		} else if in.allowAdd { // the cache check stores what it learns: not on HEAD
-			cached, files, err := a.checkCached(ctx, in)
-			switch {
-			case err == nil:
-				freeAdd, cachedFiles = cached, files
-			case errors.Is(err, debrid.ErrBadKey), errors.Is(err, debrid.ErrRateLimited):
-				return a.failure(in, k, err)
-			} // anything else: cache state unknown, carry on as a cold add
+	cold := coldOut{known: true}
+	if !st.inAccount || !st.failedAt.IsZero() {
+		out, err := a.cold.do(ctx, coldKey(fp, name, hash), flightTimeout, nil, func(ctx context.Context) (coldOut, error) {
+			return a.coldAdd(ctx, in), nil
+		})
+		if err != nil {
+			return a.failure(in, k, err) // the wait ended (timeout, caller gone)
 		}
-		if known {
-			a.trk.update(k, func(s *prepState) { s.inAccount = true })
+		if out.early {
+			return out.res, out.err
 		}
-	}
-	if !known && !in.allowAdd {
-		return prepResult{State: statePreparing}, nil
-	}
-	spent := false
-	if !known && !freeAdd {
-		ok, after := a.bud.spend(fp)
-		if !ok {
-			return prepResult{}, &budgetError{after}
-		}
-		spent = true
+		cold = out
 	}
 
-	res, err := in.provider.Resolve(ctx, apiKey, debrid.ResolveRequest{InfoHash: hash, Magnet: in.rel.Magnet, FileIndex: in.fileIndex})
+	var res debrid.ResolveResult
+	var err error
+	if cold.did && cold.idx == in.fileIndex {
+		res, err = cold.pending, cold.resErr
+	} else {
+		res, err = in.provider.Resolve(ctx, apiKey, debrid.ResolveRequest{InfoHash: hash, Magnet: in.rel.Magnet, FileIndex: in.fileIndex})
+	}
 	if err != nil {
-		if spent && (errors.Is(err, debrid.ErrBadKey) || errors.Is(err, debrid.ErrRateLimited)) {
-			a.bud.refund(fp) // rejected before anything was added
-		}
 		return a.failure(in, k, err)
 	}
 	a.trk.update(k, func(s *prepState) { s.inAccount = true })
 	perKey := !service.SharedCache(name)
 	if res.Pending {
-		if !known && perKey {
+		if !cold.known && perKey {
 			a.recordUserAvail(ctx, fp, name, hash, false)
 		}
 		return prepResult{State: statePreparing, Progress: res.Progress, HasProgress: true}, nil
@@ -148,10 +144,113 @@ func (a *app) prepare(ctx context.Context, in prepIn) (prepResult, error) {
 	}
 	out := prepResult{State: stateReady, URL: res.URL}
 	if in.wantFiles {
-		out.Files = a.readyFiles(ctx, in, cachedFiles)
+		out.Files = a.readyFiles(ctx, in, cold.files)
 		a.trk.update(k, func(s *prepState) { s.readyUntil = now.Add(readyTTL); s.files = out.Files })
 	}
 	return out, nil
+}
+
+// coldAdd is the shared flight: it makes sure the torrent is in the caller's account. It looks the
+// torrent up read-only first (RD: Files; TorBox: a cache check that is stored for everybody),
+// spends one budget slot and calls the provider's add (Resolve) only when it is not there, and
+// retries a failed torrent once its failure has aged. The flight leader's own file is resolved by
+// that add call; every other caller resolves its file afterwards, when the torrent is known.
+func (a *app) coldAdd(ctx context.Context, in prepIn) coldOut {
+	fp, name, hash := in.key.Fingerprint, in.provider.Name(), in.rel.InfoHash
+	apiKey := in.key.APIKey()
+	k := prepKey{fp, name, hash}
+	early := func(res prepResult, err error) coldOut { return coldOut{early: true, res: res, err: err} }
+
+	if left := a.trk.coolingDown(fp, name); left > 0 {
+		return early(cooldownResult(left), nil)
+	}
+	st := a.trk.get(k)
+	if !st.failedAt.IsZero() {
+		if a.now().Sub(st.failedAt) < failedTTL {
+			return early(prepResult{State: stateFailed, Reason: st.failReason}, nil)
+		}
+		if d, ok := in.provider.(debrid.Deleter); ok {
+			_ = d.Delete(ctx, apiKey, hash) // best effort: a failed torrent would keep failing
+		}
+		a.trk.forget(k)
+		st = prepState{}
+	}
+	if st.inAccount {
+		return coldOut{known: true}
+	}
+
+	var cachedFiles []model.File
+	freeAdd := false
+	if lister, ok := in.provider.(debrid.FileLister); ok {
+		// Read-only: tells whether the torrent is already in the caller's account.
+		_, err := lister.Files(ctx, apiKey, hash)
+		switch {
+		case err == nil:
+			a.trk.update(k, func(s *prepState) { s.inAccount = true })
+			return coldOut{known: true}
+		case errors.Is(err, debrid.ErrNotFound):
+		default:
+			return early(a.failure(in, k, err))
+		}
+	} else {
+		cached, files, err := a.checkCached(ctx, in)
+		switch {
+		case err == nil:
+			freeAdd, cachedFiles = cached, files
+		case errors.Is(err, debrid.ErrBadKey), errors.Is(err, debrid.ErrRateLimited):
+			return early(a.failure(in, k, err))
+		} // anything else: cache state unknown, carry on as a cold add
+	}
+	spent := false
+	if !freeAdd {
+		ok, after := a.bud.spend(fp)
+		if !ok {
+			return early(prepResult{}, &budgetError{after})
+		}
+		spent = true
+	}
+	res, err := in.provider.Resolve(ctx, apiKey, debrid.ResolveRequest{InfoHash: hash, Magnet: in.rel.Magnet, FileIndex: in.fileIndex})
+	if err != nil {
+		if spent && (errors.Is(err, debrid.ErrBadKey) || errors.Is(err, debrid.ErrRateLimited)) {
+			a.bud.refund(fp) // rejected before anything was added
+		}
+		if errors.Is(err, debrid.ErrNotFound) {
+			// Specific to the leader's file: the others resolve their own.
+			return coldOut{did: true, idx: in.fileIndex, resErr: err, files: cachedFiles}
+		}
+		return early(a.failure(in, k, err))
+	}
+	a.trk.update(k, func(s *prepState) { s.inAccount = true })
+	return coldOut{did: true, idx: in.fileIndex, pending: res, files: cachedFiles}
+}
+
+// peek answers a !allowAdd call (HEAD) with read-only knowledge only: the in-memory state of the
+// key, and a read-only provider listing (Files). It never calls Resolve (which adds torrents and
+// selects files), never spends budget and writes no availability. What it cannot prove read-only
+// is answered as "preparing" (202).
+func (a *app) peek(ctx context.Context, in prepIn) (prepResult, error) {
+	fp, name, hash := in.key.Fingerprint, in.provider.Name(), in.rel.InfoHash
+	k := prepKey{fp, name, hash}
+	if left := a.trk.coolingDown(fp, name); left > 0 {
+		return cooldownResult(left), nil
+	}
+	st := a.trk.get(k)
+	if !st.failedAt.IsZero() {
+		return prepResult{State: stateFailed, Reason: st.failReason}, nil // a HEAD never retries
+	}
+	if !st.inAccount {
+		if lister, ok := in.provider.(debrid.FileLister); ok {
+			_, err := lister.Files(ctx, in.key.APIKey(), hash)
+			switch {
+			case err == nil:
+				a.trk.update(k, func(s *prepState) { s.inAccount = true })
+			case errors.Is(err, debrid.ErrNotFound):
+			default:
+				return a.failure(in, k, err)
+			}
+		}
+	}
+	return prepResult{State: statePreparing}, nil
 }
 
 func cooldownResult(left time.Duration) prepResult {
