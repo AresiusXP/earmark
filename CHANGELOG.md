@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.0](https://github.com/AresiusXP/earmark/compare/v0.4.0...v0.5.0) (2026-11-25)
+
+
+### Features
+
+* **app:** complete Spanish appearance settings translations ([ccfbf45](https://github.com/AresiusXP/earmark/commit/ccfbf45285f1deabe4d220cd7702df4178141623))
+* **app:** in-app theme choice (System/Light/Dark), optional light player, neutral splash ([53521b1](https://github.com/AresiusXP/earmark/commit/53521b1c1fd410fc6654a7432214a8dd54508f05))
+* **app:** Spanish (es-AR) translation of every string ([12b8007](https://github.com/AresiusXP/earmark/commit/12b8007be4ceb19b7775c1341f1c6d6474b32d74))
+* **app:** Spanish as a book language, Spanish greetings, demo books ([49304f0](https://github.com/AresiusXP/earmark/commit/49304f0f81e08fe4f4a19a32886073156b0505d8))
+* **server:** detect, match and search Spanish releases (language tags, accent folding, folded source queries) ([aa4f953](https://github.com/AresiusXP/earmark/commit/aa4f9532cf347ccd3a6e6afb1231874fa6c976af))
+* **server:** Spanish ('es') as a third book language in settings, legacy config, DB check and the configure page ([66592b0](https://github.com/AresiusXP/earmark/commit/66592b0a0732699096b7b10df0c7e092b729134b))
+* **server:** Spanish catalog search and discover across the es and user marketplaces, book lookup falls back between es and us ([e7cdaae](https://github.com/AresiusXP/earmark/commit/e7cdaae76c0c38aacdd76c5b5d0b7ad6d85a8d87))
+
+
+### Bug Fixes
+
+* **app:** longer translations no longer clip (primary buttons, download rows, dark BitTorrent text) ([43b73e1](https://github.com/AresiusXP/earmark/commit/43b73e10097f994ad1ff4e039429da88cb15a44d))
+
+
+### Documentation
+
+* **app:** theme choice and the optional light player in DESIGN and README; fix segmented control border ([99ec1ec](https://github.com/AresiusXP/earmark/commit/99ec1ecae2fef317224a1f0cd9e696b1f4a29e96))
+* Spanish language, marketplaces, Audnexus regions and release markers ([8f5b4fa](https://github.com/AresiusXP/earmark/commit/8f5b4fa381e5644645da648e8e2e5ae4288a65af))
+
 ## [0.4.0](https://github.com/AresiusXP/earmark/compare/v0.3.1...v0.4.0) (2026-11-25)
 
 
