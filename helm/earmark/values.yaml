@@ -43,7 +43,7 @@ allowOpenConfig: false
 # Sign in with Google (an additional sign-in method for the app): the WEB OAuth client ID, used as the
 # audience of the ID tokens. Public, so a plain value, not a Secret. Empty = feature off (the Google
 # routes answer 404 google_disabled). More audiences: add GOOGLE_CLIENT_IDS (comma list) via extraEnv.
-# audiobooks.aresius.xyz: 34828481793-g6n5cm2psogtrga580g41tmgab4h264p.apps.googleusercontent.com
+# e.g. googleClientId: 1234567890-abcdefg.apps.googleusercontent.com (the app's -PgoogleServerClientId must match).
 googleClientId: ""
 
 # /v1 release routes (plain values, rendered only when set; the server has defaults).
@@ -83,6 +83,7 @@ resources:
     cpu: 50m
     memory: 64Mi
   limits:
+    cpu: "1"
     memory: 256Mi
 
 nodeSelector: {}
@@ -92,21 +93,44 @@ affinity: {}
 ingress:
   enabled: true
   className: traefik
-  host: earmark.aresius.xyz
-  # Extra hostnames served by the same Ingress (and covered by the same certificate). audiobooks.aresius.xyz
-  # is the old name: Stremio install URLs contain the host, so it keeps working until the addon is retired.
-  extraHosts:
-    - audiobooks.aresius.xyz
+  # Replace with your own hostname. Also the default of publicUrl (https://<host>).
+  host: earmark.example.com
+  # Extra hostnames served by the same Ingress (and covered by the same certificate), e.g. an old name
+  # that must keep working: Stremio install URLs contain the host.
+  extraHosts: []
+  # cert-manager.io/cluster-issuer is an example: set the name of your own (Cluster)Issuer, or drop the
+  # annotations if the certificate is managed elsewhere.
   annotations:
     kubernetes.io/tls-acme: "true"
     cert-manager.io/cluster-issuer: letsencrypt
-    external-dns.aresius.xyz: pihole
     ingress.kubernetes.io/force-hsts: "true"
-  labels:
-    external-dns.aresius.xyz: pihole
+  labels: {}
+  # Example of environment-specific extras (here: the maintainer's external-dns/Pi-hole setup):
+  #   annotations:
+  #     external-dns.aresius.xyz: pihole
+  #   labels:
+  #     external-dns.aresius.xyz: pihole
   tls:
     enabled: true
-    secretName: earmark.aresius.xyz-tls
+    # Empty = <host>-tls
+    secretName: ""
+
+# Optional NetworkPolicy for the pods. Ingress only: egress stays open (the server calls debrid providers,
+# metadata sources and trackers, whose addresses are not predictable).
+#  * http port: only from the namespace(s) selected by ingressControllerNamespaceSelector (your ingress
+#    controller, e.g. traefik / ingress-nginx). Other clients (same namespace, ...) need extraIngress.
+#  * admin/metrics port: only from the namespace(s) selected by metricsNamespaceSelector (Prometheus).
+# NetworkPolicy needs a CNI that enforces it; the selectors match the kubernetes.io/metadata.name label.
+networkPolicy:
+  enabled: false
+  ingressControllerNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: traefik
+  metricsNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+  # Extra raw `ingress` rules (NetworkPolicyIngressRule list) appended to the two above.
+  extraIngress: []
 
 # Prometheus Operator ServiceMonitor (scrapes /metrics on the admin port).
 serviceMonitor:
