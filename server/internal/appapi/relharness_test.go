@@ -16,6 +16,7 @@ import (
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/library"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
@@ -89,6 +90,7 @@ type memStore struct {
 	shared      map[string]map[string]service.Availability // provider -> hash
 	userAvail   map[string]bool                            // fingerprint|provider|hash
 	saveFiles   int
+	durations   map[string]map[string]int64
 }
 
 func newMemStore() *memStore {
@@ -121,6 +123,38 @@ func (m *memStore) SaveClientFiles(_ context.Context, h string, fs []model.File)
 	}
 	m.clientFiles[h] = fs
 	return fs, true, nil
+}
+func (m *memStore) ClientFiles(_ context.Context, hs []string) (map[string][]model.File, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string][]model.File{}
+	for _, h := range hs {
+		if f, ok := m.clientFiles[h]; ok {
+			out[h] = f
+		}
+	}
+	return out, nil
+}
+func (m *memStore) SaveFileDurations(_ context.Context, h string, ds []library.FileDuration) ([]library.FileDuration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.releases[h]; !ok {
+		return nil, library.ErrUnknownRelease
+	}
+	if m.durations == nil {
+		m.durations = map[string]map[string]int64{}
+	}
+	if m.durations[h] == nil {
+		m.durations[h] = map[string]int64{}
+	}
+	out := []library.FileDuration{}
+	for _, d := range ds {
+		if _, ok := m.durations[h][d.Path]; !ok {
+			m.durations[h][d.Path] = d.DurationMs
+		}
+		out = append(out, library.FileDuration{Path: d.Path, DurationMs: m.durations[h][d.Path]})
+	}
+	return out, nil
 }
 func (m *memStore) Files(_ context.Context, hs []string) (map[string][]model.File, error) {
 	m.mu.Lock()

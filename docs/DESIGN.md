@@ -189,7 +189,10 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     either list (`files` or `torrent_files`); each list is filtered to this book's files.
   * **Chapters.** `metadata.Client.ChapterList` (Audnexus `/books/{asin}/chapters`) caches 24 h (misses 1 h, errors never) in a
     bounded in-memory map; `service.Chapters` asks the stored book's region first, then the caller's; unknown = empty
-    `chapters` and the catalog runtime; an Audnexus outage is `502 upstream_failed`.
+    `chapters` and the catalog runtime; an Audnexus outage is `502 upstream_failed`. Contract v1.1: `ChapterList` also carries
+    Audnexus' `brandIntroDurationMs` / `brandOutroDurationMs` (cached with the list; negative or longer than the runtime = unknown), exposed as
+    optional `intro_ms` / `outro_ms` (omitted when 0/unknown) so the app can align Audible marks with a release that has the branding cut.
+    Audnexus' `isAccurate` is deliberately not exposed. `service.ChapterList` is the full result (`Chapters` is a thin wrapper).
   * **prepare** (`prepare.go`). Uses only the caller's key (`DebridKey` + `KeyError`; `ErrBadKey` from the provider calls
     `MarkInvalid`, drops the key's cached links and answers `403 bad_debrid_key`). The torrent is added at most once per key:
     in-memory state per (fingerprint, provider, hash) remembers "in the account" for 30 min; before the first add RD is asked
@@ -238,11 +241,27 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   * **torrent-files**: <= 2000 files, index unique >= 0, size >= 0, path normalised (`\` -> `/`, empty and `.` segments dropped), rejected
     when it has control chars/NUL, a `..` segment, invalid UTF-8 or > 512 bytes; body <= 2 MiB; stored once per hash; later calls
     get the stored list back; unknown release 404.
+  * **durations** (contract v1.1, `releases.go` `durations`, migration `0014_release_file_durations.sql`): phones that decoded their files report
+    `{path, duration_ms}`; table `release_file_durations(info_hash FK cascade, path, duration_ms CHECK 1000..172800000, PRIMARY KEY (info_hash, path))`.
+    `model.NormalizePath` is the single path normaliser (also used by `torrent-files`); a reported path is stored only when its normalised form is that
+    of an AUDIO file in `release_files` or `release_client_files` of the hash (anything else is counted in `ignored`, never stored), <= 2000 entries,
+    one per normalised path, body <= 2 MiB, any out-of-range value is 400 for the whole request. `SaveFileDurations` is first-writer-wins
+    (`ON CONFLICT DO NOTHING` under a per-release advisory lock, so overlapping reports cannot deadlock) and returns the stored values; a later differing report
+    from another user is ignored. `service.withDurations` (optional `DurationStore` on the `UserStore`, /v1 book page only) sets `File.DurationMs` on copies
+    of `files` and `torrent_files` by normalised path; Stremio is untouched. No reporter is recorded.
   * **Library**: every query carries `user_id`; PUT is an upsert of the whole entry with last-write-wins on `updated_at`
     (`WHERE stored.updated_at <= excluded.updated_at`: an equal timestamp is applied so retries are idempotent, an older write returns
     the stored entry); `updated_at` more than 24 h in the future is `400` (otherwise one wild clock would lock the other devices out);
     unknown ASIN -> `EnsureBook` (404 when Audible does not know it); `release_hash` must be a stored release (`400`);
-    2000 entries per user / 500 bookmarks per book enforced under an advisory lock (`409 limit_reached`); deleting an entry
+    2000 entries per user / 500 bookmarks per book enforced under an advisory lock (`409 limit_reached`); `finished_at` (migration `0012_library_finished_at.sql`,
+    server clock, `library.Write.Now`) is set when an applied write turns the status to finished, kept while writes keep it finished
+    (`COALESCE(stored, new)`, so retries and equal-timestamp rewrites do not move it), cleared (null) on `saved`/`listening`; pre-existing
+    finished rows were back-filled with their last write time; **Bookmarks** (contract v1.1, migration `0013_bookmark_client_id.sql`): optional
+    `client_id` (`^[A-Za-z0-9_-]{1,64}$`, unique per (user, asin) through a partial unique index); `CreateBookmark` looks it up first, under the
+    per-(user, book) advisory lock, so a retry returns the stored bookmark unchanged (200), counts once and is answered even at the 500 limit.
+    A bookmark on a book outside the user's library makes the handler call `EnsureBook` (404 for an unknown ASIN) and `Store.EnsureSaved` (insert
+    `saved` only when absent, same advisory lock and 2000 limit as `PutEntry`, `updated_at` 0 so any later client write wins LWW), then create it;
+    deleting an entry
     deletes its bookmarks (FK cascade), deleting a user cascades everything. `user_availability` is keyed by fingerprint, not user, so
     it has no FK to `users` (its rows are harmless booleans a key can only read itself).
   * **App update** (`appupdate` + `appupdate.go`): modelled on Echoes: directory `APP_UPDATE_DIR` (default `/update`) with `update.json`
@@ -252,8 +271,9 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     limited to 4 concurrent downloads (`503` + `Retry-After`) and is `no-store` like every other response (no override). `APP_UPDATE_MAX_BYTES`
     (default 200 MiB) is checked when the bundle is loaded: a larger APK (by `update.json` or on disk) means "no update", with a warning. The app compares `version_code` itself and verifies the sha256. The
     release pipeline that bakes the files into the image is Phase 5.
-  * **Caching headers**: `search`, `discover`, `books/{asin}` and `chapters` answer `private, max-age=300` on 200 only; everything else
-    (the APK included) `no-store`.
+  * **Caching headers**: `search`, `discover` and `chapters` answer `private, max-age=300` on 200 only; `books/{asin}` answers
+    `private, no-store` (it mixes the caller's `cached`/`usable` into shared data; contract v1.1, it used to be `max-age=300`, which
+    showed a stale cache state right after a key change or prepare); everything else (the APK included) `no-store`.
   * **Housekeeping**: `cmd/addon/cleanup.go` deletes `user_availability` rows older than 30 days at start and every 6 hours (context-aware;
     readers ignore anything older than the availability TTL anyway, this only bounds the table).
   * New env: `PREPARE_ADDS_PER_HOUR` (default 30), `APP_UPDATE_DIR` (default `/update`), `APP_UPDATE_MAX_BYTES` (default 209715200),
@@ -359,6 +379,10 @@ provider index); consumers match by path, never by index.
   characters) are normalised like the server does and shown as QR + blocks of five + Copy/Share + countdown; the sign-in screens take
   paste or Google's code scanner (no camera permission). Sign-out never waits for the server. `PATCH /v1/me` clears
   `preferred_provider` with an explicit JSON `null`.
+* Contract v1.1 text (no behaviour change): codes are 26 Crockford characters shown `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX`; the server's `normCode` already ignores case,
+  `-`, spaces, tabs and line breaks and folds `I`/`L` to `1` and `O` to `0` (`TestCodeFormatAndTypedCodes`), so the app may send any spelling. `HEAD` on the download
+  route is its own operation in the contract (`headDownloadFile`). `DELETE /v1/me/devices/{id}` with the current device's id is the sign-out (204, then that
+  device's tokens are 401; `TestSignOutOfTheCurrentDevice`). Every operation that can answer `400 invalid_request` declares `components.responses.InvalidRequest` (with examples).
 * Visual design ("reading room": paper, ink, persimmon; Fraunces + Hanken Grotesk; cover-derived color; wavy progress): `app/DESIGN.md`.
 * Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.

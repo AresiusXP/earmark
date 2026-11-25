@@ -306,26 +306,7 @@ func (a *app) redirect(w http.ResponseWriter, provider, link string) {
 
 // cleanTorrentPath normalises a reported path: separators become "/", empty and "." segments go,
 // and NUL/control characters, ".." segments, invalid UTF-8 and over-long paths are rejected.
-func cleanTorrentPath(p string) (string, bool) {
-	if !utf8.ValidString(p) || strings.IndexFunc(p, unicode.IsControl) >= 0 {
-		return "", false
-	}
-	var segs []string
-	for _, s := range strings.Split(strings.ReplaceAll(p, "\\", "/"), "/") {
-		switch s {
-		case "", ".":
-		case "..":
-			return "", false
-		default:
-			segs = append(segs, s)
-		}
-	}
-	out := strings.Join(segs, "/")
-	if out == "" || len(out) > library.MaxPathBytes {
-		return "", false
-	}
-	return out, true
-}
+func cleanTorrentPath(p string) (string, bool) { return model.NormalizePath(p) }
 
 func (a *app) torrentFiles(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
@@ -379,4 +360,105 @@ func (a *app) torrentFiles(w http.ResponseWriter, r *http.Request) {
 	default:
 		WriteJSON(w, http.StatusOK, map[string]any{"torrent_files": toFiles(stored)})
 	}
+}
+
+// ---- durations ------------------------------------------------------------------------------
+
+// durations stores audio durations a phone measured, for files of this release only: every path is
+// normalised and must be an audio file of the debrid or the client-reported file list. First report
+// wins; nothing is ever replaced.
+func (a *app) durations(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	if !hashRe.MatchString(hash) {
+		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid info hash")
+		return
+	}
+	var in struct {
+		Durations []struct {
+			Path       string `json:"path"`
+			DurationMs *int64 `json:"duration_ms"`
+		} `json:"durations"`
+	}
+	if err := readJSONLimit(w, r, &in, maxTorrentFilesBody, false); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+	if len(in.Durations) == 0 || len(in.Durations) > library.MaxDurations {
+		WriteError(w, http.StatusBadRequest, "invalid_request", "durations must hold 1-2000 entries")
+		return
+	}
+	ds := make([]library.FileDuration, 0, len(in.Durations))
+	seen := make(map[string]bool, len(in.Durations))
+	for _, d := range in.Durations {
+		path, ok := cleanTorrentPath(d.Path)
+		if !ok || d.DurationMs == nil || *d.DurationMs < library.MinDurationMs || *d.DurationMs > library.MaxDurationMs || seen[path] {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "each entry needs a unique clean path of at most 512 bytes and duration_ms between 1000 (1 s) and 172800000 (48 h)")
+			return
+		}
+		seen[path] = true
+		ds = append(ds, library.FileDuration{Path: path, DurationMs: *d.DurationMs})
+	}
+	rel, err := a.d.Store.GetRelease(r.Context(), hash)
+	if err != nil {
+		a.log.Error("load release failed", "err", err)
+		WriteError(w, http.StatusInternalServerError, "upstream_failed", "internal error")
+		return
+	}
+	if rel == nil {
+		WriteError(w, http.StatusNotFound, "not_found", "unknown release")
+		return
+	}
+	known, err := a.knownAudioPaths(r.Context(), hash)
+	if err != nil {
+		a.log.Error("load release files failed", "err", err)
+		WriteError(w, http.StatusInternalServerError, "upstream_failed", "internal error")
+		return
+	}
+	matched := ds[:0:0]
+	for _, d := range ds {
+		if known[d.Path] {
+			matched = append(matched, d)
+		}
+	}
+	stored, err := a.d.Store.SaveFileDurations(r.Context(), hash, matched)
+	switch {
+	case errors.Is(err, library.ErrUnknownRelease):
+		WriteError(w, http.StatusNotFound, "not_found", "unknown release")
+		return
+	case err != nil:
+		a.log.Error("store file durations failed", "err", err)
+		WriteError(w, http.StatusInternalServerError, "upstream_failed", "internal error")
+		return
+	}
+	type durationDTO struct {
+		Path       string `json:"path"`
+		DurationMs int64  `json:"duration_ms"`
+	}
+	out := make([]durationDTO, len(stored))
+	for i, d := range stored {
+		out[i] = durationDTO{Path: d.Path, DurationMs: d.DurationMs}
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"durations": out, "ignored": len(ds) - len(matched)})
+}
+
+// knownAudioPaths is the set of normalised paths of the audio files in the release's debrid and
+// client-reported file lists.
+func (a *app) knownAudioPaths(ctx context.Context, hash string) (map[string]bool, error) {
+	debrid, err := a.d.Store.Files(ctx, []string{hash})
+	if err != nil {
+		return nil, err
+	}
+	client, err := a.d.Store.ClientFiles(ctx, []string{hash})
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, fs := range [][]model.File{debrid[hash], client[hash]} {
+		for _, f := range fs {
+			if p, ok := model.NormalizePath(f.Path); ok && f.IsAudio() {
+				known[p] = true
+			}
+		}
+	}
+	return known, nil
 }

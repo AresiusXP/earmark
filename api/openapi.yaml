@@ -18,6 +18,18 @@ info:
     Every route except `/healthz`, `/v1/version`, `/v1/auth/*` and `/v1/app/update*` requires
     `Authorization: Bearer <access_token>`.
 
+    **Invite and link codes.** A code is 26 characters of the server's base32 alphabet (Crockford:
+    `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, no I, L, O, U; 130 bits), shown with a dash every 4 characters
+    (`K7QD-9XMP-3VBR-0TGH-YEWN-C5GA-QZ`: six groups of four and a last group of two). The server normalises what it
+    receives: case-insensitive, `-`, spaces, tabs and line breaks are ignored, and Crockford's look-alikes are folded
+    (`I` and `L` read as `1`, `O` as `0`). So the app may show the code with dashes, send it as typed or pasted, and
+    accept any such spelling. A code is single use; a link code lives 15 minutes.
+
+    **Signing out.** A device signs itself out with `DELETE /v1/me/devices/{id}` using its own id (the entry of
+    `GET /v1/me/devices` with `current: true`); this is allowed. It answers `204`, after which that device's access
+    and refresh tokens are rejected at once (`401`), so a repeated call with the same token is `401`: a client treats
+    `204` and `401` alike as "signed out" and never has to wait for the server.
+
     **Sign in with Google** is an ADDITIONAL sign-in method, available only when the server has
     `GOOGLE_CLIENT_ID` set (`GET /v1/version` shows `google_enabled`; otherwise every Google route answers
     `404` with code `google_disabled`). The app asks Android Credential Manager for a Google ID token and sends
@@ -58,9 +70,11 @@ info:
     sign-in endpoints have a generous request-rate cap instead (never a failure lockout: their secrets are
     unguessable); over it they answer `429 rate_limited` with `Retry-After`.
 
-    **Caching.** All responses are `Cache-Control: no-store`, except catalog responses
-    (`search`, `discover`, `books` and `books/{asin}/chapters`) which are `private, max-age=300`.
-    The APK download is `no-store` too.
+    **Caching.** All responses are `Cache-Control: no-store`, except `search`, `discover` and
+    `books/{asin}/chapters` (nothing per user in them), which are `private, max-age=300` on a 200.
+    `GET /v1/books/{asin}` mixes per-user fields (`cached`, `usable`) into shared data, so it is
+    `private, no-store`: never serve it from a cache without asking the server. Errors and the APK
+    download are `no-store`.
 
     **Retry.** Clients retry `502`, `503` and `504` (a deploy replaces the single pod) and honour
     `Retry-After`.
@@ -155,6 +169,7 @@ paths:
                 device_name: {$ref: "#/components/schemas/DeviceName"}
       responses:
         "200": {$ref: "#/components/responses/Session"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
@@ -177,6 +192,7 @@ paths:
                 device_name: {$ref: "#/components/schemas/DeviceName"}
       responses:
         "200": {$ref: "#/components/responses/Session"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {description: Unknown, used or expired invite., content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
         "429": {$ref: "#/components/responses/Error"}
   /v1/auth/link:
@@ -197,6 +213,7 @@ paths:
                 device_name: {$ref: "#/components/schemas/DeviceName"}
       responses:
         "200": {$ref: "#/components/responses/Session"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
   /v1/auth/google/nonce:
@@ -242,7 +259,7 @@ paths:
                 device_name: {$ref: "#/components/schemas/DeviceName"}
       responses:
         "200": {$ref: "#/components/responses/Session"}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {description: "`google_not_linked`, or `unauthorized` (invalid token, disabled user).", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
         "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
         "429": {$ref: "#/components/responses/Error"}
@@ -271,7 +288,7 @@ paths:
                 device_name: {$ref: "#/components/schemas/DeviceName"}
       responses:
         "200": {$ref: "#/components/responses/Session"}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {description: Invalid token, or unknown, used or expired invite., content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
         "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
         "409": {$ref: "#/components/responses/Error"}
@@ -293,6 +310,7 @@ paths:
                 refresh_token: {type: string, writeOnly: true}
       responses:
         "200": {$ref: "#/components/responses/Session"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {$ref: "#/components/responses/Error"}
 
   /v1/me:
@@ -317,7 +335,7 @@ paths:
                 settings: {$ref: "#/components/schemas/SettingsPatch"}
       responses:
         "200": {description: The updated caller., content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
   /v1/me/google:
     post:
       tags: [me]
@@ -337,7 +355,7 @@ paths:
                 id_token: {type: string, writeOnly: true}
       responses:
         "200": {description: The updated caller., content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "401": {$ref: "#/components/responses/Error"}
         "404": {description: "`google_disabled`.", content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
         "409": {$ref: "#/components/responses/Error"}
@@ -369,10 +387,16 @@ paths:
     delete:
       tags: [me]
       operationId: revokeDevice
+      description: |
+        Revokes one of the caller's devices; its tokens stop working at once. The caller's CURRENT device is
+        allowed too: that is how the app signs out (`current: true` in `GET /v1/me/devices`). Idempotent for another
+        device; a repeat for the current device is `401` because its token is dead by then. An id that is not a
+        UUID, or not one of the caller's devices, is `404`.
       parameters:
         - {name: deviceId, in: path, required: true, schema: {type: string}}
       responses:
         "204": {description: Revoked (idempotent).}
+        "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
   /v1/me/devices/link-code:
     post:
@@ -411,7 +435,7 @@ paths:
     put:
       tags: [me]
       operationId: putDebridKey
-      description: Validates the key against the provider, then stores it sealed. `400 bad_debrid_key` when rejected.
+      description: Validates the key against the provider, then stores it sealed. `400 bad_debrid_key` when the provider rejects it; `400 invalid_request` for an unknown provider or a key that is not 8-256 characters without spaces.
       requestBody:
         required: true
         content:
@@ -431,12 +455,14 @@ paths:
       description: Re-validates the stored key and updates its status.
       responses:
         "200": {description: Current status., content: {application/json: {schema: {$ref: "#/components/schemas/DebridStatus"}}}}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "404": {$ref: "#/components/responses/Error"}
     delete:
       tags: [me]
       operationId: deleteDebridKey
       responses:
         "204": {description: Removed (idempotent).}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
 
   /v1/admin/users:
     get:
@@ -470,6 +496,7 @@ paths:
                 disabled: {type: boolean}
       responses:
         "200": {description: Updated., content: {application/json: {schema: {$ref: "#/components/schemas/AdminUser"}}}}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "403": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
   /v1/admin/invites:
@@ -509,6 +536,7 @@ paths:
                     required: [code]
                     properties:
                       code: {type: string}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "429": {$ref: "#/components/responses/Error"}
   /v1/admin/invites/{inviteId}:
     delete:
@@ -527,7 +555,7 @@ paths:
         - {name: q, in: query, required: true, schema: {type: string, minLength: 2, maxLength: 120}}
       responses:
         "200": {$ref: "#/components/responses/BookList"}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
   /v1/discover:
     get:
       tags: [catalog]
@@ -536,6 +564,7 @@ paths:
         - {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
       responses:
         "200": {$ref: "#/components/responses/BookList"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
   /v1/books/{asin}:
     get:
       tags: [catalog]
@@ -543,6 +572,7 @@ paths:
       description: |
         The book and its ranked releases (looks for releases when none are known or the last search is
         stale). Per-user fields (`cached`, `usable`) are computed for the caller; the rest is shared.
+        The response is `Cache-Control: private, no-store`.
       parameters:
         - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
       responses:
@@ -582,7 +612,7 @@ paths:
                 magnet: {type: string, description: Only needed when the server does not know the release.}
       responses:
         "200": {description: Current state., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "403": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
@@ -613,19 +643,42 @@ paths:
         "302": {description: Redirect to the CDN., headers: {Location: {schema: {type: string, format: uri}}}}
         "200": {description: "`HEAD` only: the provider reports the file ready; a `GET` redirects. No body, no `Location`."}
         "202": {description: Not ready., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "403": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
         "502": {$ref: "#/components/responses/Error"}
+    head:
+      tags: [releases]
+      operationId: headDownloadFile
+      description: |
+        Same path and query as the `GET`, without side effects (see `downloadFile`): `200` (empty body, no
+        `Location`) when the provider reports the file ready, so that a `GET` will redirect; `302` only from the
+        server's link cache; `202` when it cannot tell without adding a torrent or the file is not ready; `502`
+        for a failed release; `404` for a file that is not in the torrent; `403`, `429` as for the `GET`.
+        Never adds a torrent, selects files, deletes or creates a link.
+      parameters:
+        - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
+        - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: provider, in: query, required: true, schema: {$ref: "#/components/schemas/Provider"}}
+      responses:
+        "200": {description: The provider reports the file ready; a `GET` redirects. No body, no `Location`.}
+        "202": {description: Not ready, or not provable without a side effect.}
+        "302": {description: A link is in the server's cache., headers: {Location: {schema: {type: string, format: uri}}}}
+        "400": {description: Invalid info hash, index or provider.}
+        "403": {description: "`no_debrid_key` / `bad_debrid_key`."}
+        "404": {description: The file is not in the torrent, or the release is unknown.}
+        "429": {description: "`rate_limited`; see `Retry-After`."}
+        "502": {description: The release failed at the provider.}
   /v1/releases/{hash}/torrent-files:
     post:
       tags: [releases]
       operationId: reportTorrentFiles
       description: |
         A phone that fetched the torrent metadata reports the file list (names and sizes only). Stored only when
-        the server has no client-reported list for this hash yet; at most 2000 files, paths at most 512 bytes.
-        Returns the stored list.
+        the server has no client-reported list for this hash yet; at most 2000 files, paths at most 512 bytes
+        (separators `\` become `/`, empty and `.` segments are dropped, `..` and control characters are `400`).
+        Returns the stored list (without `duration_ms`, which only the book page carries).
       parameters:
         - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
       requestBody:
@@ -647,7 +700,67 @@ paths:
                 required: [torrent_files]
                 properties:
                   torrent_files: {type: array, items: {$ref: "#/components/schemas/TorrentFile"}}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "404": {$ref: "#/components/responses/Error"}
+
+  /v1/releases/{hash}/durations:
+    post:
+      tags: [releases]
+      operationId: reportDurations
+      description: |
+        A phone that decoded the audio files it downloaded reports their durations (the real length is what a
+        player needs; Audible's total is only an estimate). They come back as `duration_ms` on the files of the
+        book page (`files` and `torrent_files`).
+
+        Each `path` is normalised like in `torrent-files` (`\` becomes `/`, empty and `.` segments dropped) and must
+        equal the normalised path of an AUDIO file in one of the release's known file lists (`files` or
+        `torrent_files`, the full lists, also of a pack). Entries whose path is not there are ignored, never stored
+        (counted in `ignored`). `duration_ms` is between 1000 (1 s) and 172800000 (48 h), else the whole request
+        is `400`. At most 2000 entries, at most one per normalised path (a duplicate is `400`), body at most 2 MiB.
+
+        **First writer wins** per (release, path): a stored duration is never replaced. A later report that differs
+        (another user, another rip of the same torrent) is ignored; the response carries the stored value for
+        every accepted path, so the caller sees what everybody sees. Reporting the same value again is a no-op.
+        Unknown release: `404`.
+      parameters:
+        - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [durations]
+              properties:
+                durations:
+                  type: array
+                  minItems: 1
+                  maxItems: 2000
+                  items:
+                    type: object
+                    required: [path, duration_ms]
+                    properties:
+                      path: {type: string, maxLength: 512}
+                      duration_ms: {type: integer, format: int64, minimum: 1000, maximum: 172800000}
+      responses:
+        "200":
+          description: The stored durations (normalised paths, request order) of the matched entries, and how many entries were ignored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [durations, ignored]
+                properties:
+                  durations:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, duration_ms]
+                      properties:
+                        path: {type: string}
+                        duration_ms: {type: integer, format: int64}
+                  ignored: {type: integer, minimum: 0, description: Entries whose path is in no known audio file list of the release.}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "404": {$ref: "#/components/responses/Error"}
 
   /v1/me/library:
@@ -667,6 +780,7 @@ paths:
                 required: [entries]
                 properties:
                   entries: {type: array, items: {$ref: "#/components/schemas/LibraryEntry"}}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
   /v1/me/library/{asin}:
     parameters:
       - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
@@ -675,6 +789,7 @@ paths:
       operationId: getLibraryEntry
       responses:
         "200": {description: Entry., content: {application/json: {schema: {$ref: "#/components/schemas/LibraryEntry"}}}}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "404": {$ref: "#/components/responses/Error"}
     put:
       tags: [library]
@@ -690,7 +805,7 @@ paths:
             schema: {$ref: "#/components/schemas/LibraryEntryWrite"}
       responses:
         "200": {description: The stored entry., content: {application/json: {schema: {$ref: "#/components/schemas/LibraryEntry"}}}}
-        "400": {$ref: "#/components/responses/Error"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
     delete:
@@ -715,10 +830,24 @@ paths:
                 required: [bookmarks]
                 properties:
                   bookmarks: {type: array, items: {$ref: "#/components/schemas/Bookmark"}}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
     post:
       tags: [library]
       operationId: createBookmark
-      description: Limit 500 per book (`409 limit_reached`). The book must be in the library.
+      description: |
+        Creates a bookmark. Limit 500 per book (`409 limit_reached`).
+
+        **Idempotent with `client_id`.** The app generates a UUID per bookmark and sends it as `client_id`
+        (1-64 characters of `A-Z a-z 0-9 - _`, unique per user and book). A repeated POST with the same
+        `client_id` for the same book does not create anything: it answers `200` with the EXISTING bookmark
+        (its original `position_ms`, `note` and `created_at`; the new body is ignored), counts once against
+        the limit, and is also answered at the limit. Retry freely after a timeout. Without `client_id` every
+        POST creates a bookmark. `client_id` is returned on the bookmark and in the list.
+
+        **The book need not be in the library.** When it is not, it is added first as status `saved` (fetched
+        into the catalog when unknown; the 2000-entry limit of `PUT /v1/me/library/{asin}` applies: `409
+        limit_reached`), then the bookmark is created. The added entry has `updated_at` 0, so any later write
+        from any device wins last-write-wins. An ASIN that is not a known book is `404 not_found`.
       requestBody:
         required: true
         content:
@@ -729,8 +858,10 @@ paths:
               properties:
                 position_ms: {type: integer, format: int64, minimum: 0}
                 note: {type: string, maxLength: 280}
+                client_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: Client-generated id (a UUID) that makes the request idempotent.}
       responses:
-        "200": {description: Created., content: {application/json: {schema: {$ref: "#/components/schemas/Bookmark"}}}}
+        "200": {description: "The created bookmark, or the existing one when `client_id` was repeated.", content: {application/json: {schema: {$ref: "#/components/schemas/Bookmark"}}}}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
   /v1/me/library/{asin}/bookmarks/{bookmarkId}:
@@ -750,6 +881,26 @@ components:
     Error:
       description: Error.
       content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+    InvalidRequest:
+      description: |
+        `400 invalid_request`: the body is not exactly one JSON value, a field is missing or out of range, or a
+        path/query value is malformed. `message` says which; clients show it, never parse it.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          examples:
+            invalid_json:
+              summary: Not JSON, a wrong type, or anything after the JSON value.
+              value: {error: {code: invalid_request, message: invalid JSON body}}
+            field_out_of_range:
+              summary: A value out of range (here a bookmark).
+              value: {error: {code: invalid_request, message: position_ms must be >= 0 and note at most 280 characters}}
+            bad_path_value:
+              summary: A malformed path or query value (here an ASIN).
+              value: {error: {code: invalid_request, message: invalid ASIN}}
+            unknown_provider:
+              summary: A provider that is not torbox or realdebrid.
+              value: {error: {code: invalid_request, message: unknown provider}}
     Session:
       description: A signed-in device.
       content: {application/json: {schema: {$ref: "#/components/schemas/Session"}}}
@@ -872,6 +1023,7 @@ components:
         id: {type: string}
         note: {type: string}
         created_at: {type: string, format: date-time}
+        client_id: {type: string, description: The `client_id` the bookmark was created with. Absent when none was sent.}
         expires_at: {type: string, format: date-time}
     Book:
       type: object
@@ -943,12 +1095,34 @@ components:
         index: {type: integer, minimum: 0}
         path: {type: string, maxLength: 512}
         size: {type: integer, format: int64, minimum: 0}
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 1000
+          description: |
+            Audio duration reported by a phone (`POST /v1/releases/{hash}/durations`). Present only on the files of
+            a book page (`ReleaseView.files` / `torrent_files`) and only when known; absent otherwise. Read only:
+            ignored in requests.
     Chapters:
       type: object
       required: [asin, runtime_ms, chapters]
       properties:
         asin: {type: string}
         runtime_ms: {type: integer, format: int64}
+        intro_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Length of the Audible branding ("This is Audible") at the start of the Audible edition (Audnexus
+            `brandIntroDurationMs`). Absent when unknown. `chapters` and `start_ms` are measured on the Audible
+            edition, branding included; a release that cut the branding is `intro_ms` shorter at the start, so a
+            client aligning marks to such a release subtracts it.
+        outro_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Length of the Audible branding at the end (Audnexus `brandOutroDurationMs`). Absent when unknown.
         chapters:
           type: array
           items:
@@ -979,6 +1153,14 @@ components:
       properties:
         book: {$ref: "#/components/schemas/Book"}
         status: {$ref: "#/components/schemas/LibraryStatus"}
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            Server time at which the status became `finished`; null otherwise. Set by the write that turns the
+            status to `finished`, kept by later writes that keep it `finished` (also retries), cleared (null)
+            when the status goes back to `saved` or `listening`. A write that loses last-write-wins changes
+            nothing. Read only: clients never send it. Entries finished before v1.1 carry the time of their last write.
         release_hash: {type: [string, "null"], description: The release the user listens to.}
         position_ms: {type: integer, format: int64, description: Position in the whole book (all files).}
         file_path: {type: [string, "null"], description: Path of the file being played (match by path, not index).}
@@ -1004,3 +1186,4 @@ components:
         position_ms: {type: integer, format: int64}
         note: {type: string}
         created_at: {type: string, format: date-time}
+        client_id: {type: string, description: The `client_id` the bookmark was created with. Absent when none was sent.}

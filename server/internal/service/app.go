@@ -80,6 +80,46 @@ type UserStore interface {
 	SetUserAvailability(ctx context.Context, fingerprint, provider, infoHash string, cached bool, at time.Time) error
 }
 
+// DurationStore is implemented by the UserStore when it keeps durations reported by phones (optional).
+type DurationStore interface {
+	// FileDurations returns the reported durations per release hash and normalised path.
+	FileDurations(ctx context.Context, infoHashes []string) (map[string]map[string]int64, error)
+}
+
+// withDurations fills File.DurationMs of the page's files (copying the slices) from the reports.
+func (s *Service) withDurations(ctx context.Context, rels []ReleaseView) {
+	ds, ok := s.d.UserStore.(DurationStore)
+	if !ok || len(rels) == 0 {
+		return
+	}
+	hs := make([]string, len(rels))
+	for i, v := range rels {
+		hs[i] = v.Release.InfoHash
+	}
+	got, err := ds.FileDurations(ctx, hs)
+	if err != nil {
+		s.log.Warn("load file durations failed", "err", err)
+		return
+	}
+	fill := func(fs []model.File, byPath map[string]int64) []model.File {
+		if len(fs) == 0 || len(byPath) == 0 {
+			return fs
+		}
+		out := slices.Clone(fs)
+		for i := range out {
+			if p, ok := model.NormalizePath(out[i].Path); ok {
+				out[i].DurationMs = byPath[p]
+			}
+		}
+		return out
+	}
+	for i := range rels {
+		byPath := got[rels[i].Release.InfoHash]
+		rels[i].Files = fill(rels[i].Files, byPath)
+		rels[i].TorrentFiles = fill(rels[i].TorrentFiles, byPath)
+	}
+}
+
 // BookFor returns the book page for the /v1 API. Like Book it looks for releases when none are
 // known or the last search is stale, but it lists every release (nothing is hidden for being
 // uncached), adds the phone-reported file lists, and takes the caller's keys explicitly.
@@ -147,12 +187,18 @@ type ChapterSource interface {
 	ChapterList(ctx context.Context, region, asin string) (metadata.ChapterList, error)
 }
 
-// Chapters is the chapter marks of a book: the stored book's region first (a book usually exists in
-// one Audnexus region), then the caller's. Unknown (or no chapter source) gives an empty list;
-// runtimeMs falls back to the catalog runtime.
+// Chapters is ChapterList without the branding lengths.
 func (s *Service) Chapters(ctx context.Context, region, asin string) (runtimeMs int64, chapters []metadata.Chapter, err error) {
+	cl, err := s.ChapterList(ctx, region, asin)
+	return cl.RuntimeMs, cl.Chapters, err
+}
+
+// ChapterList is the chapter marks of a book: the stored book's region first (a book usually exists in
+// one Audnexus region), then the caller's. Unknown (or no chapter source) gives an empty list;
+// RuntimeMs falls back to the catalog runtime.
+func (s *Service) ChapterList(ctx context.Context, region, asin string) (metadata.ChapterList, error) {
 	if !metadata.ValidASIN(asin) {
-		return 0, nil, ErrNotFound
+		return metadata.ChapterList{}, ErrNotFound
 	}
 	var regions []string
 	var fallback int64
@@ -165,9 +211,10 @@ func (s *Service) Chapters(ctx context.Context, region, asin string) (runtimeMs 
 		}
 	}
 	regions = append(regions, region)
+	empty := metadata.ChapterList{RuntimeMs: fallback, Chapters: []metadata.Chapter{}}
 	src, ok := s.d.Metadata.(ChapterSource)
 	if !ok {
-		return fallback, []metadata.Chapter{}, nil
+		return empty, nil
 	}
 	var lastErr error
 	tried := map[string]bool{}
@@ -180,20 +227,20 @@ func (s *Service) Chapters(ctx context.Context, region, asin string) (runtimeMs 
 		cl, cerr := src.ChapterList(ctx, mr, asin)
 		switch {
 		case cerr == nil:
-			rt := cl.RuntimeMs
-			if rt <= 0 {
-				rt = fallback
+			if cl.RuntimeMs <= 0 {
+				cl.RuntimeMs = fallback
 			}
-			return rt, nonNilChapters(cl.Chapters), nil
+			cl.Chapters = nonNilChapters(cl.Chapters)
+			return cl, nil
 		case errors.Is(cerr, metadata.ErrNotFound):
 		default:
 			lastErr = cerr
 		}
 	}
 	if lastErr != nil {
-		return 0, nil, fmt.Errorf("service: chapters: %w", lastErr)
+		return metadata.ChapterList{}, fmt.Errorf("service: chapters: %w", lastErr)
 	}
-	return fallback, []metadata.Chapter{}, nil
+	return empty, nil
 }
 
 func nonNilChapters(c []metadata.Chapter) []metadata.Chapter {

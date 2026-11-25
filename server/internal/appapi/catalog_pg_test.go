@@ -128,7 +128,7 @@ func newAppEnvDir(t *testing.T, dir string) *appEnv {
 	dune := model.Book{ASIN: duneASIN, Title: "Dune", Authors: []string{"Frank Herbert"}, Language: "en", RuntimeMin: 1260, Region: "us"}
 	other := model.Book{ASIN: otherASIN, Title: "Emma", Authors: []string{"Jane Austen"}, Language: "en", RuntimeMin: 600, Region: "us"}
 	meta := &metaFake{books: map[string]model.Book{duneASIN: dune, otherASIN: other},
-		chap: metadata.ChapterList{RuntimeMs: 75_000_000, Chapters: []metadata.Chapter{{Title: "Opening Credits", StartMs: 0, LengthMs: 60_970}, {Title: "Book One", StartMs: 60_970, LengthMs: 1000}}}}
+		chap: metadata.ChapterList{RuntimeMs: 75_000_000, IntroMs: 3970, OutroMs: 4945, Chapters: []metadata.Chapter{{Title: "Opening Credits", StartMs: 0, LengthMs: 60_970}, {Title: "Book One", StartMs: 60_970, LengthMs: 1000}}}}
 	src := &srcFake{rels: []model.Release{
 		{InfoHash: h40('a'), Title: "Frank Herbert - Dune (Unabridged) [m4b] 64kbps", Source: "fake", Size: 600 << 20, Seeders: 10, Magnet: "magnet:?xt=urn:btih:" + h40('a')},
 		{InfoHash: h40('b'), Title: "Frank Herbert - Dune mp3 128 kbps", Source: "fake", Size: 600 << 20, Seeders: 20, Magnet: "magnet:?xt=urn:btih:" + h40('b')},
@@ -189,7 +189,7 @@ func TestNewRoutesRequireAuthExceptAppUpdate(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{"GET", "/v1/search?q=dune"}, {"GET", "/v1/discover"}, {"GET", "/v1/books/" + duneASIN}, {"GET", "/v1/books/" + duneASIN + "/chapters"},
 		{"POST", "/v1/releases/" + h + "/prepare"}, {"GET", "/v1/releases/" + h + "/files/0/download?provider=torbox"},
-		{"HEAD", "/v1/releases/" + h + "/files/0/download?provider=torbox"}, {"POST", "/v1/releases/" + h + "/torrent-files"},
+		{"HEAD", "/v1/releases/" + h + "/files/0/download?provider=torbox"}, {"POST", "/v1/releases/" + h + "/torrent-files"}, {"POST", "/v1/releases/" + h + "/durations"},
 		{"GET", "/v1/me/library"}, {"GET", "/v1/me/library/" + duneASIN}, {"PUT", "/v1/me/library/" + duneASIN}, {"DELETE", "/v1/me/library/" + duneASIN},
 		{"GET", "/v1/me/library/" + duneASIN + "/bookmarks"}, {"POST", "/v1/me/library/" + duneASIN + "/bookmarks"},
 		{"DELETE", "/v1/me/library/" + duneASIN + "/bookmarks/x"},
@@ -260,7 +260,7 @@ func TestBookPageIsComputedForTheCaller(t *testing.T) {
 	page := func(s session) map[string]any {
 		r := e.req("GET", "/v1/books/"+duneASIN, s.access, nil)
 		r.status(t, 200)
-		if r.cacheControl() != "private, max-age=300" {
+		if r.cacheControl() != "private, no-store" { // per-user fields (cached, usable) are mixed in
 			t.Fatalf("Cache-Control = %q", r.cacheControl())
 		}
 		for _, k := range []string{aTB, aRD, bRD} {
@@ -408,13 +408,16 @@ func TestChapters(t *testing.T) {
 	r.status(t, 200)
 	m := r.json(t)
 	chs := m["chapters"].([]any)
-	if m["asin"] != duneASIN || m["runtime_ms"] != float64(75_000_000) || len(chs) != 2 ||
+	if m["asin"] != duneASIN || m["runtime_ms"] != float64(75_000_000) || m["intro_ms"] != float64(3970) || m["outro_ms"] != float64(4945) || len(chs) != 2 ||
 		!equalJSON(chs[0], map[string]any{"title": "Opening Credits", "start_ms": 0, "length_ms": 60970}) || r.cacheControl() != "private, max-age=300" {
 		t.Fatalf("%s %v", r.Body.String(), r.Header())
 	}
 	r = e.req("GET", "/v1/books/"+otherASIN+"/chapters", admin.access, nil) // unknown to Audnexus: empty, not an error
 	r.status(t, 200)
 	if m := r.json(t); m["chapters"] == nil || len(m["chapters"].([]any)) != 0 {
+		t.Fatalf("%s", r.Body.String())
+	}
+	if m := r.json(t); m["intro_ms"] != nil || m["outro_ms"] != nil { // unknown branding is omitted
 		t.Fatalf("%s", r.Body.String())
 	}
 	e.req("GET", "/v1/books/lowercase/chapters", admin.access, nil).errCode(t, 404, "not_found")
@@ -461,9 +464,32 @@ func TestLibraryOverHTTP(t *testing.T) {
 	if m := r.json(t); m["status"] != "listening" || m["position_ms"] != float64(5000) {
 		t.Fatalf("an older write must return the stored entry: %s", r.Body.String())
 	}
+	if m["finished_at"] != nil {
+		t.Fatalf("finished_at is null until finished: %v", m)
+	}
 	r = e.putEntry(admin, duneASIN, map[string]any{"status": "finished", "position_ms": 9000, "updated_at": now + 1000})
-	if m := r.json(t); m["status"] != "finished" || m["position_ms"] != float64(9000) {
+	m = r.json(t)
+	if m["status"] != "finished" || m["position_ms"] != float64(9000) {
 		t.Fatalf("%s", r.Body.String())
+	}
+	fin, err := time.Parse(time.RFC3339, m["finished_at"].(string)) // server clock, not the client's updated_at
+	if err != nil || time.Since(fin) > time.Minute || time.Since(fin) < -time.Minute {
+		t.Fatalf("finished_at = %v (%v)", m["finished_at"], err)
+	}
+	m = e.putEntry(admin, duneASIN, map[string]any{"status": "finished", "position_ms": 9500, "updated_at": now + 2000}).json(t)
+	if m["finished_at"] != fin.UTC().Format(time.RFC3339Nano) && m["finished_at"] != fin.UTC().Format(time.RFC3339) {
+		t.Fatalf("finished_at changed on a later finished write: %v vs %v", m["finished_at"], fin)
+	}
+	if es := e.req("GET", "/v1/me/library?status=finished", admin.access, nil).json(t)["entries"].([]any); len(es) != 1 || es[0].(map[string]any)["finished_at"] != m["finished_at"] {
+		t.Fatalf("list: %v", es)
+	}
+	m = e.putEntry(admin, duneASIN, map[string]any{"status": "listening", "position_ms": 100, "updated_at": now + 3000}).json(t)
+	if m["status"] != "listening" || m["finished_at"] != nil {
+		t.Fatalf("cleared when listening again: %v", m)
+	}
+	m = e.putEntry(admin, duneASIN, map[string]any{"status": "finished", "position_ms": 9000, "updated_at": now + 4000}).json(t)
+	if m["finished_at"] == nil {
+		t.Fatalf("%v", m)
 	}
 
 	// Validation.
@@ -519,7 +545,26 @@ func TestBookmarksOverHTTP(t *testing.T) {
 	now := time.Now().UnixMilli()
 	path := "/v1/me/library/" + duneASIN + "/bookmarks"
 
-	e.req("POST", path, admin.access, map[string]any{"position_ms": 1}).errCode(t, 404, "not_found") // not in the library yet
+	// A book that is not in the library is added as `saved` first; an unknown ASIN is still 404 and adds nothing.
+	e.req("POST", "/v1/me/library/B000000000/bookmarks", admin.access, map[string]any{"position_ms": 1}).errCode(t, 404, "not_found")
+	e.req("GET", "/v1/me/library/B000000000", admin.access, nil).errCode(t, 404, "not_found")
+	e.req("POST", "/v1/me/library/lowercase/bookmarks", admin.access, map[string]any{"position_ms": 1}).errCode(t, 400, "invalid_request")
+	auto := e.req("POST", path, admin.access, map[string]any{"position_ms": 7, "client_id": "11111111-2222-3333-4444-555555555555"})
+	auto.status(t, 200)
+	if m := auto.json(t); m["client_id"] != "11111111-2222-3333-4444-555555555555" || m["position_ms"] != float64(7) {
+		t.Fatalf("%s", auto.Body.String())
+	}
+	ent := e.req("GET", "/v1/me/library/"+duneASIN, admin.access, nil)
+	ent.status(t, 200)
+	if m := ent.json(t); m["status"] != "saved" || m["updated_at"] != float64(0) || m["finished_at"] != nil || m["book"].(map[string]any)["title"] != "Dune" {
+		t.Fatalf("auto-added entry: %s", ent.Body.String())
+	}
+	if e.req("GET", "/v1/me/library/"+duneASIN, bob.access, nil).Code != 404 {
+		t.Fatal("the auto-added entry must belong to the caller only")
+	}
+	// Any later write wins over the auto-added entry (updated_at 0), whatever the clock of the device.
+	e.putEntry(admin, duneASIN, map[string]any{"status": "listening", "updated_at": 1}).status(t, 200)
+	e.req("DELETE", "/v1/me/library/"+duneASIN, admin.access, nil).status(t, 204) // bookmarks go with it
 	e.putEntry(admin, duneASIN, map[string]any{"status": "listening", "updated_at": now}).status(t, 200)
 	e.putEntry(bob, duneASIN, map[string]any{"status": "listening", "updated_at": now}).status(t, 200)
 
@@ -530,6 +575,43 @@ func TestBookmarksOverHTTP(t *testing.T) {
 		t.Fatalf("%s", r.Body.String())
 	}
 	e.req("POST", path, admin.access, map[string]any{"position_ms": 100}).status(t, 200)
+
+	// Idempotent create with a client_id: a repeat returns the existing bookmark (200, unchanged).
+	cid := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	first := e.req("POST", path, admin.access, map[string]any{"position_ms": 500, "note": "first", "client_id": cid})
+	first.status(t, 200)
+	again := e.req("POST", path, admin.access, map[string]any{"position_ms": 999, "note": "second try", "client_id": cid})
+	again.status(t, 200)
+	if f, g := first.json(t), again.json(t); f["id"] != g["id"] || g["position_ms"] != float64(500) || g["note"] != "first" || g["client_id"] != cid || g["created_at"] != f["created_at"] {
+		t.Fatalf("a repeated client_id must return the existing bookmark: %s / %s", first.Body.String(), again.Body.String())
+	}
+	bobs := e.req("POST", path, bob.access, map[string]any{"position_ms": 500, "client_id": cid}) // unique per user
+	bobs.status(t, 200)
+	if bobs.json(t)["id"] == first.json(t)["id"] {
+		t.Fatal("client_id is per user")
+	}
+	if n := len(e.req("GET", path, bob.access, nil).json(t)["bookmarks"].([]any)); n != 1 {
+		t.Fatalf("bob has %d bookmarks", n)
+	}
+	e.req("DELETE", path+"/"+first.json(t)["id"].(string), bob.access, nil).status(t, 204) // not Bob's
+	if n := len(e.req("GET", path, admin.access, nil).json(t)["bookmarks"].([]any)); n != 3 {
+		t.Fatalf("alice has %d bookmarks, want 3 (9000, 100, 500)", n)
+	}
+	e.req("DELETE", path+"/"+first.json(t)["id"].(string), admin.access, nil).status(t, 204)
+	e.req("DELETE", path+"/"+bobs.json(t)["id"].(string), bob.access, nil).status(t, 204)
+	for name, id := range map[string]any{"empty": "", "too long": strings.Repeat("a", 65), "bad chars": "a b", "slash": "a/b", "number": 5} {
+		t.Run("client_id "+name, func(t *testing.T) {
+			e.req("POST", path, admin.access, map[string]any{"position_ms": 1, "client_id": id}).errCode(t, 400, "invalid_request")
+		})
+	}
+	e.req("POST", path, admin.access, map[string]any{"position_ms": 1, "client_id": strings.Repeat("a", 64)}).status(t, 200)
+	e.req("POST", path, admin.access, map[string]any{"position_ms": 1, "client_id": nil}).status(t, 200) // null = none
+	// Clean up what this block added, so the counts below stay as they were.
+	for _, b := range e.req("GET", path, admin.access, nil).json(t)["bookmarks"].([]any) {
+		if m := b.(map[string]any); m["position_ms"] == float64(1) && m["note"] == "" {
+			e.req("DELETE", path+"/"+m["id"].(string), admin.access, nil).status(t, 204)
+		}
+	}
 	for name, body := range map[string]any{
 		"missing position": map[string]any{"note": "x"}, "negative": map[string]any{"position_ms": -1},
 		"long note": map[string]any{"position_ms": 1, "note": strings.Repeat("é", 281)}, "control": map[string]any{"position_ms": 1, "note": "a\x01"},
@@ -574,11 +656,17 @@ func (l limitLib) PutEntry(ctx context.Context, u string, w library.Write) (libr
 	}
 	return l.Store.PutEntry(ctx, u, w)
 }
-func (l limitLib) CreateBookmark(ctx context.Context, u, a string, p int64, n string) (library.Bookmark, error) {
+func (l limitLib) EnsureSaved(ctx context.Context, u, a string) (bool, error) {
+	if l.entries {
+		return false, library.ErrLimitReached
+	}
+	return l.Store.EnsureSaved(ctx, u, a)
+}
+func (l limitLib) CreateBookmark(ctx context.Context, u, a string, p int64, n, c string) (library.Bookmark, error) {
 	if l.bookmarks {
 		return library.Bookmark{}, library.ErrLimitReached
 	}
-	return l.Store.CreateBookmark(ctx, u, a, p, n)
+	return l.Store.CreateBookmark(ctx, u, a, p, n, c)
 }
 
 func TestLimitReachedIs409(t *testing.T) {
@@ -604,6 +692,12 @@ func TestLimitReachedIs409(t *testing.T) {
 	if w.Code != 409 || !strings.Contains(w.Body.String(), `"limit_reached"`) {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
+	// A bookmark on a book outside the library adds it first, and that is limited like a PUT.
+	wrapped.d.Library = limitLib{Store: e.db, entries: true}
+	w = call(wrapped.createBookmark, "POST", `{"position_ms":1}`, map[string]string{"asin": duneASIN})
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"limit_reached"`) {
+		t.Fatalf("auto-add at the entry limit: %d %s", w.Code, w.Body.String())
+	}
 }
 
 type nopCatalog struct{}
@@ -620,8 +714,8 @@ func (nopCatalog) BookFor(context.Context, service.BookRequest) (*service.BookPa
 func (nopCatalog) EnsureBook(_ context.Context, _, asin string) (model.Book, error) {
 	return model.Book{ASIN: asin}, nil
 }
-func (nopCatalog) Chapters(context.Context, string, string) (int64, []metadata.Chapter, error) {
-	return 0, nil, nil
+func (nopCatalog) ChapterList(context.Context, string, string) (metadata.ChapterList, error) {
+	return metadata.ChapterList{}, nil
 }
 
 func TestReleaseRoutesOverHTTP(t *testing.T) {
@@ -650,6 +744,47 @@ func TestReleaseRoutesOverHTTP(t *testing.T) {
 		x := x.(map[string]any)
 		if x["info_hash"] == a && (len(x["torrent_files"].([]any)) != 2 || len(x["files"].([]any)) != 0) {
 			t.Fatalf("%v", x)
+		}
+	}
+
+	// durations: only paths of the release's known lists, first writer wins, shown on the book page.
+	if _, err := e.db.SaveFilesIfAbsent(context.Background(), a, []model.File{{Index: 3, Path: "Disc 1/01.mp3", Size: 1}, {Index: 4, Path: "Disc 1/02.mp3", Size: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	dur := "/v1/releases/" + a + "/durations"
+	r = e.req("POST", dur, bob.access, map[string]any{"durations": []any{
+		map[string]any{"path": `Disc 1\01.mp3`, "duration_ms": 60_000}, map[string]any{"path": "Disc 1/02.mp3", "duration_ms": 120_000},
+		map[string]any{"path": "Disc 1/nope.mp3", "duration_ms": 5000}}})
+	r.status(t, 200)
+	if m := r.json(t); len(m["durations"].([]any)) != 2 || m["ignored"] != float64(1) || r.cacheControl() != "no-store" {
+		t.Fatalf("%s", r.Body.String())
+	}
+	r = e.req("POST", dur, admin.access, map[string]any{"durations": []any{map[string]any{"path": "Disc 1/01.mp3", "duration_ms": 61_000}}})
+	if m := r.json(t)["durations"].([]any); len(m) != 1 || m[0].(map[string]any)["duration_ms"] != float64(60_000) {
+		t.Fatalf("first writer wins: %s", r.Body.String())
+	}
+	e.req("POST", dur, admin.access, map[string]any{"durations": []any{map[string]any{"path": "Disc 1/01.mp3", "duration_ms": 10}}}).errCode(t, 400, "invalid_request")
+	e.req("POST", "/v1/releases/"+h40('f')+"/durations", admin.access, map[string]any{"durations": []any{map[string]any{"path": "a.mp3", "duration_ms": 5000}}}).errCode(t, 404, "not_found")
+	rel = e.req("GET", "/v1/books/"+duneASIN, bob.access, nil).json(t)["releases"].([]any)
+	for _, x := range rel {
+		x := x.(map[string]any)
+		if x["info_hash"] != a {
+			continue
+		}
+		for _, list := range []string{"files", "torrent_files"} {
+			fs := x[list].([]any)
+			if len(fs) != 2 || fs[0].(map[string]any)["duration_ms"] != float64(60_000) || fs[1].(map[string]any)["duration_ms"] != float64(120_000) {
+				t.Fatalf("%s: %v", list, fs)
+			}
+		}
+	}
+	for _, x := range rel { // a release without reports has no duration_ms keys at all
+		if x := x.(map[string]any); x["info_hash"] != a {
+			for _, f := range x["files"].([]any) {
+				if _, has := f.(map[string]any)["duration_ms"]; has {
+					t.Fatalf("%v", f)
+				}
+			}
 		}
 	}
 

@@ -48,7 +48,7 @@ func TestLibraryPerUserIsolation(t *testing.T) {
 	if _, err := s.PutEntry(ctx, a, w); err != nil {
 		t.Fatal(err)
 	}
-	bm, err := s.CreateBookmark(ctx, a, "B000000001", 5000, "note A")
+	bm, err := s.CreateBookmark(ctx, a, "B000000001", 5000, "note A", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestLibraryPerUserIsolation(t *testing.T) {
 	if bs, err := s.ListBookmarks(ctx, b, "B000000001"); err != nil || len(bs) != 0 {
 		t.Fatalf("B lists A's bookmarks: %v %v", bs, err)
 	}
-	if _, err := s.CreateBookmark(ctx, b, "B000000001", 1, "x"); !errors.Is(err, library.ErrNotFound) {
+	if _, err := s.CreateBookmark(ctx, b, "B000000001", 1, "x", ""); !errors.Is(err, library.ErrNotFound) {
 		t.Fatalf("B bookmarks a book that is only in A's library: %v", err)
 	}
 	// B's deletes are no-ops on A's rows.
@@ -154,6 +154,77 @@ func TestLibraryLastWriteWins(t *testing.T) {
 	}
 	if es, _ = s.ListEntries(ctx, u, library.StatusFinished); len(es) != 0 {
 		t.Fatalf("finished = %d (the 3000 write replaced status... as listening)", len(es))
+	}
+}
+
+func TestLibraryFinishedAt(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	u := mkUser(t, s, "A")
+	other := mkUser(t, s, "B")
+	asin := "B000000001"
+	mkBook(t, s, asin)
+	t0 := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	put := func(user string, at int64, status string, now time.Time) library.Entry {
+		t.Helper()
+		w := write(asin, at)
+		w.Status, w.Now = status, now
+		e, err := s.PutEntry(ctx, user, w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	at := func(e library.Entry) string {
+		if e.FinishedAt == nil {
+			return "nil"
+		}
+		return e.FinishedAt.UTC().Format(time.RFC3339)
+	}
+
+	if e := put(u, 100, library.StatusListening, t0); e.FinishedAt != nil {
+		t.Fatalf("listening has no finished_at: %s", at(e))
+	}
+	if e := put(u, 200, library.StatusFinished, t0.Add(time.Hour)); at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("set when the status becomes finished: %s", at(e))
+	}
+	if e := put(u, 300, library.StatusFinished, t0.Add(5*time.Hour)); at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("kept while later writes keep it finished: %s", at(e))
+	}
+	// An older (ignored) write changes nothing, even one that would clear it.
+	if e := put(u, 250, library.StatusSaved, t0.Add(6*time.Hour)); e.Status != library.StatusFinished || at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("ignored write: %s %s", e.Status, at(e))
+	}
+	// An equal timestamp is a retry: still the first finish time.
+	if e := put(u, 300, library.StatusFinished, t0.Add(7*time.Hour)); at(e) != "2026-11-25T11:00:00Z" {
+		t.Fatalf("retry: %s", at(e))
+	}
+	if e := put(u, 400, library.StatusListening, t0.Add(8*time.Hour)); e.FinishedAt != nil {
+		t.Fatalf("cleared when listening again: %s", at(e))
+	}
+	if e := put(u, 500, library.StatusFinished, t0.Add(9*time.Hour)); at(e) != "2026-11-25T19:00:00Z" {
+		t.Fatalf("finishing again sets a new time: %s", at(e))
+	}
+	if e := put(u, 600, library.StatusSaved, t0.Add(10*time.Hour)); e.FinishedAt != nil {
+		t.Fatalf("cleared when saved: %s", at(e))
+	}
+	// Finished on the very first write, and per user.
+	if e := put(other, 1, library.StatusFinished, t0); at(e) != "2026-11-25T10:00:00Z" {
+		t.Fatalf("first write: %s", at(e))
+	}
+	got, err := s.GetEntry(ctx, u, asin)
+	if err != nil || got.FinishedAt != nil {
+		t.Fatalf("user A is unaffected by B: %+v %v", got, err)
+	}
+	es, err := s.ListEntries(ctx, other, library.StatusFinished)
+	if err != nil || len(es) != 1 || es[0].FinishedAt == nil {
+		t.Fatalf("list: %+v %v", es, err)
+	}
+	// The zero Now falls back to the real clock.
+	w := write(asin, 700)
+	w.Status = library.StatusFinished
+	if e, err := s.PutEntry(ctx, u, w); err != nil || e.FinishedAt == nil || time.Since(*e.FinishedAt) > time.Minute {
+		t.Fatalf("%+v %v", e, err)
 	}
 }
 
@@ -255,17 +326,166 @@ func TestLibraryAndBookmarkLimits(t *testing.T) {
 	if _, err := s.pool.Exec(ctx, `INSERT INTO bookmarks (user_id, asin, position_ms) SELECT $1::uuid, $2, g FROM generate_series(1, $3) g`, a, asin, library.MaxBookmarks); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBookmark(ctx, a, asin, 1, ""); !errors.Is(err, library.ErrLimitReached) {
+	if _, err := s.CreateBookmark(ctx, a, asin, 1, "", ""); !errors.Is(err, library.ErrLimitReached) {
 		t.Fatalf("the 501st bookmark: %v", err)
 	}
-	if _, err := s.CreateBookmark(ctx, a, "X000000004", 1, ""); err != nil {
+	if _, err := s.CreateBookmark(ctx, a, "X000000004", 1, "", ""); err != nil {
 		t.Fatalf("another book has its own limit: %v", err)
 	}
 	if _, err := s.PutEntry(ctx, b, write(asin, 1)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBookmark(ctx, b, asin, 1, ""); err != nil {
+	if _, err := s.CreateBookmark(ctx, b, asin, 1, "", ""); err != nil {
 		t.Fatalf("B has its own bookmarks: %v", err)
+	}
+}
+
+func TestBookmarkClientID(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	a, b := mkUser(t, s, "A"), mkUser(t, s, "B")
+	asin := "B000000001"
+	mkBook(t, s, asin)
+	mkBook(t, s, "B000000002")
+	for _, u := range []string{a, b} {
+		for _, x := range []string{asin, "B000000002"} {
+			if _, err := s.PutEntry(ctx, u, write(x, 1)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	first, err := s.CreateBookmark(ctx, a, asin, 100, "one", "cid-1")
+	if err != nil || first.ClientID != "cid-1" {
+		t.Fatalf("%+v %v", first, err)
+	}
+	again, err := s.CreateBookmark(ctx, a, asin, 999, "other", "cid-1")
+	if err != nil || again.ID != first.ID || again.PositionMs != 100 || again.Note != "one" || !again.CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("a repeat returns the existing bookmark: %+v %v", again, err)
+	}
+	// Per (user, book): another book, another user, and no client id at all are independent.
+	if x, err := s.CreateBookmark(ctx, a, "B000000002", 1, "", "cid-1"); err != nil || x.ID == first.ID {
+		t.Fatalf("other book: %+v %v", x, err)
+	}
+	if x, err := s.CreateBookmark(ctx, b, asin, 1, "", "cid-1"); err != nil || x.ID == first.ID {
+		t.Fatalf("other user: %+v %v", x, err)
+	}
+	n1, _ := s.CreateBookmark(ctx, a, asin, 1, "", "")
+	n2, _ := s.CreateBookmark(ctx, a, asin, 1, "", "")
+	if n1.ID == n2.ID || n1.ClientID != "" {
+		t.Fatalf("bookmarks without client id are never merged: %+v %+v", n1, n2)
+	}
+	bs, err := s.ListBookmarks(ctx, a, asin)
+	if err != nil || len(bs) != 3 {
+		t.Fatalf("%+v %v", bs, err)
+	}
+	ids := map[string]string{}
+	for _, x := range bs {
+		ids[x.ID] = x.ClientID
+	}
+	if ids[first.ID] != "cid-1" || ids[n1.ID] != "" {
+		t.Fatalf("list carries client ids: %v", ids)
+	}
+	if err := s.DeleteBookmark(ctx, a, asin, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if re, err := s.CreateBookmark(ctx, a, asin, 5, "", "cid-1"); err != nil || re.ID == first.ID {
+		t.Fatalf("after a delete the id is free again: %+v %v", re, err)
+	}
+
+	// Concurrent retries create exactly one bookmark.
+	var wg sync.WaitGroup
+	got := make([]string, 8)
+	for i := range got {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			x, err := s.CreateBookmark(ctx, b, "B000000002", 42, "", "race")
+			if err != nil {
+				t.Error(err)
+			}
+			got[i] = x.ID
+		}()
+	}
+	wg.Wait()
+	for _, id := range got {
+		if id != got[0] || id == "" {
+			t.Fatalf("ids = %v", got)
+		}
+	}
+	if n := count(t, s, `SELECT count(*) FROM bookmarks WHERE user_id = $1::uuid AND client_id = 'race'`, b); n != 1 {
+		t.Fatalf("rows = %d", n)
+	}
+
+	// An existing client id is returned even when the book is at its bookmark limit (it counts once).
+	asin3 := "B000000003"
+	mkBook(t, s, asin3)
+	if _, err := s.PutEntry(ctx, a, write(asin3, 1)); err != nil {
+		t.Fatal(err)
+	}
+	keep, err := s.CreateBookmark(ctx, a, asin3, 1, "", "keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO bookmarks (user_id, asin, position_ms) SELECT $1::uuid, $2, g FROM generate_series(1, $3) g`, a, asin3, library.MaxBookmarks-1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateBookmark(ctx, a, asin3, 2, "", "new"); !errors.Is(err, library.ErrLimitReached) {
+		t.Fatalf("at the limit: %v", err)
+	}
+	if x, err := s.CreateBookmark(ctx, a, asin3, 2, "", "keep"); err != nil || x.ID != keep.ID {
+		t.Fatalf("a retry at the limit returns the existing bookmark: %+v %v", x, err)
+	}
+	if n := count(t, s, `SELECT count(*) FROM bookmarks WHERE user_id = $1::uuid AND asin = $2`, a, asin3); n != library.MaxBookmarks {
+		t.Fatalf("count = %d", n)
+	}
+	// The database refuses what the API never sends.
+	if _, err := s.pool.Exec(ctx, `UPDATE bookmarks SET client_id = repeat('x', 65) WHERE id = $1::uuid`, keep.ID); err == nil {
+		t.Fatal("client_id longer than 64 accepted")
+	}
+}
+
+func TestEnsureSaved(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	a, b := mkUser(t, s, "A"), mkUser(t, s, "B")
+	mkBook(t, s, "B000000001")
+
+	if added, err := s.EnsureSaved(ctx, a, "B000000009"); !errors.Is(err, library.ErrUnknownBook) || added {
+		t.Fatalf("an unknown book: %v %v", added, err)
+	}
+	added, err := s.EnsureSaved(ctx, a, "B000000001")
+	e, gerr := s.GetEntry(ctx, a, "B000000001")
+	if err != nil || !added || gerr != nil || e.Status != library.StatusSaved || e.UpdatedAt != 0 || e.FinishedAt != nil || e.Speed != 1 {
+		t.Fatalf("%v %v %+v %v", added, err, e, gerr)
+	}
+	// Any later write wins over updated_at 0.
+	if got, err := s.PutEntry(ctx, a, write("B000000001", 1)); err != nil || got.Status != library.StatusListening {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// An existing entry is left alone, whatever its status.
+	if added, err = s.EnsureSaved(ctx, a, "B000000001"); err != nil || added {
+		t.Fatalf("%v %v", added, err)
+	}
+	if e, _ = s.GetEntry(ctx, a, "B000000001"); e.Status != library.StatusListening || e.PositionMs != 1 {
+		t.Fatalf("%+v", e)
+	}
+	// Per user.
+	if _, err := s.GetEntry(ctx, b, "B000000001"); !errors.Is(err, library.ErrNotFound) {
+		t.Fatalf("B: %v", err)
+	}
+	// The 2000-entry limit applies to a NEW entry only.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO books (asin, title) SELECT 'X' || lpad(g::text, 9, '0'), 't' FROM generate_series(1, $1) g`, library.MaxEntries); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO user_library (user_id, asin, status, updated_at)
+		SELECT $1::uuid, 'X' || lpad(g::text, 9, '0'), 'saved', g FROM generate_series(1, $2) g`, b, library.MaxEntries); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnsureSaved(ctx, b, "B000000001"); !errors.Is(err, library.ErrLimitReached) {
+		t.Fatalf("at the limit: %v", err)
+	}
+	if _, err := s.EnsureSaved(ctx, b, "X000000001"); err != nil {
+		t.Fatalf("an existing entry at the limit is fine: %v", err)
 	}
 }
 
@@ -274,7 +494,7 @@ func TestBookmarks(t *testing.T) {
 	ctx := context.Background()
 	a, b := mkUser(t, s, "A"), mkUser(t, s, "B")
 	mkBook(t, s, "B000000001")
-	if _, err := s.CreateBookmark(ctx, a, "B000000001", 1, ""); !errors.Is(err, library.ErrNotFound) {
+	if _, err := s.CreateBookmark(ctx, a, "B000000001", 1, "", ""); !errors.Is(err, library.ErrNotFound) {
 		t.Fatalf("a bookmark needs the book in the library: %v", err)
 	}
 	if _, err := s.PutEntry(ctx, a, write("B000000001", 1)); err != nil {
@@ -283,9 +503,9 @@ func TestBookmarks(t *testing.T) {
 	if _, err := s.PutEntry(ctx, b, write("B000000001", 1)); err != nil {
 		t.Fatal(err)
 	}
-	b2, _ := s.CreateBookmark(ctx, a, "B000000001", 9000, "late")
-	b1, _ := s.CreateBookmark(ctx, a, "B000000001", 1000, "early")
-	bb, _ := s.CreateBookmark(ctx, b, "B000000001", 5, "B's")
+	b2, _ := s.CreateBookmark(ctx, a, "B000000001", 9000, "late", "")
+	b1, _ := s.CreateBookmark(ctx, a, "B000000001", 1000, "early", "")
+	bb, _ := s.CreateBookmark(ctx, b, "B000000001", 5, "B's", "")
 	bs, err := s.ListBookmarks(ctx, a, "B000000001")
 	if err != nil || len(bs) != 2 || bs[0].ID != b1.ID || bs[1].ID != b2.ID || bs[0].Note != "early" {
 		t.Fatalf("ordered by position, scoped to A: %+v %v", bs, err)
@@ -404,6 +624,94 @@ func TestClientFilesStoredOnce(t *testing.T) {
 		if !reflect.DeepEqual(r, results[0]) {
 			t.Fatalf("callers saw different lists: %v vs %v", r, results[0])
 		}
+	}
+}
+
+func TestFileDurationsFirstWriterWins(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	h1, h2 := hash(1), hash(2)
+	if err := s.UpsertReleases(ctx, []model.Release{sampleRelease(h1, 1), sampleRelease(h2, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	fd := func(p string, ms int64) library.FileDuration { return library.FileDuration{Path: p, DurationMs: ms} }
+
+	got, err := s.SaveFileDurations(ctx, h1, []library.FileDuration{fd("b.mp3", 2000), fd("a.mp3", 1000)})
+	if err != nil || !reflect.DeepEqual(got, []library.FileDuration{fd("b.mp3", 2000), fd("a.mp3", 1000)}) {
+		t.Fatalf("input order is kept: %+v %v", got, err)
+	}
+	// A later, differing report is ignored; the stored values are returned (new paths are added).
+	got, err = s.SaveFileDurations(ctx, h1, []library.FileDuration{fd("a.mp3", 9999), fd("c.mp3", 3000), fd("b.mp3", 2000)})
+	if err != nil || !reflect.DeepEqual(got, []library.FileDuration{fd("a.mp3", 1000), fd("c.mp3", 3000), fd("b.mp3", 2000)}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// Per release: the same path of another release is independent.
+	if _, err := s.SaveFileDurations(ctx, h2, []library.FileDuration{fd("a.mp3", 7000)}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.FileDurations(ctx, []string{h1, h2, hash(3)})
+	want := map[string]map[string]int64{h1: {"a.mp3": 1000, "b.mp3": 2000, "c.mp3": 3000}, h2: {"a.mp3": 7000}}
+	if err != nil || !reflect.DeepEqual(all, want) {
+		t.Fatalf("%v %v", all, err)
+	}
+	if m, err := s.FileDurations(ctx, nil); err != nil || len(m) != 0 {
+		t.Fatalf("%v %v", m, err)
+	}
+	if got, err := s.SaveFileDurations(ctx, h1, nil); err != nil || len(got) != 0 {
+		t.Fatalf("an empty report: %v %v", got, err)
+	}
+
+	// An unknown release is refused and nothing is stored.
+	if _, err := s.SaveFileDurations(ctx, hash(9), []library.FileDuration{fd("a.mp3", 5000)}); !errors.Is(err, library.ErrUnknownRelease) {
+		t.Fatalf("unknown release: %v", err)
+	}
+	// The table enforces the bounds and the path rules too.
+	for name, d := range map[string]library.FileDuration{
+		"under 1 s": fd("x.mp3", 999), "over 48 h": fd("x.mp3", 48*3600*1000+1), "empty path": fd("", 5000), "long path": fd(string(make([]byte, 513)), 5000),
+	} {
+		if _, err := s.SaveFileDurations(ctx, h1, []library.FileDuration{d}); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if n := count(t, s, `SELECT count(*) FROM release_file_durations`); n != 4 {
+		t.Fatalf("rows = %d", n)
+	}
+	// Overlapping reports at the same time agree on one value per path and never deadlock.
+	var wg sync.WaitGroup
+	res := make([][]library.FileDuration, 8)
+	for i := range res {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ds := []library.FileDuration{fd("r1.mp3", int64(1000+i)), fd("r2.mp3", int64(2000+i)), fd("r3.mp3", int64(3000+i))}
+			if i%2 == 1 {
+				ds[0], ds[2] = ds[2], ds[0]
+			}
+			var err error
+			if res[i], err = s.SaveFileDurations(ctx, h2, ds); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	byPath := map[string]int64{}
+	for i, r := range res {
+		if len(r) != 3 {
+			t.Fatalf("report %d: %+v", i, r)
+		}
+		for _, d := range r {
+			if v, ok := byPath[d.Path]; ok && v != d.DurationMs {
+				t.Fatalf("%s: %d vs %d", d.Path, v, d.DurationMs)
+			}
+			byPath[d.Path] = d.DurationMs
+		}
+	}
+	// Deleting the release removes its durations.
+	if _, err := s.pool.Exec(ctx, `DELETE FROM releases WHERE info_hash = $1`, h1); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, s, `SELECT count(*) FROM release_file_durations WHERE info_hash = $1`, h1); n != 0 {
+		t.Fatalf("durations outlived the release: %d", n)
 	}
 }
 

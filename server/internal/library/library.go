@@ -18,6 +18,10 @@ const (
 	MaxBookmarks = 500  // bookmarks per book
 	MaxPathBytes = 512
 	MaxNoteChars = 280
+
+	MaxDurations  = 2000                // entries of one durations report
+	MinDurationMs = 1000                // 1 s
+	MaxDurationMs = 48 * 60 * 60 * 1000 // 48 h
 )
 
 // Errors returned by the Store.
@@ -50,6 +54,8 @@ type Entry struct {
 	FilePositionMs int64
 	Speed          float64
 	UpdatedAt      int64 // client clock, ms since epoch
+	// FinishedAt is when the status became finished (server clock); nil unless Status is finished.
+	FinishedAt *time.Time
 }
 
 // Write is the content of a PUT. The book must already be in the catalog.
@@ -62,6 +68,9 @@ type Write struct {
 	FilePositionMs int64
 	Speed          float64
 	UpdatedAt      int64
+	// Now is the server time stored as FinishedAt when this write turns the entry finished (zero:
+	// time.Now). An entry that is already finished keeps its FinishedAt.
+	Now time.Time
 }
 
 // Bookmark is a position the user marked.
@@ -70,6 +79,13 @@ type Bookmark struct {
 	PositionMs int64
 	Note       string
 	CreatedAt  time.Time
+	ClientID   string // "" when the client sent none
+}
+
+// FileDuration is the audio duration of one file of a release, by normalised path.
+type FileDuration struct {
+	Path       string
+	DurationMs int64
 }
 
 // Store is the persistence port.
@@ -87,8 +103,14 @@ type Store interface {
 	// ListBookmarks returns the bookmarks of one book ordered by position (empty when none).
 	ListBookmarks(ctx context.Context, userID, asin string) ([]Bookmark, error)
 	// CreateBookmark: ErrNotFound when the book is not in the user's library, ErrLimitReached
-	// at MaxBookmarks.
-	CreateBookmark(ctx context.Context, userID, asin string, positionMs int64, note string) (Bookmark, error)
+	// at MaxBookmarks. With a clientID, a bookmark the user already has for this book under that id is
+	// returned unchanged (nothing is created, the limit is not consulted).
+	CreateBookmark(ctx context.Context, userID, asin string, positionMs int64, note, clientID string) (Bookmark, error)
+	// EnsureSaved adds the book to the user's library as `saved` when it is not there (an existing entry,
+	// whatever its status, is left alone) and reports whether it was added. ErrLimitReached at
+	// MaxEntries, ErrUnknownBook when the catalog does not have the book. The entry gets updated_at 0
+	// so that any later write from any device wins last-write-wins.
+	EnsureSaved(ctx context.Context, userID, asin string) (added bool, err error)
 	// DeleteBookmark is idempotent.
 	DeleteBookmark(ctx context.Context, userID, asin, id string) error
 }

@@ -139,6 +139,9 @@ func (s *Service) book(ctx context.Context, asin string, p bookParams) (*BookPag
 		}
 		page.Releases[i] = v
 	}
+	if p.clientFiles && s.d.UserStore != nil {
+		s.withDurations(ctx, page.Releases)
+	}
 	return page, nil
 }
 

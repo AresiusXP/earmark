@@ -20,7 +20,7 @@ type Catalog interface {
 	DiscoverFor(ctx context.Context, p service.Prefs, page int) ([]model.Book, error)
 	BookFor(ctx context.Context, req service.BookRequest) (*service.BookPage, error)
 	EnsureBook(ctx context.Context, region, asin string) (model.Book, error)
-	Chapters(ctx context.Context, region, asin string) (int64, []metadata.Chapter, error)
+	ChapterList(ctx context.Context, region, asin string) (metadata.ChapterList, error)
 }
 
 // ReleaseStore is what the release routes need from the database (implemented by store.Postgres).
@@ -28,6 +28,9 @@ type ReleaseStore interface {
 	GetRelease(ctx context.Context, infoHash string) (*model.Release, error)
 	InsertReleaseIfAbsent(ctx context.Context, r model.Release) (bool, error)
 	SaveClientFiles(ctx context.Context, infoHash string, files []model.File) ([]model.File, bool, error)
+	ClientFiles(ctx context.Context, infoHashes []string) (map[string][]model.File, error)
+	// SaveFileDurations: first writer wins per (hash, path); returns the stored values in input order.
+	SaveFileDurations(ctx context.Context, infoHash string, ds []library.FileDuration) ([]library.FileDuration, error)
 	Files(ctx context.Context, infoHashes []string) (map[string][]model.File, error)
 	// SaveFilesIfAbsent: first writer wins, atomically (provider indexes are never replaced).
 	SaveFilesIfAbsent(ctx context.Context, infoHash string, files []model.File) (bool, error)
@@ -77,7 +80,7 @@ type app struct {
 }
 
 // MountApp registers the catalog (search, discover, books, chapters), release (prepare, download,
-// torrent-files), library and app-update routes on the /v1 mux. Call it once, before serving.
+// torrent-files, durations), library and app-update routes on the /v1 mux. Call it once, before serving.
 func (a *API) MountApp(d AppDeps) {
 	if d.Clock == nil {
 		d.Clock = time.Now
@@ -104,6 +107,7 @@ func (a *API) MountApp(d AppDeps) {
 		// GET also answers HEAD (Go's mux), which the handler treats as side-effect free.
 		m.Handle("GET /v1/releases/{hash}/files/{index}/download", auth(http.HandlerFunc(ap.download)))
 		m.Handle("POST /v1/releases/{hash}/torrent-files", auth(http.HandlerFunc(ap.torrentFiles)))
+		m.Handle("POST /v1/releases/{hash}/durations", auth(http.HandlerFunc(ap.durations)))
 
 		m.Handle("GET /v1/me/library", auth(http.HandlerFunc(ap.listLibrary)))
 		m.Handle("GET /v1/me/library/{asin}", auth(http.HandlerFunc(ap.getLibrary)))

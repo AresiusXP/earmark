@@ -294,6 +294,35 @@ func TestChapters(t *testing.T) {
 	}
 }
 
+func TestChapterListBranding(t *testing.T) {
+	cases := []struct {
+		name, body        string
+		runtime, in, out_ int64
+	}{
+		{"fixture", string(fixture(t, "audnexus_chapters_dune.json")), 75735564, 3970, 4945},
+		{"absent", `{"runtimeLengthMs":1000,"chapters":[]}`, 1000, 0, 0},
+		{"negative", `{"runtimeLengthMs":1000,"brandIntroDurationMs":-1,"brandOutroDurationMs":-9,"chapters":[]}`, 1000, 0, 0},
+		{"longer than the book", `{"runtimeLengthMs":1000,"brandIntroDurationMs":1001,"brandOutroDurationMs":1000,"chapters":[]}`, 1000, 0, 1000},
+		{"runtime unknown", `{"brandIntroDurationMs":5,"brandOutroDurationMs":7,"chapters":[]}`, 0, 5, 7},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := newTestClient(t, serveJSON([]byte(tc.body)))
+			cl, err := c.ChapterList(context.Background(), "us", "B002V1OF70")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cl.RuntimeMs != tc.runtime || cl.IntroMs != tc.in || cl.OutroMs != tc.out_ {
+				t.Fatalf("runtime=%d intro=%d outro=%d, want %d %d %d", cl.RuntimeMs, cl.IntroMs, cl.OutroMs, tc.runtime, tc.in, tc.out_)
+			}
+			again, err := c.ChapterList(context.Background(), "us", "B002V1OF70") // served from the cache, branding included
+			if err != nil || again.IntroMs != cl.IntroMs || again.OutroMs != cl.OutroMs {
+				t.Fatalf("cached: %+v %v", again, err)
+			}
+		})
+	}
+}
+
 func TestChapters404(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

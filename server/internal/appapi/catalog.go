@@ -15,8 +15,13 @@ import (
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
 )
 
-// Catalog responses are per user but cheap to repeat; everything else stays no-store.
-const catalogCacheControl = "private, max-age=300"
+// Search, discover and chapters carry nothing per user: a client may repeat them cheaply. The book
+// page mixes in per-user fields (cached, usable), so it must be revalidated every time. Everything
+// else stays no-store.
+const (
+	catalogCacheControl = "private, max-age=300"
+	bookCacheControl    = "private, no-store"
+)
 
 const (
 	minQuery       = 2
@@ -53,12 +58,14 @@ type fileDTO struct {
 	Index int    `json:"index"`
 	Path  string `json:"path"`
 	Size  int64  `json:"size"`
+	// DurationMs is reported by phones (POST /v1/releases/{hash}/durations); omitted when unknown.
+	DurationMs int64 `json:"duration_ms,omitempty"`
 }
 
 func toFiles(fs []model.File) []fileDTO {
 	out := make([]fileDTO, len(fs))
 	for i, f := range fs {
-		out[i] = fileDTO{Index: f.Index, Path: f.Path, Size: f.Size}
+		out[i] = fileDTO{Index: f.Index, Path: f.Path, Size: f.Size, DurationMs: f.DurationMs}
 	}
 	return out
 }
@@ -246,7 +253,7 @@ func (a *app) book(w http.ResponseWriter, r *http.Request) {
 			Usable: usableDTO{Debrid: nonNil(providers), P2P: rel.Magnet != "" && p2p},
 		}
 	}
-	w.Header().Set("Cache-Control", catalogCacheControl)
+	w.Header().Set("Cache-Control", bookCacheControl)
 	WriteJSON(w, http.StatusOK, out)
 }
 
@@ -260,7 +267,7 @@ func (a *app) chapters(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	runtime, chs, err := a.d.Catalog.Chapters(r.Context(), p.Region, asin)
+	cl, err := a.d.Catalog.ChapterList(r.Context(), p.Region, asin)
 	if err != nil {
 		a.catalogFail(w, err)
 		return
@@ -270,10 +277,17 @@ func (a *app) chapters(w http.ResponseWriter, r *http.Request) {
 		StartMs  int64  `json:"start_ms"`
 		LengthMs int64  `json:"length_ms"`
 	}
-	out := make([]chapterDTO, len(chs))
-	for i, c := range chs {
+	out := make([]chapterDTO, len(cl.Chapters))
+	for i, c := range cl.Chapters {
 		out[i] = chapterDTO{Title: c.Title, StartMs: int64(c.StartMs), LengthMs: int64(c.LengthMs)}
 	}
 	w.Header().Set("Cache-Control", catalogCacheControl)
-	WriteJSON(w, http.StatusOK, map[string]any{"asin": asin, "runtime_ms": runtime, "chapters": out})
+	resp := struct {
+		ASIN      string       `json:"asin"`
+		RuntimeMs int64        `json:"runtime_ms"`
+		IntroMs   int64        `json:"intro_ms,omitempty"`
+		OutroMs   int64        `json:"outro_ms,omitempty"`
+		Chapters  []chapterDTO `json:"chapters"`
+	}{asin, cl.RuntimeMs, cl.IntroMs, cl.OutroMs, out}
+	WriteJSON(w, http.StatusOK, resp)
 }
