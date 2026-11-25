@@ -530,12 +530,17 @@ func TestBookUncachedFiltering(t *testing.T) {
 			t.Fatalf("got %v", got)
 		}
 	})
-	t.Run("learned availability makes an unknown provider decisive", func(t *testing.T) {
+	t.Run("a legacy non-TorBox row of the shared table is never read", func(t *testing.T) {
 		e := setup(t)
 		e.store.avail["realdebrid"] = map[string]Availability{h(1): {InfoHash: h(1), Cached: true, CheckedAt: e.clock.Now()}}
 		p := e.mustBook(cfgFor(nil, "realdebrid"))
-		if len(p.Releases) != 3 || p.Releases[0].Release.InfoHash != h(1) || !p.Releases[0].Cached["realdebrid"] {
-			t.Fatalf("got %v %v", hashesOfPage(p), p.Releases[0].Cached)
+		if len(p.Releases) != 3 {
+			t.Fatalf("releases = %d", len(p.Releases))
+		}
+		for _, r := range p.Releases {
+			if len(r.Cached) != 0 {
+				t.Fatalf("another account's state leaked: %v", r.Cached)
+			}
 		}
 	})
 	t.Run("provider not in the registry is ignored", func(t *testing.T) {
@@ -818,6 +823,14 @@ func TestStreams(t *testing.T) {
 		}
 		if got[1].File == nil || got[1].File.Path != "b.mp3" || got[1].FileIndex != 5 || got[1].Release.InfoHash != h(1) {
 			t.Fatalf("stream = %+v", got[1])
+		}
+	})
+	t.Run("legacy shared row of a non-shared provider is ignored", func(t *testing.T) {
+		e := setup(t)
+		e.store.avail["realdebrid"] = map[string]Availability{h(1): {InfoHash: h(1), Cached: true, CheckedAt: e.clock.Now()}}
+		got, err := e.svc.Streams(ctx, both, VideoRef{ASIN: testASIN, InfoHash: h(1), FileIndex: 5})
+		if err != nil || len(got) != 2 || got[0].Provider != "realdebrid" || got[0].Cached {
+			t.Fatalf("%+v %v", got, err)
 		}
 	})
 	t.Run("auto file has no File", func(t *testing.T) {

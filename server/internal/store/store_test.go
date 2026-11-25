@@ -729,3 +729,50 @@ func TestUpsertReleasesClampsSeeders(t *testing.T) {
 		}
 	}
 }
+
+// Real-Debrid rows written to the shared availability table before the "only TorBox is shared"
+// rule must be gone after migration 0011; TorBox rows stay.
+func TestMigrationDropsLegacyNonTorBoxAvailability(t *testing.T) {
+	url := newSchemaURL(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	ms, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `CREATE TABLE schema_migrations (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.version >= 11 {
+			continue
+		}
+		if _, err := conn.Exec(ctx, m.sql); err != nil {
+			t.Fatalf("%s: %v", m.name, err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, m.version, m.name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := hash(0x51)
+	for _, p := range []string{"torbox", "realdebrid", "premiumize"} {
+		if _, err := conn.Exec(ctx, `INSERT INTO availability (provider, info_hash, cached) VALUES ($1, $2, true)`, p, h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if n := count(t, s, `SELECT count(*) FROM availability`); n != 1 {
+		t.Fatalf("availability rows = %d, want only the TorBox row", n)
+	}
+	if n := count(t, s, `SELECT count(*) FROM availability WHERE provider = 'torbox'`); n != 1 {
+		t.Fatal("the TorBox row must survive")
+	}
+}

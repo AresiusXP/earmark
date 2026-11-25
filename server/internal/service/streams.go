@@ -74,7 +74,7 @@ func (s *Service) Streams(ctx context.Context, cfg userconfig.Config, ref VideoR
 	out := make([]Stream, 0, len(providers))
 	for _, name := range providers {
 		cached := false
-		av, err := s.d.Store.GetAvailability(ctx, name, []string{ref.InfoHash}, newerThan)
+		av, err := s.sharedAvailability(ctx, name, []string{ref.InfoHash}, newerThan)
 		if err != nil {
 			s.log.Warn("read availability failed", "provider", name, "err", err)
 		} else if a, ok := av[ref.InfoHash]; ok {

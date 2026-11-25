@@ -477,7 +477,7 @@ func (s *Service) checkProvider(ctx context.Context, name, key string, hashes []
 		return r
 	}
 	now := s.now()
-	fresh, err := s.d.Store.GetAvailability(ctx, name, hashes, now.Add(-s.d.AvailabilityTTL))
+	fresh, err := s.sharedAvailability(ctx, name, hashes, now.Add(-s.d.AvailabilityTTL))
 	if err != nil {
 		s.log.Warn("read availability failed", "provider", name, "err", err)
 		fresh = nil
