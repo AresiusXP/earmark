@@ -18,6 +18,7 @@ import xyz.aresius.audiobooks.core.design.LocalSharedTransitionScope
 import xyz.aresius.audiobooks.feature.admin.UsersScreen
 import xyz.aresius.audiobooks.feature.book.BookScreen
 import xyz.aresius.audiobooks.feature.discover.DiscoverScreen
+import xyz.aresius.audiobooks.feature.download.DownloadsScreen
 import xyz.aresius.audiobooks.feature.library.LibraryScreen
 import xyz.aresius.audiobooks.feature.search.SearchScreen
 import xyz.aresius.audiobooks.feature.settings.SettingsScreen
@@ -45,9 +46,10 @@ fun AudiobooksNavHost(navController: NavHostController, isAdmin: Boolean, modifi
             ) {
                 screen<Routes.Discover> { DiscoverScreen(onBook = openBook) }
                 screen<Routes.Search> { SearchScreen(onBook = openBook) }
-                screen<Routes.Library> { LibraryScreen(onBook = openBook) }
-                screen<Routes.Settings> { SettingsScreen(isAdmin = isAdmin, onUsers = { navController.navigate(Routes.Users) }) }
+                screen<Routes.Library> { LibraryScreen(onBook = openBook, onDownloads = { navController.navigate(Routes.Downloads) }) }
+                screen<Routes.Settings> { SettingsScreen(isAdmin = isAdmin, onUsers = { navController.navigate(Routes.Users) }, onDownloads = { navController.navigate(Routes.Downloads) }) }
                 screen<Routes.Book> { BookScreen(onBack = { navController.popBackStack() }) }
+                screen<Routes.Downloads> { DownloadsScreen(onBack = { navController.popBackStack() }, onBook = openBook) }
                 screen<Routes.Users> { UsersScreen(onBack = { navController.popBackStack() }) }
             }
         }

@@ -62,6 +62,7 @@ import xyz.aresius.audiobooks.feature.common.Load
 import xyz.aresius.audiobooks.feature.common.formatInstant
 import xyz.aresius.audiobooks.feature.common.message
 import xyz.aresius.audiobooks.feature.debrid.DebridSection
+import xyz.aresius.audiobooks.feature.download.DownloadSettingsSection
 import xyz.aresius.audiobooks.feature.onboarding.messageRes
 import xyz.aresius.audiobooks.feature.update.UpdateSection
 
@@ -75,7 +76,7 @@ fun languageLabel(code: String, locale: Locale = Locale.getDefault()): String =
     Locale.forLanguageTag(code).getDisplayLanguage(locale).replaceFirstChar { it.titlecase(locale) }.ifBlank { code }
 
 @Composable
-fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, onDownloads: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val errorText = state.error?.message()
@@ -176,6 +177,7 @@ fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, viewModel: SettingsVie
                 BitTorrentRiskText()
                 BitTorrentCard()
             }
+            DownloadSettingsSection(onOpenDownloads = onDownloads)
             Section(stringResource(R.string.settings_devices)) {
                 when (val devices = state.devices) {
                     Load.Loading -> Text(stringResource(R.string.common_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
