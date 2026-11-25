@@ -19,7 +19,6 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import xyz.aresius.audiobooks.core.data.LibraryDao
@@ -39,6 +38,7 @@ import xyz.aresius.audiobooks.core.download.DownloadWorkerDeps
 import xyz.aresius.audiobooks.core.download.DownloadsDao
 import xyz.aresius.audiobooks.core.download.DownloadsDb
 import xyz.aresius.audiobooks.core.download.DownloadsRepository
+import xyz.aresius.audiobooks.core.data.finishedAtMs
 import xyz.aresius.audiobooks.core.download.FinishedBooks
 import xyz.aresius.audiobooks.core.download.FreeSpace
 import xyz.aresius.audiobooks.core.download.HttpFileFetcher
@@ -51,7 +51,6 @@ import xyz.aresius.audiobooks.core.download.StorageManager
 import xyz.aresius.audiobooks.core.download.TorrentSource
 import xyz.aresius.audiobooks.core.download.WorkManagerScheduler
 import xyz.aresius.audiobooks.core.network.HttpClientFactory
-import xyz.aresius.audiobooks.core.network.LibraryStatus
 import xyz.aresius.audiobooks.core.torrent.TorrentEngine
 
 @Qualifier
@@ -117,9 +116,7 @@ object DownloadsProvides {
     fun scope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Provides @Singleton
-    fun finishedBooks(libraryDao: LibraryDao): FinishedBooks = FinishedBooks { userId ->
-        libraryDao.observeAll(userId).first().filter { it.status == LibraryStatus.FINISHED }.associate { it.asin to it.updatedAt }
-    }
+    fun finishedBooks(libraryDao: LibraryDao): FinishedBooks = FinishedBooks { userId -> libraryDao.finishedAtMs(userId) }
 
     /** No redirects followed with credentials, no auth: this client only ever talks to a provider's CDN. No whole-call timeout (files are big). */
     @Provides @Singleton @DownloadClient

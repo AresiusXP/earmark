@@ -1,9 +1,11 @@
 package xyz.aresius.audiobooks.core.data
 
+import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -89,7 +91,10 @@ internal fun LibraryEntry.toEntity(userId: String) = LibraryEntryEntity(
     filePositionMs = filePositionMs,
     speed = speed,
     updatedAt = updatedAt,
+    finishedAtMs = finishedAt?.let(::parseInstantMs),
 )
+
+internal fun parseInstantMs(iso: String): Long? = runCatching { Instant.parse(iso).toEpochMilli() }.getOrNull()
 
 internal fun LibraryEntryEntity.toEntry() = LibraryEntry(
     book = AudiobooksJson.decodeFromString(Book.serializer(), bookJson),
@@ -100,4 +105,22 @@ internal fun LibraryEntryEntity.toEntry() = LibraryEntry(
     filePositionMs = filePositionMs,
     speed = speed,
     updatedAt = updatedAt,
+    finishedAt = finishedAtMs?.let { Instant.ofEpochMilli(it).toString() },
 )
+
+/**
+ * The player's own write into the library cache (it keeps the list current between refreshes). The server stamps `finished_at`; until the next
+ * refresh brings it, a finish keeps the time already cached, else the time it happened here, so "N days after finishing" and the LRU order of
+ * finished books are right without waiting for the network.
+ */
+suspend fun LibraryDao.cacheLocalProgress(userId: String, entry: LibraryEntry, nowMs: Long) {
+    val old = get(userId, entry.book.asin)
+    val finishedAtMs = if (entry.status != LibraryStatus.FINISHED) null else {
+        entry.finishedAt?.let(::parseInstantMs) ?: old?.takeIf { it.status == LibraryStatus.FINISHED }?.finishedAtMs ?: nowMs
+    }
+    upsert(entry.toEntity(userId).copy(finishedAtMs = finishedAtMs))
+}
+
+/** When each FINISHED book of [userId] was finished (ms): the server's `finished_at`, else (an older server, or an entry cached before v1.1) its last write. */
+suspend fun LibraryDao.finishedAtMs(userId: String): Map<String, Long> =
+    observeAll(userId).first().filter { it.status == LibraryStatus.FINISHED }.associate { it.asin to (it.finishedAtMs ?: it.updatedAt) }

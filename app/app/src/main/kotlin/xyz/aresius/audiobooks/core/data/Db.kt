@@ -9,6 +9,9 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import kotlinx.coroutines.flow.Flow
 
 /** A cached JSON answer (discover page, search, book page, the signed-in user). Pure cache: safe to drop. */
@@ -32,6 +35,8 @@ data class LibraryEntryEntity(
     val filePositionMs: Long,
     val speed: Double,
     val updatedAt: Long,
+    /** Server time (ms) the status became `finished` (contract v1.1); null when unknown (not finished, or an older server's answer). */
+    val finishedAtMs: Long? = null,
 )
 
 @Dao
@@ -50,6 +55,9 @@ interface CacheDao {
 abstract class LibraryDao {
     @Query("SELECT * FROM library_entry WHERE userId = :userId ORDER BY updatedAt DESC")
     abstract fun observeAll(userId: String): Flow<List<LibraryEntryEntity>>
+
+    @Query("SELECT * FROM library_entry WHERE userId = :userId AND asin = :asin")
+    abstract suspend fun get(userId: String, asin: String): LibraryEntryEntity?
 
     @Query("SELECT * FROM library_entry WHERE userId = :userId AND asin = :asin")
     abstract fun observe(userId: String, asin: String): Flow<LibraryEntryEntity?>
@@ -77,8 +85,17 @@ abstract class LibraryDao {
     }
 }
 
-@Database(entities = [CacheEntryEntity::class, LibraryEntryEntity::class], version = 1, exportSchema = true)
+@Database(entities = [CacheEntryEntity::class, LibraryEntryEntity::class], version = 2, exportSchema = true)
 abstract class AudiobooksDb : RoomDatabase() {
     abstract fun cacheDao(): CacheDao
     abstract fun libraryDao(): LibraryDao
+
+    companion object {
+        /** v2 (contract v1.1): `library_entry.finishedAtMs`. Kept as a real migration so the offline caches (book pages, chapters) survive. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE `library_entry` ADD COLUMN `finishedAtMs` INTEGER")
+            }
+        }
+    }
 }

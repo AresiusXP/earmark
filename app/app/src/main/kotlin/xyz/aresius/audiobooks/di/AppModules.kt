@@ -71,6 +71,7 @@ object ProvidesModule {
     @Provides @Singleton
     fun db(@ApplicationContext context: Context): AudiobooksDb =
         Room.databaseBuilder(context, AudiobooksDb::class.java, "audiobooks.db")
+            .addMigrations(AudiobooksDb.MIGRATION_1_2)
             // Everything in it is a copy of the server's data: safe to rebuild.
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
