@@ -1,0 +1,128 @@
+package xyz.aresius.audiobooks.feature.book
+
+import androidx.lifecycle.SavedStateHandle
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
+import org.junit.Rule
+import xyz.aresius.audiobooks.core.network.ApiError
+import xyz.aresius.audiobooks.core.network.AudiobooksJson
+import xyz.aresius.audiobooks.core.network.LibraryStatus
+import xyz.aresius.audiobooks.core.network.Provider
+import xyz.aresius.audiobooks.core.network.ReleaseView
+import xyz.aresius.audiobooks.feature.common.Load
+import xyz.aresius.audiobooks.feature.library.LibraryViewModel
+import xyz.aresius.audiobooks.testutil.FakeServer
+import xyz.aresius.audiobooks.testutil.MainDispatcherRule
+import xyz.aresius.audiobooks.testutil.Samples
+import xyz.aresius.audiobooks.testutil.TestApp
+import xyz.aresius.audiobooks.testutil.awaitState
+
+class BookAndLibraryViewModelTest {
+    @get:Rule val main = MainDispatcherRule()
+
+    private val server = FakeServer()
+    private val app = TestApp(server)
+    private val asin = "B000000001"
+
+    @AfterTest fun tearDown() = server.close()
+
+    private fun bookVm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library)
+
+    @Test fun loadsTheBookAndItsRankedReleases() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/books/$asin", Samples.bookDetail(releases = Samples.release("a".repeat(40)) + "," + Samples.release("b".repeat(40))))
+        server.on("GET", "/v1/me/library/$asin", FakeServer.error(404, "not_found"))
+        val s = bookVm().state.awaitState { it.detail is Load.Content<*> }
+        val detail = (s.detail as Load.Content).value
+        assertEquals("Pride and Prejudice", detail.book.title)
+        assertEquals(listOf("a".repeat(40), "b".repeat(40)), detail.releases.map { it.infoHash })
+        assertNull(s.libraryEntry)
+    }
+
+    @Test fun aFailureIsRetryable() = runBlocking<Unit> {
+        server.on("GET", "/v1/books/$asin", FakeServer.error(404, "not_found", "unknown book"), FakeServer.json(Samples.bookDetail()))
+        val vm = bookVm()
+        assertIs<ApiError.Http>((vm.state.awaitState { it.detail is Load.Failed }.detail as Load.Failed).error)
+        vm.load()
+        vm.state.awaitState { it.detail is Load.Content<*> }
+    }
+
+    @Test fun addAndRemoveFromTheLibrary() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/books/$asin", Samples.bookDetail())
+        val vm = bookVm()
+        vm.state.awaitState { it.detail is Load.Content<*> }
+        server.onJson("PUT", "/v1/me/library/$asin", Samples.libraryEntry(asin, "saved"))
+        vm.toggleLibrary()
+        assertEquals("saved", vm.state.awaitState { it.libraryEntry != null }.libraryEntry?.status)
+        server.on("DELETE", "/v1/me/library/$asin", FakeServer.empty())
+        vm.toggleLibrary()
+        assertNull(vm.state.awaitState { it.libraryEntry == null && !it.libraryBusy }.libraryEntry)
+    }
+
+    @Test fun aLibraryFailureIsReportedAndDownloadPlayAreComingLater() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/books/$asin", Samples.bookDetail())
+        val vm = bookVm()
+        vm.state.awaitState { it.detail is Load.Content<*> }
+        server.on("PUT", "/v1/me/library/$asin", FakeServer.error(409, "limit_reached"))
+        vm.toggleLibrary()
+        assertTrue(vm.state.awaitState { it.error != null }.error is ApiError.Http)
+        vm.consumeError()
+        assertFalse(vm.state.value.comingSoon)
+        vm.onDownloadOrPlay()
+        assertTrue(vm.state.value.comingSoon)
+        vm.consumeComingSoon()
+        assertFalse(vm.state.value.comingSoon)
+    }
+
+    // --- usable-via chips ------------------------------------------------------------------------------------
+
+    private fun release(usable: String, cached: String) = AudiobooksJson.decodeFromString(ReleaseView.serializer(), Samples.release(usable = usable, cached = cached))
+
+    @Test fun usableViaChips() {
+        assertEquals(listOf(UsableVia.Debrid(Provider.TorBox)), release("""{"debrid":["torbox"],"p2p":false}""", "{}").usableVia())
+        assertEquals(
+            listOf(UsableVia.Debrid(Provider.RealDebrid), UsableVia.BitTorrent),
+            release("""{"debrid":["realdebrid"],"p2p":true}""", "{}").usableVia(),
+        )
+        assertEquals(listOf(UsableVia.BitTorrent), release("""{"debrid":[],"p2p":true}""", "{}").usableVia())
+        assertEquals(listOf(UsableVia.NeedsKey), release("""{"debrid":[],"p2p":false}""", "{}").usableVia())
+        assertEquals(listOf(UsableVia.NeedsKey), release("""{"debrid":["alldebrid"],"p2p":false}""", "{}").usableVia(), "an unknown provider is not usable")
+    }
+
+    @Test fun cacheBadgesPerProviderUnknownIsOmitted() {
+        val badges = release("""{"debrid":[],"p2p":false}""", """{"torbox":true,"realdebrid":false}""").cacheBadges()
+        assertEquals(listOf(CacheBadge(Provider.TorBox, true), CacheBadge(Provider.RealDebrid, false)), badges)
+        assertTrue(release("""{"debrid":[],"p2p":false}""", "{}").cacheBadges().isEmpty())
+    }
+
+    // --- library ---------------------------------------------------------------------------------------------
+
+    @Test fun libraryRefreshFilterAndOfflineCopy() = runBlocking<Unit> {
+        server.onJson(
+            "GET", "/v1/me/library",
+            """{"entries":[${Samples.libraryEntry("B000000001", "listening", 30)},${Samples.libraryEntry("B000000002", "saved", 20)},${Samples.libraryEntry("B000000003", "finished", 10)}]}""",
+        )
+        val vm = LibraryViewModel(app.library)
+        val s = vm.state.awaitState { it.loaded }
+        assertEquals(3, s.visible.size)
+        vm.setFilter(LibraryStatus.SAVED)
+        assertEquals(listOf("B000000002"), vm.state.value.visible.map { it.book.asin })
+        vm.setFilter(null)
+        server.on("GET", "/v1/me/library", FakeServer.error(503, "upstream_failed", null, "Retry-After" to "0"))
+        vm.refresh()
+        val after = vm.state.awaitState { it.error != null && !it.refreshing }
+        assertEquals(3, after.entries.size, "the cached copy stays visible")
+    }
+
+    @Test fun libraryFirstLoadFailureIsAnErrorWithEmptyList() = runBlocking<Unit> {
+        server.on("GET", "/v1/me/library", FakeServer.error(500, "upstream_failed"))
+        val s = LibraryViewModel(app.library).state.awaitState { it.loaded }
+        assertTrue(s.entries.isEmpty())
+        assertIs<ApiError.Http>(s.error)
+    }
+}
