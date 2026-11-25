@@ -166,8 +166,9 @@ class AuthRepository(
      * tokens. Everything cached for the account is dropped by [SessionCleanup] reacting to the cleared session.
      */
     suspend fun signOut() {
-        // Best effort only: whatever the server says (refuses, 5xx, 401, no network, a hang) the user ends up signed out, and leaving the
-        // screen mid-way (cancellation) must not leave the session behind.
+        // Contract v1.1: DELETE /v1/me/devices/{own id} answers 204 and from then on this device's tokens are dead (a repeat is 401), so 204 and
+        // 401 both mean "signed out". Best effort beyond that: whatever else the server says (refuses, 5xx, no network, a hang) the user ends up
+        // signed out, and leaving the screen mid-way (cancellation) must not leave the session behind.
         runCatching {
             safeApiCall(timeoutMs = SIGN_OUT_REMOTE_MS) { revokeCurrentDevice(apiProvider.api()) }
         }
