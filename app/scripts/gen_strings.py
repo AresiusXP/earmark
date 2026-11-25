@@ -294,6 +294,15 @@ def write(path, idx):
             f.write(f'    <string name="{k}">{fmt(v[idx])}</string>\n')
         f.write("</resources>\n")
 
+# Feature modules: every scripts/strings/*.py is executed here and calls add(key, en, nl). New work adds its strings in its own
+# file so parallel branches never touch the same lines. The generated strings.xml files are rebuilt, never merged by hand.
+_here = os.path.dirname(os.path.abspath(__file__))
+_mods = os.path.join(_here, "strings")
+if os.path.isdir(_mods):
+    for _name in sorted(os.listdir(_mods)):
+        if _name.endswith(".py"):
+            exec(compile(open(os.path.join(_mods, _name), encoding="utf-8").read(), _name, "exec"), globals())
+
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "res")
 write(os.path.join(root, "values", "strings.xml"), 0)
 write(os.path.join(root, "values-nl", "strings.xml"), 1)
