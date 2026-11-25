@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/AresiusXP/earmark/compare/v0.6.0...v0.6.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **android:** support 32-bit ARM release APKs ([73e6df7](https://github.com/AresiusXP/earmark/commit/73e6df7f17172e0de622a6a4a94eaad799ea7ea7))
+
 ## [0.6.0](https://github.com/AresiusXP/earmark/compare/v0.5.0...v0.6.0) (2026-11-25)
 
 
