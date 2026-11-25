@@ -29,6 +29,14 @@ class DownloadsViewModel @Inject constructor(private val downloads: DownloadsRep
         viewModelScope.launch { downloads.delete(asin) }
     }
 
+    fun pause(asin: String) {
+        viewModelScope.launch { downloads.pause(asin) }
+    }
+
+    fun resume(asin: String) {
+        viewModelScope.launch { downloads.resume(asin) }
+    }
+
     fun retry(asin: String) {
         viewModelScope.launch { downloads.retry(asin) }
     }

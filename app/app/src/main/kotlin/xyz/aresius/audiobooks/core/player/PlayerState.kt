@@ -71,6 +71,11 @@ data class PlayerState(
     val skipBackMs: Long = PlaybackRules.DEFAULT_SKIP_S * 1000L,
     val skipForwardMs: Long = PlaybackRules.DEFAULT_SKIP_S * 1000L,
     val fileCount: Int = 0,
+    /**
+     * The last session's book shown again after a process restart: the position is the stored one and nothing is loaded in the service yet.
+     * [PlaybackController] loads it when the user presses play (or opens the full player).
+     */
+    val restored: Boolean = false,
     /** Bumped when the book has finished loading: lets the UI tell a new load from an update. */
     val loadId: Long = 0,
 ) {

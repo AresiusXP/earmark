@@ -42,6 +42,7 @@ class PlayerViewModel @Inject constructor(
 
     fun play(asin: String, releaseHash: String? = null, book: Book? = null) = controls.play(asin, releaseHash, book)
     fun togglePlay() = controls.togglePlay()
+    fun prepareRestored() = controls.prepareRestored()
     fun skipBack() = controls.skipBack()
     fun skipForward() = controls.skipForward()
     fun nextChapter() = controls.nextChapter()

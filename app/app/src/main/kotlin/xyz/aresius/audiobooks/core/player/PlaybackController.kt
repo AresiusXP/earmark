@@ -32,6 +32,9 @@ interface PlayerControls {
     /** The release the user last played for this book, if any. */
     suspend fun rememberedRelease(asin: String): String?
     fun togglePlay()
+
+    /** Loads the restored last-session book (paused) so the full player has everything it shows; does nothing when the player is not in the restored state. */
+    fun prepareRestored() {}
     fun pause()
     fun skipBack()
     fun skipForward()
@@ -87,7 +90,14 @@ class PlaybackController @Inject constructor(
 
     override fun play(asin: String, releaseHash: String?, book: Book?, autoplay: Boolean) {
         // The screen that opens next must not see "nothing is playing" before the service has picked the command up.
-        hub.update { if (this.asin == asin && phase != PlayerPhase.Idle) this else PlayerState(phase = PlayerPhase.Loading, asin = asin, book = book) }
+        hub.update {
+            when {
+                this.asin == asin && phase != PlayerPhase.Idle && !restored -> this
+                // The restored book keeps its position and length on screen while it loads.
+                this.asin == asin && restored -> copy(phase = PlayerPhase.Loading, restored = false, book = book ?: this.book)
+                else -> PlayerState(phase = PlayerPhase.Loading, asin = asin, book = book)
+            }
+        }
         send(asin, releaseHash, book, autoplay)
     }
 
@@ -98,7 +108,17 @@ class PlaybackController @Inject constructor(
         putBoolean(PlayerCommands.KEY_AUTOPLAY, autoplay)
     }
 
-    override fun togglePlay() = withController { if (it.isPlaying || it.playWhenReady) it.pause() else it.play() }
+    override fun togglePlay() {
+        val s = hub.state.value
+        // The restored mini player has no media loaded yet: playing it loads the book from the stored position.
+        if (s.restored && s.asin != null) return play(s.asin, s.releaseHash, s.book)
+        withController { if (it.isPlaying || it.playWhenReady) it.pause() else it.play() }
+    }
+
+    override fun prepareRestored() {
+        val s = hub.state.value
+        if (s.restored && s.asin != null) play(s.asin, s.releaseHash, s.book, autoplay = false)
+    }
 
     override fun pause() = withController { it.pause() }
 

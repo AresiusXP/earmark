@@ -37,7 +37,7 @@ class BookAndLibraryViewModelTest {
     private val controls = FakePlayerControls()
     private val localFiles = FakeLocalFiles()
 
-    private fun bookVm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library, controls, localFiles, app.me)
+    private fun bookVm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library, controls, localFiles, app.me, xyz.aresius.audiobooks.testutil.FakePrefetch())
 
     @Test fun loadsTheBookAndItsRankedReleases() = runBlocking<Unit> {
         server.onJson("GET", "/v1/books/$asin", Samples.bookDetail(releases = Samples.release("a".repeat(40)) + "," + Samples.release("b".repeat(40))))

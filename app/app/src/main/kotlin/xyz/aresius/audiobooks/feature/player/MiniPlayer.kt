@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,11 +46,12 @@ fun MiniPlayer(visible: Boolean, onOpen: () -> Unit, modifier: Modifier = Modifi
 private fun MiniPlayerContent(state: PlayerState, onOpen: () -> Unit, onToggle: () -> Unit, onSkipBack: () -> Unit) {
     val book = state.book
     val phase = state.phase
+    val busy = state.buffering || phase == PlayerPhase.Loading || phase is PlayerPhase.Preparing
     val line = when (phase) {
         PlayerPhase.Idle, PlayerPhase.Loading -> stringResource(R.string.player_loading)
         is PlayerPhase.Preparing -> phase.progress?.let { stringResource(R.string.player_preparing_progress, it) } ?: stringResource(R.string.player_preparing_title)
         is PlayerPhase.Failed -> phase.text()
-        PlayerPhase.Ready -> state.chapter?.displayTitle().orEmpty()
+        PlayerPhase.Ready -> if (state.buffering && !state.playing) stringResource(R.string.player_loading) else state.chapter?.displayTitle().orEmpty()
     }
     Column(
         Modifier.fillMaxWidth().padding(horizontal = Spacing.s, vertical = Spacing.xs)
@@ -61,13 +64,20 @@ private fun MiniPlayerContent(state: PlayerState, onOpen: () -> Unit, onToggle: 
                 Text(book?.title.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (phase == PlayerPhase.Ready) {
+            if (phase == PlayerPhase.Ready && !state.restored) {
                 SkipButton(seconds = (state.skipBackMs / 1000).toInt(), forward = false, onClick = onSkipBack, size = 44.dp)
             }
-            PlayPauseButton(playing = state.playing, busy = state.buffering || phase == PlayerPhase.Loading || phase is PlayerPhase.Preparing, onClick = onToggle, size = 48.dp)
+            PlayPauseButton(playing = state.playing, busy = busy, onClick = onToggle, size = 48.dp)
         }
         Box(Modifier.padding(horizontal = 14.dp)) {
-            WavyProgressBar(
+            // While the book is being got ready the seek bar gives way to a thin, quiet indeterminate line.
+            if (busy) {
+                LinearProgressIndicator(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp).height(2.dp),
+                    color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.outlineVariant,
+                    gapSize = 0.dp,
+                )
+            } else WavyProgressBar(
                 progress = if (state.durationMs > 0) state.positionMs.toFloat() / state.durationMs else 0f,
                 playing = state.playing,
                 restingAmplitude = 0.4f,

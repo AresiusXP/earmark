@@ -102,7 +102,7 @@ class BookDownloadWorker(
     }
 
     private fun map(outcome: RunOutcome): Result = when (outcome) {
-        RunOutcome.Done -> Result.success()
+        RunOutcome.Done, RunOutcome.Paused -> Result.success()
         RunOutcome.Retry, is RunOutcome.Waiting -> Result.retry()
         RunOutcome.Failed, RunOutcome.Gone -> Result.failure()
     }

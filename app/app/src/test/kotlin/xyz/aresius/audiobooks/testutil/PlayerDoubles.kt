@@ -38,3 +38,12 @@ class FakeLocalFiles(downloads: Boolean = false) : LocalFiles {
     override fun localFile(asin: String, releaseHash: String, path: String): File? = null
     override fun hasDownloads(asin: String): Flow<Boolean> = has
 }
+
+/** Records which releases the Book page asked to warm. */
+class FakePrefetch : xyz.aresius.audiobooks.core.data.ReleasePrefetch {
+    val calls = java.util.concurrent.CopyOnWriteArrayList<Pair<String, xyz.aresius.audiobooks.core.network.Provider>>()
+    override fun prefetch(release: xyz.aresius.audiobooks.core.network.ReleaseView, provider: xyz.aresius.audiobooks.core.network.Provider): Boolean {
+        calls.add(release.infoHash to provider)
+        return true
+    }
+}

@@ -19,12 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -65,6 +63,7 @@ import xyz.aresius.audiobooks.feature.common.authorLine
 import xyz.aresius.audiobooks.feature.common.formatRuntime
 import xyz.aresius.audiobooks.feature.common.message
 import xyz.aresius.audiobooks.feature.common.progressFraction
+import xyz.aresius.audiobooks.feature.player.PlayPauseButton
 
 @Composable
 private fun greetingText(greeting: Greeting, name: String?): String {
@@ -80,8 +79,12 @@ private fun greetingText(greeting: Greeting, name: String?): String {
 /** Editorial Discover: a serif greeting, the "Continue listening" hero straight on the page (no card), then shelves of large covers. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiscoverScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, viewModel: DiscoverViewModel = hiltViewModel()) {
+fun DiscoverScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, onOpenPlayer: () -> Unit, viewModel: DiscoverViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onResumed()
+        onPauseOrDispose { }
+    }
     Column(Modifier.fillMaxSize()) {
         when (val books = state.books) {
             Load.Loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = Spacing.l)) {
@@ -104,7 +107,13 @@ fun DiscoverScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, vie
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = Spacing.l)) {
                     item { Greeting(state) }
                     state.continueListening?.let { entry ->
-                        item { ContinueListening(entry, onClick = { onBook(entry.book.asin) }, onPlay = { onPlay(entry) }) }
+                        item {
+                            ContinueListening(
+                                entry, positionMs = state.continuePositionMs ?: entry.positionMs, playing = state.continuePlaying, busy = state.continueBusy,
+                                onClick = { if (state.continueInPlayer) onOpenPlayer() else onBook(entry.book.asin) },
+                                onPlay = { if (state.continueInPlayer) viewModel.togglePlay() else onPlay(entry) },
+                            )
+                        }
                         item { HorizontalDivider(Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.l), color = MaterialTheme.colorScheme.outlineVariant) }
                     }
                     if (books.stale) {
@@ -166,14 +175,15 @@ private fun Shelf(title: String, books: List<xyz.aresius.audiobooks.core.network
 /**
  * Variant B of the hero: no card, everything on the page. The cover (24 dp radius) has a soft glow of its own palette in the dark theme
  * and a soft warm shadow in the light theme; below it the serif title, the author, a resting wavy progress, the time left and the round
- * persimmon play button, which starts the book and opens the player; the rest of the hero opens the book page.
+ * persimmon play button. The button starts the book and opens the player; once the player holds the book it toggles play/pause in place
+ * (pause icon while it plays) and the rest of the hero opens the player; otherwise the rest opens the book page.
  */
 @Composable
-private fun ContinueListening(entry: LibraryEntry, onClick: () -> Unit, onPlay: () -> Unit) {
+private fun ContinueListening(entry: LibraryEntry, positionMs: Long, playing: Boolean, busy: Boolean, onClick: () -> Unit, onPlay: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val cover by rememberCoverColors(entry.book.coverUrl)
-    val progress = progressFraction(entry.positionMs, entry.book.runtimeMin)
-    val leftMin = (entry.book.runtimeMin - (entry.positionMs / 60_000L).toInt()).coerceAtLeast(0)
+    val progress = progressFraction(positionMs, entry.book.runtimeMin)
+    val leftMin = (entry.book.runtimeMin - (positionMs / 60_000L).toInt()).coerceAtLeast(0)
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Spacing.screen), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
         Text(stringResource(R.string.discover_continue), style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
@@ -200,7 +210,7 @@ private fun ContinueListening(entry: LibraryEntry, onClick: () -> Unit, onPlay: 
                 if (authors.isNotEmpty()) Text(authors, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
             }
         }
-        WavyProgressBar(progress, restingAmplitude = 0.55f, color = MaterialTheme.colorScheme.primary)
+        WavyProgressBar(progress, playing = playing, restingAmplitude = 0.55f, color = MaterialTheme.colorScheme.primary)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 stringResource(R.string.discover_time_left, formatRuntime(leftMin)),
@@ -208,12 +218,7 @@ private fun ContinueListening(entry: LibraryEntry, onClick: () -> Unit, onPlay: 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            Box(
-                Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape).clickable(onClick = onPlay),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.book_play), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))
-            }
+            PlayPauseButton(playing = playing, busy = busy, onClick = onPlay, size = 64.dp)
         }
     }
 }

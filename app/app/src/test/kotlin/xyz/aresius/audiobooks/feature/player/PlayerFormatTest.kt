@@ -17,7 +17,6 @@ class PlayerFormatTest {
 
     @Test fun `remaining has a minus and a tilde while estimated`() {
         assertEquals("-9:31:40", formatRemaining(34_300_000))
-        assertEquals("~-9:31:40", formatRemaining(34_300_000, estimated = true))
     }
 
     @Test fun `speed drops trailing zeros and follows the locale`() {

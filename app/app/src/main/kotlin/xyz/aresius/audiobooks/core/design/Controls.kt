@@ -3,6 +3,7 @@ package xyz.aresius.audiobooks.core.design
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -136,7 +137,32 @@ fun SecondaryButton(
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
     ) {
-        Text(text, style = ButtonLabel)
+        // Ink on paper has contrast to spare, so a long label ("Downloading 45%") shrinks to one line instead of wrapping.
+        Text(text, style = ButtonLabel, maxLines = 1, autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = 20.sp, stepSize = 1.sp))
+    }
+}
+
+/**
+ * The quiet pill for secondary actions inside cards: ink label (14 sp medium, one line, never wraps), hairline outline, 48 dp high so every
+ * card lines up. The loud action of a card is a [PrimaryButton].
+ */
+@Composable
+fun CompactButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(48.dp),
+        shape = PillShape,
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (enabled) 1f else 0.4f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -155,5 +181,6 @@ private fun ControlsPreview() = AudiobooksPreviewSurface {
         PrimaryButton("Continue", onClick = {})
         PrimaryButton("Continue", onClick = {}, loading = true)
         SecondaryButton("Skip", onClick = {})
+        CompactButton("Download this release", onClick = {})
     }
 }

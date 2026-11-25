@@ -13,6 +13,7 @@ import xyz.aresius.audiobooks.core.player.PlayerPhase
 import xyz.aresius.audiobooks.core.player.PlayerState
 import xyz.aresius.audiobooks.feature.common.Load
 import xyz.aresius.audiobooks.testutil.FakeLocalFiles
+import xyz.aresius.audiobooks.testutil.FakePrefetch
 import xyz.aresius.audiobooks.testutil.FakePlayerControls
 import xyz.aresius.audiobooks.testutil.FakeServer
 import xyz.aresius.audiobooks.testutil.MainDispatcherRule
@@ -29,12 +30,13 @@ class BookPlayStatesTest {
     private val asin = "B000000001"
     private val controls = FakePlayerControls()
     private val local = FakeLocalFiles()
+    private val prefetch = FakePrefetch()
     private val a = "a".repeat(40)
     private val b = "b".repeat(40)
 
     @AfterTest fun tearDown() = server.close()
 
-    private fun vm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library, controls, local, app.me)
+    private fun vm() = BookViewModel(SavedStateHandle(mapOf("asin" to asin)), app.catalog, app.library, controls, local, app.me, prefetch)
 
     private fun serve(releases: String) {
         server.onJson("GET", "/v1/books/$asin", Samples.bookDetail(releases = releases))
@@ -109,5 +111,48 @@ class BookPlayStatesTest {
         assertNull(vm.state.awaitState { it.playerPhase == null }.playerPhase)
         controls.mutableState.value = PlayerState(phase = PlayerPhase.Ready, asin = asin)
         assertNull(vm.state.awaitState { it.playerPhase == null }.playerPhase)
+    }
+
+    @Test fun `opening the page warms the release Play would stream, once`() = runBlocking<Unit> {
+        serve(Samples.release(a, cached = """{"torbox":false}""") + "," + Samples.release(b))
+        val vm = vm()
+        vm.state.awaitState { it.chosen != null }
+        vm.load()
+        vm.state.awaitState { !it.refreshing }
+        assertEquals(listOf(b to xyz.aresius.audiobooks.core.network.Provider.TorBox), prefetch.calls.toList(), "the cached best release, not the first one")
+    }
+
+    @Test fun `the user's pick is what gets warmed`() = runBlocking<Unit> {
+        serve(Samples.release(a) + "," + Samples.release(b))
+        val vm = vm()
+        val release = (vm.state.awaitState { it.detail is Load.Content<*> }.detail as Load.Content).value.releases.last()
+        vm.choose(release)
+        vm.state.awaitState { it.chosen?.release?.infoHash == b }
+        assertEquals(b, prefetch.calls.last().first)
+    }
+
+    @Test fun `nothing is warmed without a usable key, for downloaded books, or when the player already has the book`() = runBlocking<Unit> {
+        serve(Samples.release(a, usable = """{"debrid":[],"p2p":true}"""))
+        vm().state.awaitState { it.chosen != null }
+        local.has.value = true
+        val downloaded = vm()
+        downloaded.state.awaitState { it.hasDownloads }
+        assertEquals(0, prefetch.calls.size, "BitTorrent-only and downloaded: no prepare")
+        local.has.value = false
+        serve(Samples.release(a))
+        controls.mutableState.value = PlayerState(phase = PlayerPhase.Ready, asin = asin)
+        vm().state.awaitState { it.chosen != null }
+        assertEquals(0, prefetch.calls.size, "the player already holds it")
+    }
+
+    @Test fun `an offline copy of the page is never used to warm anything`() {
+        val detail = Load.Content(xyz.aresius.audiobooks.core.network.AudiobooksJson.decodeFromString(xyz.aresius.audiobooks.core.network.BookDetail.serializer(), Samples.bookDetail(releases = Samples.release(a))), stale = true)
+        val release = detail.value.releases.single()
+        val state = BookUiState(
+            detail = detail, chosen = xyz.aresius.audiobooks.core.player.ReleaseChoice(release, xyz.aresius.audiobooks.core.network.Provider.TorBox),
+            availability = PlayAvailability.Playable(xyz.aresius.audiobooks.core.network.Provider.TorBox),
+        )
+        assertNull(prefetchTarget(state.copy(detail = detail.copy(stale = true)), playerHasBook = false))
+        assertEquals(release to xyz.aresius.audiobooks.core.network.Provider.TorBox, prefetchTarget(state.copy(detail = detail.copy(stale = false)), playerHasBook = false))
     }
 }

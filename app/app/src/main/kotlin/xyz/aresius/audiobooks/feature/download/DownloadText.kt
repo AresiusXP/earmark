@@ -77,6 +77,7 @@ fun BookDownloadState.statusText(): String? = when (this) {
             WaitReason.Vpn -> R.string.download_status_paused_vpn
             WaitReason.Battery -> R.string.download_status_paused_battery
             WaitReason.Background -> R.string.download_status_paused_background
+            WaitReason.User -> R.string.download_status_paused_user
         },
     )
     is BookDownloadState.Failed -> text()

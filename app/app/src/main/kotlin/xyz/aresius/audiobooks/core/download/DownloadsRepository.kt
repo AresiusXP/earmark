@@ -158,6 +158,32 @@ class DownloadsRepository(
         if (changed) scheduler.enqueue(userId, asin, dao.book(userId, asin)?.unmeteredOnly ?: false, settings.current().allowMobileData, replace = true)
     }
 
+    /**
+     * Pause: the job keeps its place and its partial files (`.part` + the bytes done) but no work is scheduled, so nothing runs until [resume].
+     * The row is marked first (a running job notices it at its next write and stops), then the work is cancelled.
+     */
+    suspend fun pause(asin: String) {
+        val userId = sessions.load()?.userId ?: return
+        if (dao.book(userId, asin)?.state !in JobState.ACTIVE) return
+        dao.updateBook(userId, asin) {
+            if (it.state !in JobState.ACTIVE) it else it.copy(
+                state = JobState.USER_PAUSED, pauseReason = null, preparePercent = null, slowReason = null, updatedAtMs = clock(),
+            )
+        }
+        scheduler.cancel(userId, asin)
+        bus.clear(asin)
+    }
+
+    /** Continues a paused download where it stopped (the files fetch with Range from what is on disk). */
+    suspend fun resume(asin: String) {
+        val userId = sessions.load()?.userId ?: return
+        val job = dao.book(userId, asin)?.takeIf { it.state == JobState.USER_PAUSED } ?: return
+        dao.updateBook(userId, asin) {
+            if (it.state != JobState.USER_PAUSED) it else it.copy(state = JobState.QUEUED, attempts = 0, preparingSinceMs = null, updatedAtMs = clock())
+        }
+        scheduler.enqueue(userId, asin, job.unmeteredOnly, settings.current().allowMobileData, replace = true)
+    }
+
     /** Stops the download of [asin] and deletes everything of it (finished or not). */
     suspend fun delete(asin: String) {
         val userId = sessions.load()?.userId ?: return

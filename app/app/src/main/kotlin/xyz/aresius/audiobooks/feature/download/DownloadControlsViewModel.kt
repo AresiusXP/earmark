@@ -61,6 +61,17 @@ class DownloadControlsViewModel @Inject constructor(
         }
     }
 
+    fun pause(asin: String) {
+        viewModelScope.launch { downloads.pause(asin) }
+    }
+
+    fun resume(asin: String) {
+        viewModelScope.launch {
+            _rejected.update { it - asin }
+            downloads.resume(asin)
+        }
+    }
+
     fun delete(asin: String) {
         viewModelScope.launch {
             _rejected.update { it - asin }

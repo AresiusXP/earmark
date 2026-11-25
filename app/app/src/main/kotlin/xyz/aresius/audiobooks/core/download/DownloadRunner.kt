@@ -22,6 +22,9 @@ sealed interface RunOutcome {
 
     /** The book was deleted, or the signed-in user changed. */
     data object Gone : RunOutcome
+
+    /** The user paused the job: nothing is retried until Resume. */
+    data object Paused : RunOutcome
 }
 
 /** Picks the [DownloadSource] for a job's `source`. */
@@ -55,6 +58,7 @@ class DownloadRunner(
         if (sessions.snapshot()?.userId != userId) return RunOutcome.Gone
         if (job.state == JobState.COMPLETED) return RunOutcome.Done
         if (job.state == JobState.FAILED) return RunOutcome.Failed
+        if (job.state == JobState.USER_PAUSED) return RunOutcome.Paused
         val gate = DownloadGate.check(network.kind.value, settings.current().allowMobileData, job.unmeteredOnly)
         if (gate is Gate.Wait) return RunOutcome.Waiting(gate.reason)
         val dir = storage.bookDir(job.asin, job.releaseHash)
@@ -79,6 +83,8 @@ class DownloadRunner(
             RunOutcome.Done
         } catch (e: JobContext.JobGone) {
             RunOutcome.Gone
+        } catch (e: JobContext.JobPaused) {
+            RunOutcome.Paused
         } catch (e: CancellationException) {
             throw e // the worker was stopped: the row keeps its state and the work is rescheduled
         } catch (e: DownloadException) {
@@ -107,13 +113,14 @@ class DownloadRunner(
             fail(job, e)
             return RunOutcome.Failed
         }
+        if (dao.book(job.userId, job.asin)?.state == JobState.USER_PAUSED) return RunOutcome.Paused
         dao.updateBook(job.userId, job.asin) { it.copy(attempts = attempts, updatedAtMs = clock()) }
         return RunOutcome.Retry
     }
 
     private suspend fun fail(job: DownloadBookEntity, e: DownloadException) {
         dao.updateBook(job.userId, job.asin) {
-            it.copy(
+            if (it.state == JobState.USER_PAUSED) it else it.copy(
                 state = JobState.FAILED, failReason = e.reason.wire, failMessage = e.message?.take(300), retryAfterSec = e.retryAfterSec,
                 pauseReason = null, preparePercent = null, slowReason = null, updatedAtMs = clock(),
             )

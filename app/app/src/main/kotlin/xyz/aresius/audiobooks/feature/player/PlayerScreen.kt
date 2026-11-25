@@ -101,6 +101,8 @@ fun PlayerScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit, onOpenSetting
             LightStatusBarIcons(false)
             AskForNotificationPermission()
             LaunchedEffect(state.hasBook) { if (!state.hasBook) onBack() }
+            // The mini player restored after a restart opens here: the book is loaded now (paused), not before the user asks for it.
+            LaunchedEffect(state.restored) { if (state.restored) viewModel.prepareRestored() }
             // The player is always dark: Text and Icon without a colour must follow its scheme, not the (light) app theme around it.
             CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
                 PlayerContent(state, bookmarks, viewModel, glow = cover?.glow, onBack, onOpenBook, onOpenSettings)
@@ -197,7 +199,10 @@ private fun ReadyBlock(state: PlayerState, viewModel: PlayerViewModel, bookmarkC
                 Text(chapter.displayTitle(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        stringResource(R.string.player_chapter_times, formatClock(state.chapterPositionMs), formatClock(state.chapterDurationMs)),
+                        stringResource(
+                            R.string.player_chapter_progress,
+                            formatClock(state.chapterPositionMs), formatClock(state.chapterDurationMs), formatRemaining(state.chapterDurationMs - state.chapterPositionMs),
+                        ),
                         style = MaterialTheme.typography.labelMedium.merge(TabularFigures),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -282,9 +287,9 @@ private fun Scrubber(state: PlayerState, onSeek: (Long) -> Unit) {
             tickFractions = ticks,
             height = 40.dp,
         )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatClock(shown), style = MaterialTheme.typography.labelLarge.merge(TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(formatRemaining(total - shown, !state.durationExact), style = MaterialTheme.typography.labelLarge.merge(TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(stringResource(R.string.player_book_elapsed, formatClock(shown)), style = MaterialTheme.typography.labelLarge.merge(TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TimeLeftLabel(total - shown, estimated = !state.durationExact)
         }
     }
 }
