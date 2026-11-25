@@ -14,6 +14,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import xyz.aresius.audiobooks.core.auth.CodeFormat
 import xyz.aresius.audiobooks.core.network.AdminUpdateUserRequest
 import xyz.aresius.audiobooks.core.network.AdminUser
 import xyz.aresius.audiobooks.core.network.AdminUsersResponse
@@ -33,6 +34,11 @@ import xyz.aresius.audiobooks.core.network.DebridListResponse
 import xyz.aresius.audiobooks.core.network.DebridStatus
 import xyz.aresius.audiobooks.core.network.Device
 import xyz.aresius.audiobooks.core.network.DevicesResponse
+import xyz.aresius.audiobooks.core.network.GoogleJoinRequest
+import xyz.aresius.audiobooks.core.network.GoogleLink
+import xyz.aresius.audiobooks.core.network.GoogleLinkRequest
+import xyz.aresius.audiobooks.core.network.GoogleNonceResponse
+import xyz.aresius.audiobooks.core.network.GoogleSignInRequest
 import xyz.aresius.audiobooks.core.network.Invite
 import xyz.aresius.audiobooks.core.network.InvitesResponse
 import xyz.aresius.audiobooks.core.network.JoinRequest
@@ -69,12 +75,14 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private val devices = ArrayList<Device>()
     private val invites = LinkedHashMap<String, Pair<Invite, String>>()
     private val linkCodes = HashSet<String>()
+    private val googleNonces = HashSet<String>()
+    private val googleIdentities = HashMap<String, String>() // Google sub -> user id
     private val debridKeys = HashMap<String, DebridStatus>()
     private val library = LinkedHashMap<String, LibraryEntry>()
     private val books = sampleBooks()
 
     init {
-        invites[DEMO_INVITE] = Invite("inv-demo", "Demo invite", Instant.now().toString(), Instant.now().plusSeconds(72 * 3600).toString()) to DEMO_INVITE
+        invites[CodeFormat.normalize(DEMO_INVITE)] = Invite("inv-demo", "Demo invite", Instant.now().toString(), Instant.now().plusSeconds(72 * 3600).toString()) to DEMO_INVITE
         resetLibrary()
     }
 
@@ -94,7 +102,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         if (seg == listOf("healthz")) return text(request, "ok")
         if (seg.size < 2 || seg[0] != "v1") return error(request, 404, "not_found", "no such route")
         val path = seg.drop(1)
-        if (path == listOf("version")) return json(request, VersionInfo("0.0.0-demo", 1, bootstrapped))
+        if (path == listOf("version")) return json(request, VersionInfo("0.0.0-demo", 1, bootstrapped, googleEnabled = true))
         if (path == listOf("app", "update")) return json(request, AppUpdateDto(available = false))
         if (path.firstOrNull() == "auth") return auth(request, path)
         ensureUser()
@@ -110,6 +118,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     }
 
     private fun auth(request: Request, path: List<String>): Response {
+        if (path.getOrNull(1) == "google") return googleAuth(request, path.drop(2))
         if (request.method != "POST") return error(request, 404, "not_found", "no such route")
         return when (path.getOrNull(1)) {
             "bootstrap" -> {
@@ -122,12 +131,12 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
             }
             "join" -> {
                 val b = body(request, JoinRequest.serializer())
-                if (invites.remove(b.inviteCode.trim()) == null) error(request, 401, "unauthorized", "unknown, used or expired invite")
+                if (invites.remove(CodeFormat.normalize(b.inviteCode)) == null) error(request, 401, "unauthorized", "unknown, used or expired invite")
                 else signIn(request, b.displayName, b.deviceName, Roles.USER)
             }
             "link" -> {
                 val b = body(request, LinkRequest.serializer())
-                if (!linkCodes.remove(b.linkCode.trim())) error(request, 401, "unauthorized", "unknown, used or expired link code")
+                if (!linkCodes.remove(CodeFormat.normalize(b.linkCode))) error(request, 401, "unauthorized", "unknown, used or expired link code")
                 else {
                     ensureUser()
                     signIn(request, me[currentUserId]!!.displayName, b.deviceName, me[currentUserId]!!.role, existing = currentUserId)
@@ -135,6 +144,87 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
             }
             "refresh" -> json(request, session(me[currentUserId] ?: defaultUser()))
             else -> error(request, 404, "not_found", "no such route")
+        }
+    }
+
+    // --- Sign in with Google (fake ID tokens, see FakeGoogleTokenSource) ---------------------------------------------
+
+    private fun googleAuth(request: Request, path: List<String>): Response = when {
+        path == listOf("nonce") && request.method == "GET" -> {
+            val nonce = "demo-nonce-${UUID.randomUUID()}"
+            googleNonces.add(nonce)
+            json(request, GoogleNonceResponse(nonce, Instant.now().plusSeconds(300).toString()))
+        }
+        path.isEmpty() && request.method == "POST" -> {
+            val b = body(request, GoogleSignInRequest.serializer())
+            val token = spendToken(b.idToken)
+            when {
+                token == null -> error(request, 401, "unauthorized", "invalid ID token")
+                googleIdentities[token.sub] == null -> error(request, 401, "google_not_linked", "this Google account is not linked to a user")
+                else -> {
+                    val id = googleIdentities.getValue(token.sub)
+                    ensureUser()
+                    val u = me[id] ?: user()
+                    signIn(request, u.displayName, b.deviceName, u.role, existing = u.id)
+                }
+            }
+        }
+        path == listOf("join") && request.method == "POST" -> {
+            val b = body(request, GoogleJoinRequest.serializer())
+            val token = spendToken(b.idToken)
+            when {
+                token == null -> error(request, 401, "unauthorized", "invalid ID token")
+                googleIdentities[token.sub] != null -> error(request, 409, "conflict", "this Google account is already linked to a user")
+                invites[CodeFormat.normalize(b.inviteCode)] == null -> error(request, 401, "unauthorized", "unknown, used or expired invite")
+                else -> {
+                    invites.remove(CodeFormat.normalize(b.inviteCode))
+                    val name = b.displayName?.takeIf { it.isNotBlank() } ?: token.givenName
+                    signIn(request, name, b.deviceName, Roles.USER).also {
+                        googleIdentities[token.sub] = currentUserId
+                        me[currentUserId] = user().copy(google = GoogleLink(true, token.email))
+                    }
+                }
+            }
+        }
+        else -> error(request, 404, "not_found", "no such route")
+    }
+
+    private fun linkGoogle(request: Request): Response {
+        val token = spendToken(body(request, GoogleLinkRequest.serializer()).idToken) ?: return error(request, 401, "unauthorized", "invalid ID token")
+        val owner = googleIdentities[token.sub]
+        val u = user()
+        return when {
+            owner != null && owner != u.id -> error(request, 409, "conflict", "this Google account is linked to another user")
+            owner == null && u.google.linked -> error(request, 409, "conflict", "another Google account is already linked: unlink it first")
+            else -> {
+                googleIdentities[token.sub] = u.id
+                val linked = u.copy(google = GoogleLink(true, token.email))
+                me[u.id] = linked
+                json(request, linked)
+            }
+        }
+    }
+
+    private fun unlinkGoogle(request: Request): Response {
+        googleIdentities.entries.removeAll { it.value == currentUserId }
+        me[currentUserId] = user().copy(google = GoogleLink())
+        return noContent(request)
+    }
+
+    /** Like the real server: a token must carry a nonce minted here, and every nonce works once. */
+    private fun spendToken(idToken: String): FakeGoogleToken? {
+        val token = FakeGoogleToken.parse(idToken) ?: return null
+        return if (googleNonces.remove(token.nonce)) token else null
+    }
+
+    /** What the server mints: 26 Crockford base32 characters in groups of four ("K7QD-9XMP-..."). */
+    private fun newCode(): String {
+        val random = java.security.SecureRandom()
+        return buildString {
+            repeat(CodeFormat.LENGTH) { i ->
+                if (i > 0 && i % 4 == 0) append('-')
+                append(CodeFormat.ALPHABET[random.nextInt(CodeFormat.ALPHABET.length)])
+            }
         }
     }
 
@@ -177,10 +267,12 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
                 json(request, u)
             }
         }
+        path == listOf("me", "google") && m == "POST" -> linkGoogle(request)
+        path == listOf("me", "google") && m == "DELETE" -> unlinkGoogle(request)
         path == listOf("me", "devices") && m == "GET" -> json(request, DevicesResponse(devices.toList()))
         path == listOf("me", "devices", "link-code") && m == "POST" -> {
-            val code = "LINK-${UUID.randomUUID().toString().take(6).uppercase()}"
-            linkCodes.add(code)
+            val code = newCode()
+            linkCodes.add(CodeFormat.normalize(code))
             json(request, LinkCodeResponse(code, Instant.now().plusSeconds(900).toString()))
         }
         path.size == 3 && path[1] == "devices" && m == "DELETE" -> {
@@ -242,9 +334,9 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
             path == listOf("admin", "invites") && m == "GET" -> json(request, InvitesResponse(invites.values.map { it.first }))
             path == listOf("admin", "invites") && m == "POST" -> {
                 val b = body(request, CreateInviteRequest.serializer())
-                val code = "INV-${UUID.randomUUID().toString().take(8).uppercase()}"
+                val code = newCode()
                 val invite = Invite("inv-${UUID.randomUUID().toString().take(6)}", b.note, Instant.now().toString(), Instant.now().plusSeconds((b.expiresInHours ?: 72) * 3600L).toString())
-                invites[code] = invite to code
+                invites[CodeFormat.normalize(code)] = invite to code
                 json(request, CreatedInvite(invite.id, invite.note, invite.createdAt, invite.expiresAt, code))
             }
             path.size == 3 && path[1] == "invites" && m == "DELETE" -> {
@@ -402,7 +494,8 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     companion object {
         const val HOST = "demo.audiobooks.test"
         const val DEMO_PASSWORD = "demo-password"
-        const val DEMO_INVITE = "DEMO-INVITE"
+        /** 26 base32 characters like every real invite; the sign-in screen forgives case, spaces and dashes ("demo demo ...", O = 0). */
+        const val DEMO_INVITE = "DEMO-DEMO-DEMO-DEMO-DEMO-DEMO-DE"
         const val BAD_KEY = "badkeybadkey"
         private const val PAGE_SIZE = 12
         private val WARM_HUES = floatArrayOf(8f, 16f, 24f, 34f, 42f, 350f, 335f, 12f)

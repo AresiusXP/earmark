@@ -1,8 +1,19 @@
 package xyz.aresius.audiobooks.core.network
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Wire models of api/openapi.yaml, written by hand. Enum-like fields stay strings so an unknown value from a newer server
@@ -66,6 +77,7 @@ data class VersionInfo(
     val version: String = "",
     @SerialName("api_version") val apiVersion: Int = 0,
     val bootstrapped: Boolean = false,
+    @SerialName("google_enabled") val googleEnabled: Boolean = false,
 )
 
 @Serializable
@@ -101,6 +113,35 @@ data class LinkRequest(
 )
 
 @Serializable
+data class GoogleNonceResponse(val nonce: String, @SerialName("expires_at") val expiresAt: String = "") {
+    // A nonce is single use and short lived, but still not something to print.
+    override fun toString() = "GoogleNonceResponse(expiresAt=$expiresAt)"
+}
+
+@Serializable
+data class GoogleSignInRequest(
+    @SerialName("id_token") val idToken: String,
+    @SerialName("device_name") val deviceName: String,
+) {
+    override fun toString() = "GoogleSignInRequest(deviceName=$deviceName)"
+}
+
+@Serializable
+data class GoogleJoinRequest(
+    @SerialName("id_token") val idToken: String,
+    @SerialName("invite_code") val inviteCode: String,
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("device_name") val deviceName: String,
+) {
+    override fun toString() = "GoogleJoinRequest(deviceName=$deviceName)"
+}
+
+@Serializable
+data class GoogleLinkRequest(@SerialName("id_token") val idToken: String) {
+    override fun toString() = "GoogleLinkRequest()"
+}
+
+@Serializable
 data class RefreshRequest(@SerialName("refresh_token") val refreshToken: String)
 
 @Serializable
@@ -124,7 +165,37 @@ data class Settings(
     @SerialName("p2p_enabled") val p2pEnabled: Boolean = false,
 )
 
-/** Only the non-null fields are sent (`explicitNulls = false`); `preferred_provider` is not editable in the app yet. */
+/**
+ * What a `PATCH /v1/me` does with `preferred_provider`: [Set] a provider, or [Clear] it with an explicit JSON `null` (an absent field
+ * means "unchanged", so `explicitNulls = false` alone cannot express a clear).
+ */
+@Serializable(with = ProviderChoiceSerializer::class)
+sealed interface ProviderChoice {
+    data class Set(val provider: Provider) : ProviderChoice
+    data object Clear : ProviderChoice
+}
+
+object ProviderChoiceSerializer : KSerializer<ProviderChoice> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ProviderChoice", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: ProviderChoice) {
+        val json = encoder as? JsonEncoder ?: error("ProviderChoice encodes to JSON only")
+        json.encodeJsonElement(
+            when (value) {
+                is ProviderChoice.Set -> JsonPrimitive(value.provider.wire)
+                ProviderChoice.Clear -> JsonNull
+            },
+        )
+    }
+
+    override fun deserialize(decoder: Decoder): ProviderChoice {
+        val json = decoder as? JsonDecoder ?: error("ProviderChoice decodes from JSON only")
+        val text = (json.decodeJsonElement() as? JsonPrimitive)?.contentOrNull
+        return Provider.fromWire(text)?.let { ProviderChoice.Set(it) } ?: ProviderChoice.Clear
+    }
+}
+
+/** Only the non-null fields are sent (`explicitNulls = false`); [preferredProvider] is the one field that can also be cleared with `null`. */
 @Serializable
 data class SettingsPatch(
     val region: String? = null,
@@ -132,7 +203,12 @@ data class SettingsPatch(
     @SerialName("prefer_format") val preferFormat: String? = null,
     @SerialName("source_mode") val sourceMode: String? = null,
     @SerialName("p2p_enabled") val p2pEnabled: Boolean? = null,
+    @SerialName("preferred_provider") val preferredProvider: ProviderChoice? = null,
 )
+
+/** `Me.google`: whether a Google account is linked and (for the user itself) its email. */
+@Serializable
+data class GoogleLink(val linked: Boolean = false, val email: String? = null)
 
 @Serializable
 data class Me(
@@ -140,6 +216,7 @@ data class Me(
     @SerialName("display_name") val displayName: String,
     val role: String = Roles.USER,
     val settings: Settings = Settings(),
+    val google: GoogleLink = GoogleLink(),
 ) {
     val isAdmin: Boolean get() = role == Roles.ADMIN
 }
@@ -198,6 +275,8 @@ data class AdminUser(
     @SerialName("last_seen_at") val lastSeenAt: String? = null,
     @SerialName("device_count") val deviceCount: Int = 0,
     val debrid: Map<String, Boolean> = emptyMap(),
+    @SerialName("google_linked") val googleLinked: Boolean = false,
+    @SerialName("google_email") val googleEmail: String? = null,
 ) {
     val isAdmin: Boolean get() = role == Roles.ADMIN
 }

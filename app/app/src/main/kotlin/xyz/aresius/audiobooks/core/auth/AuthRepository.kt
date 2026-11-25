@@ -3,6 +3,8 @@ package xyz.aresius.audiobooks.core.auth
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import xyz.aresius.audiobooks.core.data.AppPreferences
 import xyz.aresius.audiobooks.core.data.MeRepository
 import xyz.aresius.audiobooks.core.network.ApiError
@@ -30,6 +32,28 @@ sealed interface AuthError {
 
     /** 409 on bootstrap: the instance already has users. */
     data object AlreadySetUp : AuthError
+
+    /** Sign in with Google: the server does not know this Google account (join with an invite code). */
+    data object GoogleNotLinked : AuthError
+
+    /** The server refused the Google ID token (expired nonce, invalid token) or the user is disabled. */
+    data object GoogleRejected : AuthError
+
+    /** 409: the Google account belongs to another user, or this user already has a different one. */
+    data object GoogleConflict : AuthError
+
+    /** 404 `google_disabled`: the server has Sign in with Google switched off. */
+    data object GoogleDisabled : AuthError
+
+    data object GoogleNoAccount : AuthError
+
+    /** No Google Play services / Credential Manager on this device. */
+    data object GoogleUnavailable : AuthError
+
+    data object GoogleFailed : AuthError
+
+    /** The Google code scanner is missing or failed: the user pastes the code instead. */
+    data object ScannerUnavailable : AuthError
 
     data class TooManyAttempts(val retryAfterSec: Int?) : AuthError
     data object Network : AuthError
@@ -98,6 +122,8 @@ class AuthRepository(
             is SignInMethod.Link -> method.code
         }.trim() // a code pasted from a chat often carries a trailing space or newline
         if (secret.isEmpty()) return AuthResult.Failure(AuthError.InvalidInput(InputProblem.SecretEmpty))
+        // Invite and link codes are 26 base32 characters; the server folds case, separators and look-alikes the same way.
+        val code = if (method is SignInMethod.Bootstrap) secret else CodeFormat.parse(secret) ?: return AuthResult.Failure(AuthError.InvalidInput(InputProblem.CodeInvalid))
         val name = when (method) {
             is SignInMethod.Bootstrap -> method.displayName.trim()
             is SignInMethod.Invite -> method.displayName.trim()
@@ -107,9 +133,9 @@ class AuthRepository(
         return try {
             val api = apiProvider.unauthenticated(valid)
             val response = when (method) {
-                is SignInMethod.Bootstrap -> api.bootstrap(BootstrapRequest(secret, name!!, device))
-                is SignInMethod.Invite -> api.join(JoinRequest(secret, name!!, device))
-                is SignInMethod.Link -> api.linkDevice(LinkRequest(secret, device))
+                is SignInMethod.Bootstrap -> api.bootstrap(BootstrapRequest(code, name!!, device))
+                is SignInMethod.Invite -> api.join(JoinRequest(code, name!!, device))
+                is SignInMethod.Link -> api.linkDevice(LinkRequest(code, device))
             }
             AuthResult.Success(persist(valid, device, response))
         } catch (e: CancellationException) {
@@ -119,7 +145,7 @@ class AuthRepository(
         }
     }
 
-    private suspend fun persist(serverUrl: String, device: String, response: SessionResponse): Me {
+    internal suspend fun persist(serverUrl: String, device: String, response: SessionResponse): Me {
         sessions.save(
             Session(
                 serverUrl = serverUrl,
@@ -140,11 +166,15 @@ class AuthRepository(
      * tokens. Everything cached for the account is dropped by [SessionCleanup] reacting to the cleared session.
      */
     suspend fun signOut() {
+        // Best effort only: whatever the server says (refuses, 5xx, 401, no network, a hang) the user ends up signed out, and leaving the
+        // screen mid-way (cancellation) must not leave the session behind.
         runCatching {
             safeApiCall(timeoutMs = SIGN_OUT_REMOTE_MS) { revokeCurrentDevice(apiProvider.api()) }
         }
-        sessions.clear()
-        signedOut.emit(SignOutReason.UserRequested)
+        withContext(NonCancellable) {
+            sessions.clear()
+            signedOut.emit(SignOutReason.UserRequested)
+        }
     }
 
     private suspend fun revokeCurrentDevice(api: AudiobooksApi) {

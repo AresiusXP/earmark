@@ -8,6 +8,9 @@ enum class InputProblem {
     UrlInvalid,
     UrlNeedsHttps,
     SecretEmpty,
+
+    /** An invite or link code that is not 26 base32 characters (see [CodeFormat]). */
+    CodeInvalid,
     NameEmpty,
     NameTooLong,
     DeviceNameEmpty,

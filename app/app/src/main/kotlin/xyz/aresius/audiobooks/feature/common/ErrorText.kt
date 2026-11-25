@@ -22,7 +22,8 @@ fun ApiError.messageRes(): Int? = when (this) {
         ErrorCode.BadDebridKey -> R.string.error_bad_debrid_key
         ErrorCode.DebridUnavailable -> R.string.error_debrid_unavailable
         ErrorCode.LimitReached -> R.string.error_limit_reached
-        ErrorCode.RateLimited, ErrorCode.InvalidRequest, ErrorCode.UpstreamFailed, ErrorCode.Other -> null
+        ErrorCode.GoogleDisabled -> R.string.google_error_disabled
+        ErrorCode.RateLimited, ErrorCode.GoogleNotLinked, ErrorCode.InvalidRequest, ErrorCode.UpstreamFailed, ErrorCode.Other -> null
     }
 }
 

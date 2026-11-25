@@ -24,12 +24,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
@@ -73,7 +74,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = hiltViewModel()) {
 
 @Composable
 private fun StepTitle(@StringRes title: Int, @StringRes subtitle: Int? = null) {
-    Text(stringResource(title), style = MaterialTheme.typography.headlineMedium)
+    Text(stringResource(title), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
     if (subtitle != null) Text(stringResource(subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -104,16 +105,31 @@ private fun MethodStep(state: OnboardingUiState, vm: OnboardingViewModel) {
     if (state.bootstrapped == false) {
         Text(stringResource(R.string.onboarding_method_fresh_instance), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
     }
+    GoogleMethod(state, vm)
     MethodCard(R.string.onboarding_method_invite, R.string.onboarding_method_invite_desc, recommended = state.bootstrapped == true) { vm.chooseMethod(OnboardingMethod.Invite) }
     MethodCard(R.string.onboarding_method_first, R.string.onboarding_method_first_desc, recommended = state.bootstrapped == false) { vm.chooseMethod(OnboardingMethod.FirstSetup) }
     MethodCard(R.string.onboarding_method_link, R.string.onboarding_method_link_desc, recommended = false) { vm.chooseMethod(OnboardingMethod.Link) }
+    state.error?.let { Text(it.message(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
     TextButton(onClick = vm::back, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.common_back)) }
 }
 
+/** "Continue with Google": only when the server has it switched on; without Google Play services the card turns into an explanation. */
 @Composable
-private fun MethodCard(@StringRes title: Int, @StringRes description: Int, recommended: Boolean, onClick: () -> Unit) {
+private fun GoogleMethod(state: OnboardingUiState, vm: OnboardingViewModel) {
+    if (!state.googleEnabled) return
+    val context = LocalContext.current
+    val available = remember(context) { vm.googleAvailable(context) }
+    if (available) {
+        MethodCard(R.string.google_continue, R.string.google_continue_desc, recommended = state.bootstrapped == true, enabled = !state.busy) { vm.continueWithGoogle(context) }
+    } else {
+        Text(stringResource(R.string.google_not_available_here), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun MethodCard(@StringRes title: Int, @StringRes description: Int, recommended: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Card(
-        Modifier.fillMaxWidth().clickable(onClick = onClick),
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -129,26 +145,39 @@ private fun DetailsStep(state: OnboardingUiState, vm: OnboardingViewModel) {
         OnboardingMethod.Invite -> R.string.onboarding_secret_invite
         OnboardingMethod.FirstSetup -> R.string.onboarding_secret_password
         OnboardingMethod.Link -> R.string.onboarding_secret_link
+        OnboardingMethod.GoogleJoin -> R.string.onboarding_secret_invite
     }
     val action = when (state.method) {
+        OnboardingMethod.GoogleJoin -> R.string.google_join_action
         OnboardingMethod.Invite -> R.string.onboarding_action_join
         OnboardingMethod.FirstSetup -> R.string.onboarding_action_setup
         OnboardingMethod.Link -> R.string.onboarding_action_link
     }
     StepTitle(R.string.onboarding_details_title)
-    OutlinedTextField(
-        value = state.secret,
-        onValueChange = vm::onSecretChange,
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        label = { Text(stringResource(secretLabel)) },
-        visualTransformation = if (state.method == OnboardingMethod.FirstSetup) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (state.method == OnboardingMethod.FirstSetup) KeyboardType.Password else KeyboardType.Ascii,
-            autoCorrectEnabled = false,
-        ),
-        enabled = !state.busy,
-    )
+    if (state.method == OnboardingMethod.GoogleJoin) {
+        Text(stringResource(R.string.google_join_help), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (state.secretIsCode) {
+        CodeField(
+            value = state.secret,
+            label = stringResource(secretLabel),
+            enabled = !state.busy,
+            onChange = vm::onSecretChange,
+            onPaste = vm::onCodePasted,
+            onScan = vm::onScanResult,
+        )
+    } else {
+        OutlinedTextField(
+            value = state.secret,
+            onValueChange = vm::onSecretChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(stringResource(secretLabel)) },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            enabled = !state.busy,
+        )
+    }
     if (state.needsDisplayName) {
         OutlinedTextField(
             value = state.displayName,
@@ -170,7 +199,12 @@ private fun DetailsStep(state: OnboardingUiState, vm: OnboardingViewModel) {
         enabled = !state.busy,
     )
     state.error?.let { Text(it.message(state.method), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-    PrimaryButton(stringResource(action), onClick = vm::signIn, loading = state.busy)
+    val context = LocalContext.current
+    PrimaryButton(
+        stringResource(action),
+        onClick = { if (state.method == OnboardingMethod.GoogleJoin) vm.joinWithGoogle(context) else vm.signIn() },
+        loading = state.busy,
+    )
     TextButton(onClick = vm::back, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.common_back)) }
 }
 
