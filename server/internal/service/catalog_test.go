@@ -265,3 +265,22 @@ func TestFlightGroup(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// "es" is just another language to the service: one lookup per language, the metadata client
+// decides which marketplaces answer it.
+func TestSearchAndDiscoverSpanishLanguage(t *testing.T) {
+	e := newEnv(t)
+	e.meta.search["us|en|dune"] = books("E1", "E2")
+	e.meta.search["us|es|dune"] = books("S1", "SHARED")
+	e.meta.discover["us|es|0"] = books("D1")
+	cfg := cfgFor(func(c *userconfig.Config) { c.Languages = []string{"es", "en"} })
+
+	got, err := e.svc.Search(context.Background(), cfg, "dune")
+	if err != nil || asinsOf(got) != "S1,E1,SHARED,E2" {
+		t.Fatalf("search: %s, %v", asinsOf(got), err)
+	}
+	got, err = e.svc.Discover(context.Background(), cfg, 0)
+	if err != nil || asinsOf(got) != "D1" {
+		t.Fatalf("discover: %s, %v", asinsOf(got), err)
+	}
+}

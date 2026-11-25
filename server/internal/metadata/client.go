@@ -10,6 +10,13 @@
 //     keyword (see languageSeeds).
 //   - Audnexus only knows au,ca,de,es,fr,in,it,jp,us,uk, and a book usually exists in a
 //     single region; Dutch books found on com resolve with region=us.
+//   - Spanish (checked live 2026-11-25): the es marketplace holds the Spain catalogue and com
+//     holds the Latin-American one, with different ASINs for the same title (Cien años de
+//     soledad: 1481518429 on es, B00RDN6DO4 on com). Audnexus (and the Audible product
+//     endpoint) know an ASIN only under the region it was found in (es ASINs: region=es
+//     only; com-only ASINs: region=us only; a few ASINs, e.g. La Sombra del Viento 8408216783,
+//     answer in several). So Spanish Search/Discover ask the user's marketplace and es, and
+//     Book retries es/us when the ASIN is unknown in the requested region.
 package metadata
 
 import (
@@ -100,7 +107,29 @@ func MarketplaceRegion(region string) (string, error) {
 
 // languageSeeds are keywords used by Discover to bias a listing towards a language that the
 // catalog API cannot filter on.
-var languageSeeds = map[string]string{"nl": "verhaal"}
+var languageSeeds = map[string]string{"nl": "verhaal", "es": "novela"}
+
+// extraMarketplace is a second marketplace that holds books of a language besides the user's own
+// region (Spanish books live on es and on the Latin-American com catalogue).
+var extraMarketplace = map[string]string{"es": "es"}
+
+// searchRegions are the marketplaces to ask for books of language: the user's one and, when the
+// language has a home marketplace elsewhere, that one.
+func searchRegions(region, language string) []string {
+	if extra := extraMarketplace[language]; extra != "" && extra != region {
+		return []string{region, extra}
+	}
+	return []string{region}
+}
+
+// bookFallbackRegion is the marketplace tried when an ASIN is unknown in region: a book found on
+// es is invisible to the other marketplaces and the other way round.
+func bookFallbackRegion(region string) string {
+	if region == "es" {
+		return "us"
+	}
+	return "es"
+}
 
 // Chapter is one chapter marker from Audnexus.
 type Chapter struct {
@@ -116,8 +145,10 @@ type Client struct {
 	AudibleBaseURL string
 	// AudnexusBaseURL overrides the Audnexus host (tests).
 	AudnexusBaseURL string
-	HTTP            *http.Client
-	UserAgent       string
+	// AudibleRegionURLs overrides the Audible host of single regions (tests); it wins over AudibleBaseURL.
+	AudibleRegionURLs map[string]string
+	HTTP              *http.Client
+	UserAgent         string
 	// MaxBodyBytes caps a response body; 0 means 4 MiB.
 	MaxBodyBytes int64
 	// Timeout bounds one request on top of the caller's context; 0 means 15s.
@@ -144,6 +175,9 @@ func (c *Client) audibleURL(region string) (string, string, error) {
 	r, err := MarketplaceRegion(region)
 	if err != nil {
 		return "", "", err
+	}
+	if u := c.AudibleRegionURLs[r]; u != "" {
+		return strings.TrimRight(u, "/"), r, nil
 	}
 	if c.AudibleBaseURL != "" {
 		return strings.TrimRight(c.AudibleBaseURL, "/"), r, nil
