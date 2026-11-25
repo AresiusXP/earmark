@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.0](https://github.com/AresiusXP/earmark/compare/v0.5.0...v0.6.0) (2026-11-25)
+
+
+### Features
+
+* **app:** remove the baked-in server URL from onboarding ([066966e](https://github.com/AresiusXP/earmark/commit/066966eadca17c52d2edfa50449657383fb9bb22))
+* **helm:** neutral chart defaults, optional NetworkPolicy, cpu limit ([9e6c079](https://github.com/AresiusXP/earmark/commit/9e6c079db0299050d5a2622c73e8a8c6d2f96072))
+
+
+### Bug Fixes
+
+* **server:** apply the provider host allowlist to the Stremio /resolve redirect ([9c5e327](https://github.com/AresiusXP/earmark/commit/9c5e327d06b84e259c60c0969fdb4e4de792c540))
+* **server:** rate-cap the Google nonce and app update routes ([561572b](https://github.com/AresiusXP/earmark/commit/561572bd9bc3e10312e1e29f150340e9db589871))
+
+
+### Documentation
+
+* add SECURITY.md and CONTRIBUTING.md ([f71c44d](https://github.com/AresiusXP/earmark/commit/f71c44d09a55a7a7f7ddae9f3c3d832a6f23b9c3))
+* license the project under Apache-2.0 and list third-party notices ([c51077b](https://github.com/AresiusXP/earmark/commit/c51077b48907ed790a340d40dd19df041fd3559c))
+* make the public docs generic and neutral about indexes and deployment ([641c47a](https://github.com/AresiusXP/earmark/commit/641c47a4b129548a0ee620535160411b9cbbe742))
+* neutralize public deployment examples ([a6c4aa3](https://github.com/AresiusXP/earmark/commit/a6c4aa3c18d71af1605fc395afb0e12dbf6bba07))
+* use neutral example public URL ([45acdab](https://github.com/AresiusXP/earmark/commit/45acdabc074ca00616f82d91789c0add05125a32))
+
 ## [0.5.0](https://github.com/AresiusXP/earmark/compare/v0.4.0...v0.5.0) (2026-11-25)
 
 
