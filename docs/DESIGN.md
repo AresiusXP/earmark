@@ -480,7 +480,7 @@ Range requests, `202 Prepare` while the provider is busy); a complete local copy
   rows play, Book detail shows the chosen release, its files, the catalog chapters and the needs-key / preparing / failed states, with Play and the
   Download button (per book and per release, `feature/download`) side by side; Library rows carry the "Downloaded" badge and the play button.
 * **Downloads link.** The player reads files through `LocalFiles` (`DownloadedLocalFiles`, bound in `di/LocalFilesModule`) and tells core/download which
-  book it holds through `PlayingBook` (`PlayerPlayingBook`, bound in `di/PlayerModule`), so the storage LRU never evicts the playing book.
+  book it holds through `PlayingBook` (`PlayerPlayingBook`, bound in `di/PlayerModule`), so the storage LRU never evicts the playing book: the check is made per book at deletion time (`beginDelete`/`endDelete`, under the lock `PlayerHub` changes its state under, job re-checked as `completed` in the same DB transaction), not on a snapshot taken at victim selection.
 
 ### Phases
 0 contract + design (this section, `api/openapi.yaml`) -> 1 server (users/invites/devices, per-user keys, `appapi`, Real-Debrid,

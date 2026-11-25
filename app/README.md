@@ -106,7 +106,7 @@ PathSafety            every server-provided path is untrusted: absolute paths, `
 
 The player consumes downloads through the `LocalFiles` interface (`core/download/LocalFiles.kt`, bound to `DownloadedLocalFiles` in
 `di/LocalFilesModule`): a complete local copy always wins over streaming, file by file. The player in turn tells the storage rules which book it
-holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it, and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
+holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it (not a snapshot: every eviction / auto-delete of a book runs `beginDelete` ... `endDelete` inside the lock of `PlayerHub` that the player changes its state under, re-checks that the job is still `completed` in the same DB transaction (`removeBookIfCompleted`), and a book that is being deleted when the player claims it makes `PlaybackCore.load` wait for the deletion first), and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
 `ReleaseRepository` has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
 
 ## Contract v1.1 in the app

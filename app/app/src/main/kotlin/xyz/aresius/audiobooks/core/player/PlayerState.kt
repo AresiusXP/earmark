@@ -2,6 +2,8 @@ package xyz.aresius.audiobooks.core.player
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -85,9 +87,34 @@ class PlayerHub @Inject constructor() {
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
-    fun update(block: PlayerState.() -> PlayerState) = _state.update(block)
+    // Every change of the state (which is where a book becomes "the playing book") and every deletion decision of the storage rules
+    // ([beginDelete]) run under this lock: a deletion either sees the book as playing and is skipped, or is registered before the player
+    // can claim it, and the player then waits for it ([deletionOf]).
+    private val lock = Any()
+    private var deleting: String? = null
+    private var deletionDone: CompletableDeferred<Unit>? = null
 
-    fun reset() {
-        _state.value = PlayerState()
+    fun update(block: PlayerState.() -> PlayerState) = synchronized(lock) { _state.update(block) }
+
+    fun reset() = synchronized(lock) { _state.value = PlayerState() }
+
+    /** Storage side ([xyz.aresius.audiobooks.core.download.PlayingBook.beginDelete]): false when [asin] is the book the player holds. */
+    fun beginDelete(asin: String): Boolean = synchronized(lock) {
+        val s = _state.value
+        if (s.hasBook && s.asin == asin) return false
+        deleting = asin
+        deletionDone = CompletableDeferred()
+        true
     }
+
+    fun endDelete(asin: String) = synchronized(lock) {
+        if (deleting == asin) {
+            deleting = null
+            deletionDone?.complete(Unit)
+            deletionDone = null
+        }
+    }
+
+    /** Player side: non-null while the downloaded files of [asin] are being deleted; wait for it before looking at them. */
+    fun deletionOf(asin: String): Deferred<Unit>? = synchronized(lock) { deletionDone.takeIf { deleting == asin } }
 }

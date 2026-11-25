@@ -157,6 +157,15 @@ abstract class DownloadsDao {
         deleteBook(userId, asin)
     }
 
+    /** Removes the book only if its job is still [JobState.COMPLETED] right now (not re-queued or downloading again); returns the removed row, else null. */
+    @Transaction
+    open suspend fun removeBookIfCompleted(userId: String, asin: String): DownloadBookEntity? {
+        val current = book(userId, asin)?.takeIf { it.state == JobState.COMPLETED } ?: return null
+        deleteFiles(userId, asin)
+        deleteBook(userId, asin)
+        return current
+    }
+
     @Transaction
     open suspend fun clearAll() {
         clearFiles()
