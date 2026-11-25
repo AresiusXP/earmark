@@ -1,0 +1,16 @@
+<resources>
+    <!-- Splash (androidx.core:core-splashscreen): paper background, the persimmon app mark; then the app theme. -->
+    <style name="Theme.Audiobooks" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/audiobooks_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.Audiobooks.App</item>
+    </style>
+
+    <style name="Theme.Audiobooks.App" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/audiobooks_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorAccent">@color/audiobooks_accent</item>
+    </style>
+</resources>

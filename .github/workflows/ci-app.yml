@@ -1,0 +1,69 @@
+name: CI — App
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "api/openapi.yaml"
+      - ".github/workflows/ci-app.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "api/openapi.yaml"
+      - ".github/workflows/ci-app.yml"
+
+concurrency:
+  group: ci-app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: App
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # compileSdk 37 is newer than the platforms preinstalled on the runner image.
+      - name: Install Android SDK platform and build-tools
+        run: |
+          SDKMANAGER="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # The strings table generates both languages: a hand edit of strings.xml would be overwritten.
+      - name: Strings are in sync with the generator
+        run: |
+          python3 scripts/gen_strings.py
+          git diff --exit-code -- app/src/main/res
+
+      - name: Unit tests, lint and debug APK
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: audiobooks-debug-apk
+          path: app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
