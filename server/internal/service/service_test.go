@@ -1156,3 +1156,22 @@ func TestBookSearchesTheSeriesNameToo(t *testing.T) {
 		t.Fatalf("calls = %d", e2.src.calls())
 	}
 }
+
+// Indexes match accents literally and Spanish releases come both ways, so an accented book is
+// searched twice: as written and folded. Plain ASCII books are searched once.
+func TestBookSearchesAccentFoldedToo(t *testing.T) {
+	e := newEnv(t)
+	b := dune()
+	b.Title, b.Authors, b.Language = "Cien años de soledad", []string{"Gabriel García Márquez"}, "es"
+	e.meta.books[testASIN] = b
+	e.mustBook(cfgFor(func(c *userconfig.Config) { c.Languages = []string{"es"} }))
+	var got []string
+	for _, q := range e.src.queries {
+		got = append(got, q.Title+"|"+q.Author)
+	}
+	sort.Strings(got)
+	want := []string{"Cien años de soledad|Gabriel García Márquez", "cien anos de soledad|gabriel garcia marquez"}
+	if !eq(got, want) {
+		t.Fatalf("queries = %q, want %q", got, want)
+	}
+}

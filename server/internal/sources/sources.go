@@ -11,7 +11,7 @@ import (
 type Query struct {
 	Title    string
 	Author   string // surname or full name, may be empty
-	Language string // "en", "nl", "" any
+	Language string // "en", "nl", "es", "" any
 }
 
 // Source is one torrent index. Releases come back with Parsed left empty

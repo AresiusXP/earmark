@@ -679,6 +679,11 @@ func TestABBQueryNormalisation(t *testing.T) {
 		{`It's "Fine": Here — (Really)!`, "its fine here really"},
 		{"  Dungeon   Crawler\tCarl ", "dungeon crawler carl"},
 		{"Ça va? Été 2", "ça va été 2"},
+		{"Cien años de soledad", "cien años de soledad"},
+		{"¿Quién se ha llevado mi queso? ¡Ñandú!", "quién se ha llevado mi queso ñandú"},
+		{"El Alquimista", "el alquimista"},
+		{"LA SOMBRA DEL VIENTO", "la sombra del viento"},
+		{"ÁNGELES Y DEMONIOS — PINGÜINO", "ángeles y demonios pingüino"},
 	} {
 		var got atomic.Value
 		srv := abbServer(t, func(r *http.Request) string {

@@ -126,6 +126,8 @@ func TestFilterReleases(t *testing.T) {
 		sc(rel("de-cached", "de", "m4b", 0, 1), 1, yes),
 		sc(rel("nolang-uncached", "", "m4b", 0, 1), 1, no),
 		sc(rel("EN-upper", "EN", "m4b", 0, 1), 1, yes),
+		sc(rel("es-cached", "es", "m4b", 0, 1), 1, yes),
+		sc(rel("es-uncached", "es", "m4b", 0, 1), 1, no),
 	}
 	tests := []struct {
 		name      string
@@ -144,6 +146,12 @@ func TestFilterReleases(t *testing.T) {
 			[]string{"en-cached", "en-unknown", "nl-cached", "EN-upper"}},
 		{"extra provider with unknown state keeps the release", []string{"en"}, []string{"realdebrid", "torbox"}, false,
 			[]string{"en-cached", "en-uncached", "en-unknown", "nolang-uncached", "EN-upper"}},
+		{"spanish only drops english, dutch and german", []string{"es"}, []string{"torbox"}, false,
+			[]string{"es-cached"}},
+		{"spanish and english", []string{"es", "en"}, []string{"torbox"}, false,
+			[]string{"en-cached", "en-unknown", "EN-upper", "es-cached"}},
+		{"spanish shows uncached on request", []string{"es"}, nil, true,
+			[]string{"nolang-uncached", "es-cached", "es-uncached"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,6 +201,12 @@ func TestRankReleases(t *testing.T) {
 		{"language outranks format", []string{"en", "nl"}, "",
 			[]scored{sc(rel("nl-m4b", "nl", "m4b", 0, 1), 0.9, nil), sc(rel("en-mp3", "en", "mp3", 0, 1), 0.9, nil)},
 			[]string{"en-mp3", "nl-m4b"}},
+		{"spanish first for a spanish reader", []string{"es", "en"}, "",
+			[]scored{sc(rel("unk", "", "m4b", 0, 1), 0.9, nil), sc(rel("en", "en", "m4b", 0, 1), 0.9, nil), sc(rel("es", "es", "mp3", 0, 1), 0.5, nil)},
+			[]string{"es", "en", "unk"}},
+		{"three languages keep the configured order", []string{"nl", "es", "en"}, "",
+			[]scored{sc(rel("en", "en", "m4b", 0, 1), 0.9, nil), sc(rel("es", "es", "m4b", 0, 1), 0.9, nil), sc(rel("nl", "nl", "m4b", 0, 1), 0.9, nil)},
+			[]string{"nl", "es", "en"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

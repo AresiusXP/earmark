@@ -9,6 +9,7 @@ package parse
 import (
 	"html"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -28,15 +29,15 @@ var (
 	reSpace      = regexp.MustCompile(`\s+`)
 	reUnclosed   = regexp.MustCompile(`\s*[(\[{][^()\[\]{}]*$`)
 
-	reNarrator = regexp.MustCompile(`(?i)(?:\b(?:written\s*(?:&|and)\s*)?(?:narrated|read|performed)\s+by|\bread\s+aloud\s+by|\b(?:voor)?gelezen\s+door|\bgesproken\s+door|\bgelesen\s+von|\bgesprochen\s+von|\bnarrator)\s*:?\s*([^()\[\]{}|]*?)\s*(?:$|[()\[\]{}|]|\s[-–—]\s|\s\+\s)`)
+	reNarrator = regexp.MustCompile(`(?i)(?:\b(?:written\s*(?:&|and)\s*)?(?:narrated|read|performed)\s+by|\bread\s+aloud\s+by|\b(?:voor)?gelezen\s+door|\bgesproken\s+door|\bgelesen\s+von|\bgesprochen\s+von|\bnarrado\s+por|\ble[ií]do\s+por|\bnarrador|\bnarrator)\s*:?\s*([^()\[\]{}|]*?)\s*(?:$|[()\[\]{}|]|\s[-–—]\s|\s\+\s)`)
 
 	reGroup       = regexp.MustCompile(`[(\[{]([^()\[\]{}]*)[)\]}]`)
-	reGroupSeries = regexp.MustCompile(`(?i)^(?:(.+?)\s*[,:]?\s*)?(?:#|(?:books?|bk|vol(?:ume)?|parts?|deel|boek)\.?[\s\-]*#?)\s*(\d+(?:\.\d+)?)$`)
+	reGroupSeries = regexp.MustCompile(`(?i)^(?:(.+?)\s*[,:]?\s*)?(?:#|(?:books?|bk|vol(?:ume)?|parts?|deel|boek|libro|tomo|volumen|parte)\.?[\s\-]*#?)\s*(\d+(?:\.\d+)?)$`)
 	reGroupPadded = regexp.MustCompile(`^0\d$`)
-	reLangCode    = regexp.MustCompile(`[(\[]\s*(NL|EN|DE|FR|ES|SV|NO|PL|FI|IT)\s*[)\]]`)
+	reLangCode    = regexp.MustCompile(`[(\[]\s*(NL|EN|DE|FR|ES|ESP|SPA|SV|NO|PL|FI|IT)\s*[)\]]`)
 
-	reUnabridged = regexp.MustCompile(`(?i)\b(?:complete\s+(?:and|&)\s+)?unabridged\b|\bungek(?:ü|u|ue)rzt|\bonverkort(?:e)?\b`)
-	reAbridged   = regexp.MustCompile(`(?i)\babridged\b|\bgek(?:ü|u|ue)rzt\b|\bingekort(?:e)?\b|\bverkort(?:e)?\b`)
+	reUnabridged = regexp.MustCompile(`(?i)\b(?:complete\s+(?:and|&)\s+)?unabridged\b|\bungek(?:ü|u|ue)rzt|\bonverkort(?:e)?\b|\bsin\s+abreviar\b|\b(?:versi[oó]n|edici[oó]n)\s+[ií]ntegra\b`)
+	reAbridged   = regexp.MustCompile(`(?i)\babridged\b|\bgek(?:ü|u|ue)rzt\b|\bingekort(?:e)?\b|\bverkort(?:e)?\b|\babreviad[oa]\b`)
 
 	reBitrates = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)(\d{2,3})\s*(?:kbps|kbit(?:/s)?|kb/s|kbs)\b`),
@@ -45,25 +46,26 @@ var (
 	}
 	reFormat = regexp.MustCompile(`(?i)\b(m4b|mp3|m4a|flac|ogg|aac|opus|wma|wav)\b`)
 
-	reNoise = regexp.MustCompile(`(?i)\b(?:full\s+)?audio\s*books?\b|\baudiobooks?\b|\baudiolibros?\b|\baudioboek(?:en)?\b|\bluisterboek(?:en)?\b|\bh(?:ö|oe)rb(?:uch|ücher|uecher)\b|\bchapteri[sz]ed\b|\baudible(?:\s+(?:audio|audiobook|version|edition))?\b|\bgraphic\s*audio\b|\bnlt-release\b|\b2lions-team\b|\buploaded\s+by\s+\S+|\babee\b|\bc[bv]r\b|\d+\s*cd'?s?\b|\bcd\s?\d+(?:-\d+)?\b|\d+(?:\.\d+)?\s*khz\b`)
+	reNoise = regexp.MustCompile(`(?i)\b(?:full\s+)?audio\s*books?\b|\baudiobooks?\b|\baudiolibros?\b|\bvoz\s+(?:humana|virtual)\b|[(\[]\s*voz\s*\p{L}+\s*[)\]]|\by\s+(?:pdf|epub|texto)\b|\baudioboek(?:en)?\b|\bluisterboek(?:en)?\b|\bh(?:ö|oe)rb(?:uch|ücher|uecher)\b|\bchapteri[sz]ed\b|\baudible(?:\s+(?:audio|audiobook|version|edition))?\b|\bgraphic\s*audio\b|\bnlt-release\b|\b2lions-team\b|\buploaded\s+by\s+\S+|\babee\b|\bc[bv]r\b|\d+\s*cd'?s?\b|\bcd\s?\d+(?:-\d+)?\b|\d+(?:\.\d+)?\s*khz\b`)
 
 	reImplyDE = regexp.MustCompile(`(?i)h(?:ö|oe)rb(?:uch|ücher|uecher)|ungek(?:ü|u|ue)rzt|gelesen\s+von`)
+	reImplyES = regexp.MustCompile(`(?i)\baudiolibros?\b|\bvoz\s+(?:humana|virtual)\b|\bnarrado\s+por\b|\ble[ií]do\s+por\b|\bnarraci[oó]n\b`)
 	reImplyNL = regexp.MustCompile(`(?i)luisterboek|audioboek|voorgelezen|gelezen\s+door|gesproken\s+door|onverkort|ingekort`)
 
 	reYearTok      = regexp.MustCompile(`\b(19\d\d|20[0-3]\d)\b`)
 	reYearOnly     = regexp.MustCompile(`^(19\d\d|20[0-3]\d)$`)
 	reYearTrailing = regexp.MustCompile(`^(.*\S)\s+(19\d\d|20[0-3]\d)$`)
 
-	reSegPos     = regexp.MustCompile(`(?i)^(?:(.+?)(\s*[,:]\s*|\s+))?(?:#|(?:books?|bk|vol(?:ume)?|parts?|deel|boek)\.?[\s\-]*#?)\s*(\d+(?:\.\d+)?)$`)
+	reSegPos     = regexp.MustCompile(`(?i)^(?:(.+?)(\s*[,:]\s*|\s+))?(?:#|(?:books?|bk|vol(?:ume)?|parts?|deel|boek|libro|tomo|volumen|parte)\.?[\s\-]*#?)\s*(\d+(?:\.\d+)?)$`)
 	reSegSeries  = regexp.MustCompile(`^(.+?)\s+(\d{1,2}(?:\.\d)?)$`)
 	reSegLeading = regexp.MustCompile(`^(0\d)\s+(.+)$`)
 	reBy         = regexp.MustCompile(`(?i)^(.+?)\s+(?:written\s+)?by\s+(.+)$`)
 	reColonSep   = regexp.MustCompile(`\s+:\s*(\S)`)
 	reSegSplit   = regexp.MustCompile(`\s*\|\s*|\s+[-–—~]+\s+|\s+[-–—]+$|^[-–—]+\s+`)
-	reTrailConj  = regexp.MustCompile(`(?i)\s+(?:and|&|en|und|by|door|von|with)$`)
+	reTrailConj  = regexp.MustCompile(`(?i)\s+(?:and|&|en|und|y|by|door|von|with)$`)
 	reLeadConj   = regexp.MustCompile(`(?i)^(?:by|door|von)\s+`)
 	reInitialEnd = regexp.MustCompile(`(?:^|[\s.])\p{Lu}\.$`)
-	reAuthors    = regexp.MustCompile(`(?i)\s*(?:,|;|&|\+)\s*|\s+(?:and|en|und|with)\s+`)
+	reAuthors    = regexp.MustCompile(`(?i)\s*(?:,|;|&|\+)\s*|\s+(?:and|en|und|y|with)\s+`)
 )
 
 var langWords = map[string]string{
@@ -71,12 +73,14 @@ var langWords = map[string]string{
 	"dutch": "nl", "nederlands": "nl", "nederlandstalig": "nl", "nld": "nl", "nl": "nl", "flemish": "nl",
 	"german": "de", "deutsch": "de",
 	"french": "fr", "francais": "fr", "français": "fr",
-	"spanish": "es", "español": "es", "espanol": "es",
+	"spanish": "es", "español": "es", "espanol": "es", "castellano": "es", "castilian": "es", "latino": "es",
+	"español latino": "es", "espanol latino": "es", "español neutro": "es", "espanol neutro": "es",
+	"español de españa": "es", "latino americano": "es", "latinoamericano": "es",
 	"swedish": "sv", "svensk": "sv", "svenska": "sv",
 	"norwegian": "no", "norsk": "no",
 	"polish": "pl", "polski": "pl",
 	"finnish": "fi", "suomi": "fi",
-	"italian": "it", "italiano": "it",
+	"italian": "it", "italiano": "it", "ita": "it",
 	"russian": "ru",
 }
 
@@ -85,12 +89,25 @@ var langWords = map[string]string{
 var ambiguousLang = map[string]bool{
 	"english": true, "dutch": true, "german": true, "french": true, "spanish": true,
 	"swedish": true, "norwegian": true, "polish": true, "finnish": true, "italian": true, "russian": true,
+	"ita": true, "español": true, "espanol": true, "castellano": true, "castilian": true, "latino": true,
+	"español latino": true, "espanol latino": true, "español neutro": true, "espanol neutro": true,
+	"español de españa": true, "latino americano": true, "latinoamericano": true,
 }
 
 var reLang = func() *regexp.Regexp {
 	words := make([]string, 0, len(langWords))
 	for w := range langWords {
-		words = append(words, regexp.QuoteMeta(w))
+		words = append(words, w)
+	}
+	// Alternation is leftmost-first: longer (multi-word) names must come before their prefixes.
+	sort.Slice(words, func(i, j int) bool {
+		if len(words[i]) != len(words[j]) {
+			return len(words[i]) > len(words[j])
+		}
+		return words[i] < words[j]
+	})
+	for i, w := range words {
+		words[i] = strings.ReplaceAll(regexp.QuoteMeta(w), " ", `\s+`)
 	}
 	return regexp.MustCompile(`(?i)\b(?:` + strings.Join(words, "|") + `)\b`)
 }()
@@ -98,6 +115,7 @@ var reLang = func() *regexp.Regexp {
 var particles = map[string]bool{
 	"van": true, "von": true, "de": true, "der": true, "den": true, "ter": true, "ten": true,
 	"di": true, "da": true, "du": true, "la": true, "le": true, "del": true, "dos": true,
+	"los": true, "las": true, "y": true,
 	"bin": true, "al": true, "el": true,
 }
 
@@ -126,6 +144,8 @@ func Title(raw string) model.ParsedTitle {
 		impliedLang = "de"
 	} else if reImplyNL.MatchString(s) {
 		impliedLang = "nl"
+	} else if reImplyES.MatchString(s) {
+		impliedLang = "es"
 	}
 
 	s = extractNarrator(s, &p)
@@ -332,6 +352,9 @@ func stripTags(s string, p *model.ParsedTitle) string {
 	if m := reLangCode.FindStringSubmatch(s); m != nil {
 		if p.Language == "" {
 			p.Language = strings.ToLower(m[1])
+			if p.Language == "esp" || p.Language == "spa" {
+				p.Language = "es"
+			}
 		}
 		s = reLangCode.ReplaceAllString(s, " ")
 	}
@@ -373,7 +396,7 @@ func stripLanguage(s string, p *model.ParsedTitle) string {
 	var b strings.Builder
 	last := 0
 	for _, loc := range locs {
-		w := strings.ToLower(s[loc[0]:loc[1]])
+		w := strings.Join(strings.Fields(strings.ToLower(s[loc[0]:loc[1]])), " ")
 		if ambiguousLang[w] && !atBoundary(s, loc[0], loc[1]) {
 			continue
 		}

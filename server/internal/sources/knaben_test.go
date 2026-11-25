@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -337,3 +338,28 @@ func TestMultiSearchWithKnabenAndFailingKnaben(t *testing.T) {
 }
 
 var _ Source = (*Knaben)(nil)
+
+// Spanish titles keep their accents in the query (the index matches them literally; the caller
+// also searches the folded form) and the author is reduced to the surname.
+func TestKnabenSpanishQuery(t *testing.T) {
+	var queries []string
+	k := newKnaben(t, func(w http.ResponseWriter, r *http.Request) {
+		var req knabenRequest
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &req)
+		queries = append(queries, req.Query)
+		_, _ = w.Write(fixture(t, "knaben_empty.json"))
+	})
+	for _, q := range []Query{
+		{Title: "Cien años de soledad", Author: "Gabriel García Márquez", Language: "es"},
+		{Title: "¿Quién se ha llevado mi queso?"},
+	} {
+		if _, err := k.Search(context.Background(), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"Cien años de soledad Márquez", "Cien años de soledad", "Quién se ha llevado mi queso"}
+	if !slices.Equal(queries, want) {
+		t.Errorf("queries = %q, want %q", queries, want)
+	}
+}
