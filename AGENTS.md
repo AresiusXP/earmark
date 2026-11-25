@@ -1,6 +1,8 @@
 # AGENTS.md — stremio-audiobooks
 
-Stremio addon serving audiobooks via debrid services (TorBox; Real-Debrid was dropped).
+Audiobooks backend + Android app (`app/`). Originally a Stremio addon serving audiobooks via debrid
+services (TorBox, Real-Debrid); the Stremio routes stay until the app replaces them.
+`api/openapi.yaml` is the server/app contract; update it in the same change as the code.
 **Read `docs/DESIGN.md` first**; if code and design diverge, update the design in the same change.
 
 ## Rules
@@ -8,6 +10,8 @@ Stremio addon serving audiobooks via debrid services (TorBox; Real-Debrid was dr
 * Go, stdlib first, `log/slog`, table-driven tests, `-race` clean. Postgres only (no Redis).
 * Never log debrid API keys or decrypted user config. Never put keys in URLs in clear text
   (the config in the addon URL is AES-GCM sealed).
+* Per-user data: every query on a per-user table is scoped by `user_id`; a debrid call uses only the requesting
+  user's key; keys are sealed, never returned. See docs/DESIGN.md "App direction".
 * Private instance: not listed in the Stremio community catalog; public trackers/indexers only.
 * Every route sends `Access-Control-Allow-Origin: *` (Stremio requires it).
 * Stremio JSON arrays are never `null` (use `[]`).

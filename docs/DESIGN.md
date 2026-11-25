@@ -6,7 +6,7 @@ Source of truth. Phase 0 decisions are marked **TBD(phase0)** until the experime
 ## Decisions taken
 
 * Go server, Postgres, Helm/ArgoCD like tutti-frutti. Host `audiobooks.aresius.xyz`.
-* Debrid: TorBox only (batch cache check). Real-Debrid was dropped on 2026-11-16 (the user no longer uses it); the Provider interface stays, so another service can be added later.
+* Debrid: TorBox (batch cache check) and Real-Debrid (re-added 2026-11-25 for the app, see "App direction"). Real-Debrid had been dropped on 2026-11-16; the Provider interface made it easy to bring back.
 * Metadata: Audible catalog search + Audnexus (ASIN ids), Open Library fallback.
 * Sources: Knaben (audiobook category 1003000) and AudioBook Bay (`sources/abb.go`, scraper: search page + detail page for the info hash; mirrors in `ABB_BASE_URLS`, `off` disables; queries must be lowercase or the site redirects to its front page; titles are sometimes scrambled by one letter, the matcher tolerates that). `TorrentsCSV` (`sources/torrentscsv.go`: torrents-csv.com JSON API, info hashes included; 1 req/s limiter, 30 min cache; `TORRENTS_CSV=off` disables) and `SolidTorrents` (`sources/solidtorrents.go`: the site now lives on bitsearch.eu, solidtorrents.to only redirects there; the free tier allows 200 requests per day, so results are cached for 6 h and the `x-ratelimit-*` headers are honoured: at <= 20 requests left, or after a 429, it answers `ErrRateLimited` until the reset time, fallback 1 h; `SOLIDTORRENTS=off` disables). Both search the title only (full-text AND on torrent names, many audiobook names lack the author) and drop ebook/video names and anything under 20 MB. Generic Torznab / Prowlarr only if coverage is still thin.
 * Languages: English and Dutch (Audible marketplaces us/uk and nl/de as needed).
@@ -91,3 +91,74 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
 ## Open
 
 * Prowlarr in the cluster: decided in Phase 3.
+
+## App direction (decided 2026-11-25)
+
+Stremio is a poor audiobook player (stops on screen off, no chapters/speed/sleep timer, progress only
+from its own player). The product becomes a standalone Android app, **Audiobooks**
+(`app/`, package `xyz.aresius.audiobooks`, same monorepo and version as the server), with this server as its
+backend. The Stremio addon routes keep working untouched until the app is in daily use (Phase 5 retires them).
+`api/openapi.yaml` is the contract between server and app; change it first, in the same commit as the code.
+
+### Model
+* **Download-first.** Audiobooks are small, so the app downloads the files of a release to the phone and the
+  player plays local files only. Debrid and BitTorrent are two ways to get the files onto the phone. Playback can
+  start on file 1 while the rest downloads. No audio ever passes through the server or Cloudflare:
+  `GET /v1/releases/{hash}/files/{index}/download` answers 302 to the provider's short-lived CDN link (never stored by
+  the app) and `202` while the provider is still preparing it (instead of the silent MP3 of the Stremio route).
+* **Users, not a shared instance.** `users` (admin|user). The instance password only creates the first admin
+  (`/v1/auth/bootstrap`, refused once a user exists). Others join with single-use, expiring invite codes made by an
+  admin; more devices join with single-use link codes. Each device has its own token pair (1 h HS256 JWT + rotating
+  refresh token, only the SHA-256 of the refresh token stored); disabling a user or revoking a device stops access
+  immediately (access tokens are checked against the device/user row). The JWT secret is derived from `CONFIG_SECRET`
+  with HKDF (own label), like Echoes. Auth failures are limited globally (no client IPs behind Traefik).
+* **Debrid keys belong to the user.** `user_debrid_keys(user_id, provider, sealed_key, fingerprint, status, validated_at,
+  last_error)`; sealed with AES-256-GCM using an HKDF-derived key (own label, never the JWT key); never returned, never
+  logged. A request that talks to a debrid service uses ONLY the requesting user's key; there is no fallback to another
+  user's key. Two users may hold the same key (a household): `fingerprint = HMAC-SHA256(derived key, api key)`.
+* **What is shared and what is per user.** Shared: books, releases, file lists, TorBox cache state (the TorBox cache is
+  the same for every account, so one user's check helps everybody). Per user: debrid add/queue/links, RealDebrid probe
+  results (stored per key fingerprint, never in the shared `availability` table), library, progress, bookmarks, settings.
+  Add budgets / cooldowns / queue tracking are per key fingerprint, so a household shares one budget like it shares one
+  account. Every query on a per-user table is scoped by `user_id` and has a store test proving user A cannot read or
+  write user B's rows. Admin endpoints show whether a user has a key, never the key.
+* **No key, no problem.** A user without a working key still sees every release; debrid actions answer `403 no_debrid_key`.
+  `settings.source_mode` (auto|debrid|p2p) and `settings.p2p_enabled` are the USER's own choice (not an admin switch):
+  BitTorrent on the phone is off until the user turns it on after an explicit warning (their IP is visible in the swarm;
+  recommended with a VPN). The server only stores the two settings; the rules below are enforced in the app.
+* **Real-Debrid** (`debrid/realdebrid`): add magnet -> select audio files -> poll `torrents/info` -> `unrestrict/link`.
+  There is no batch cache check any more (`instantAvailability` is gone), so `CheckCached` returns (nil, nil); a book page
+  shows RD cache state only after the caller's own key probed the release. Probing adds a torrent, so it happens only on
+  `prepare` (an explicit user action), never while rendering a book page. RD may bind links to the IP that created them and
+  limits parallel use; the provider's error message is shown as is.
+
+### API shape (see `api/openapi.yaml`)
+`/v1/auth/*`, `/v1/me` (+ `/devices`, `/debrid/{provider}`), `/v1/admin/*`, `/v1/search`, `/v1/discover`, `/v1/books/{asin}`
+(+ `/chapters` from Audnexus), `/v1/releases/{hash}/prepare|files/{index}/download|torrent-files`, `/v1/me/library`
+(+ bookmarks), `/v1/app/update*`. The `/v1` handlers live in `server/internal/appapi`; they call `service.API` (extended
+with per-user key arguments) and never touch the Stremio `userconfig`. Errors are `{"error":{"code","message"}}`.
+Client-reported torrent file lists (`torrent_files`, metainfo index) are stored apart from debrid file lists (`files`,
+provider index); consumers match by path, never by index.
+
+### App rules
+* Kotlin, Compose, Material 3, Hilt, Room, Retrofit + kotlinx-serialization, Media3 (ExoPlayer + MediaSessionService),
+  WorkManager, DataStore. Same Gradle/signing/update setup as Echoes (`/home/aresius/repo/echoes/app` is the template; copy
+  patterns, not the music-specific code). Own signing key `/home/aresius/android/keys/audiobooks*` (USER MUST BACK UP).
+  `versionCode = X*10000+Y*100+Z`. Build with `source /home/aresius/android/env.sh`.
+* Player: one timeline per book over its ordered files; chapters from the server, falling back to one chapter per file when
+  the Audible total differs from the files' total by more than 2 %. Skip back/forward 30 s (configurable), speed 0.5-3x per
+  book, sleep timer (end of chapter / N minutes), bookmarks, resume (local every few seconds + on pause, synced to the server;
+  last write wins on the client clock), MediaSession so lock screen, headset buttons and Android Auto work.
+* Downloads: WorkManager, app-private storage, Wi-Fi only by default, storage limit and auto-delete after finish. A debrid
+  file that is not ready is a visible "preparing" state, never saved as a silent placeholder.
+* BitTorrent (Phase 4, libtorrent4j, arm64-v8a only plus x86_64 debug): downloads only the selected files, in order; stop
+  seeding when done by default (optional seed to ratio 1.0, Wi-Fi + charging); "only when a VPN is active" setting enforced in
+  the engine (pause every torrent when the VPN drops); first-use warning; mobile data off by default; honest "no seeders" /
+  "stalled" states; foreground service with WorkManager resume (Android 15 caps dataSync at 6 h per 24 h).
+* Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
+  against production responses before shipping. Never uninstall or `pm clear` the user's phone.
+
+### Phases
+0 contract + design (this section, `api/openapi.yaml`) -> 1 server (users/invites/devices, per-user keys, `appapi`, Real-Debrid,
+library/progress/bookmarks, chapters, torrent-files) in parallel with 2 app skeleton -> 3 player + debrid downloads -> 4 BitTorrent
+-> 5 polish, Android Auto, release pipeline (APK baked into the server image at `/update`), retiring Stremio.

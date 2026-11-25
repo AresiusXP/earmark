@@ -1,0 +1,847 @@
+openapi: 3.1.0
+info:
+  title: Audiobooks API
+  version: 0.1.0
+  summary: HTTP API between the audiobooks Go server and the Android app.
+  description: |
+    Contract between the Go server (`server/`) and the Android app (`app/`). Source of truth for
+    both sides; docs/DESIGN.md explains the model behind it. The Stremio addon routes
+    (`/{cfg}/...`, `/resolve/...`, `/api/config`) are legacy and NOT part of this contract.
+
+    **Accounts.** The instance has users (`admin` or `user`). The very first account is created with
+    the instance password (`POST /v1/auth/bootstrap`, only while no user exists). Everybody else joins
+    with a single-use invite code made by an admin (`POST /v1/auth/join`). Another device of an
+    existing user joins with a single-use link code (`POST /v1/auth/link`). Every device has its own
+    token pair: a one-hour HS256 access token and a rotating refresh token. Disabling a user or
+    revoking a device makes its refresh fail and its access tokens stop working immediately.
+    Every route except `/healthz`, `/v1/version`, `/v1/auth/*` and `/v1/app/update*` requires
+    `Authorization: Bearer <access_token>`.
+
+    **Debrid keys belong to the user.** `PUT /v1/me/debrid/{provider}` stores the caller's own key
+    (sealed on the server, never returned, never logged). Every action that talks to a debrid
+    service (`prepare`, `download`, cache probes) uses only the key of the requesting user. Two
+    users may hold the same key (a household). A user without a working key still sees all
+    releases; the debrid actions answer `403 no_debrid_key`.
+
+    **Download-first.** The app downloads the files of a release to the phone and plays local files.
+    The server never carries audio: `GET /v1/releases/{hash}/files/{index}/download` answers a 302
+    to the provider's short-lived CDN link. Without a debrid key (or by choice) the app downloads
+    through BitTorrent on the phone using the `magnet` of a release; that path never touches the
+    server except for `POST /v1/releases/{hash}/torrent-files`.
+
+    **File indexes.** `files` (debrid) use the provider's own file index. `torrent_files` (reported
+    by phones that fetched the torrent metadata) use the index in the torrent's metainfo order.
+    The two lists are separate and must be matched by `path`, never by index.
+
+    **Errors.** `{"error": {"code": "<snake_case>", "message": "<text>"}}`. The 401 produced by the
+    auth middleware is `{"error": {"code": "unauthorized"}}`. Codes: `invalid_request`, `unauthorized`,
+    `forbidden`, `not_found`, `conflict`, `rate_limited`, `no_debrid_key`, `bad_debrid_key`,
+    `debrid_unavailable`, `limit_reached`, `upstream_failed`.
+
+    **Caching.** All responses are `Cache-Control: no-store`, except catalog responses
+    (`search`, `discover`, `books`) which are `private, max-age=300`.
+
+    **Retry.** Clients retry `502`, `503` and `504` (a deploy replaces the single pod) and honour
+    `Retry-After`.
+servers:
+  - url: https://audiobooks.aresius.xyz
+    description: Production
+tags:
+  - {name: meta, description: Liveness, version, app updates.}
+  - {name: auth, description: Bootstrap, join, link, refresh.}
+  - {name: me, description: The caller's profile, settings and debrid keys.}
+  - {name: admin, description: Users and invites (admin only).}
+  - {name: catalog, description: Search, discover, books, chapters.}
+  - {name: releases, description: Preparing and downloading releases.}
+  - {name: library, description: Per-user library, progress and bookmarks.}
+security:
+  - bearer: []
+paths:
+  /healthz:
+    get:
+      tags: [meta]
+      security: []
+      operationId: healthz
+      responses:
+        "200": {description: Alive., content: {text/plain: {schema: {type: string}}}}
+  /v1/version:
+    get:
+      tags: [meta]
+      security: []
+      operationId: getVersion
+      responses:
+        "200":
+          description: Server version and what the instance needs next.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, api_version, bootstrapped]
+                properties:
+                  version: {type: string, example: 0.4.0}
+                  api_version: {type: integer, example: 1, description: Bumped on breaking changes to this contract.}
+                  bootstrapped: {type: boolean, description: False until the first admin exists.}
+  /v1/app/update:
+    get:
+      tags: [meta]
+      security: []
+      operationId: getAppUpdate
+      description: The APK bundled in the server image (same version as the server).
+      responses:
+        "200":
+          description: Update info; `available` is false when the image carries no valid APK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available]
+                properties:
+                  available: {type: boolean}
+                  version: {type: string}
+                  version_code: {type: integer}
+                  size: {type: integer, format: int64}
+                  sha256: {type: string}
+                  url: {type: string, format: uri}
+  /v1/app/update/apk:
+    get:
+      tags: [meta]
+      security: []
+      operationId: getAppApk
+      responses:
+        "200": {description: The signed APK., content: {application/vnd.android.package-archive: {schema: {type: string, format: binary}}}}
+        "404": {$ref: "#/components/responses/Error"}
+
+  /v1/auth/bootstrap:
+    post:
+      tags: [auth]
+      security: []
+      operationId: bootstrap
+      description: Creates the first admin with the instance password. `409 conflict` once any user exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instance_password, display_name, device_name]
+              properties:
+                instance_password: {type: string, writeOnly: true}
+                display_name: {$ref: "#/components/schemas/DisplayName"}
+                device_name: {$ref: "#/components/schemas/DeviceName"}
+      responses:
+        "200": {$ref: "#/components/responses/Session"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+  /v1/auth/join:
+    post:
+      tags: [auth]
+      security: []
+      operationId: join
+      description: Creates a new user from a single-use invite code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invite_code, display_name, device_name]
+              properties:
+                invite_code: {type: string, writeOnly: true}
+                display_name: {$ref: "#/components/schemas/DisplayName"}
+                device_name: {$ref: "#/components/schemas/DeviceName"}
+      responses:
+        "200": {$ref: "#/components/responses/Session"}
+        "401": {description: Unknown, used or expired invite., content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "429": {$ref: "#/components/responses/Error"}
+  /v1/auth/link:
+    post:
+      tags: [auth]
+      security: []
+      operationId: linkDevice
+      description: Adds another device to an existing user with a single-use link code (`POST /v1/me/devices/link-code`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [link_code, device_name]
+              properties:
+                link_code: {type: string, writeOnly: true}
+                device_name: {$ref: "#/components/schemas/DeviceName"}
+      responses:
+        "200": {$ref: "#/components/responses/Session"}
+        "401": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      security: []
+      operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: {type: string, writeOnly: true}
+      responses:
+        "200": {$ref: "#/components/responses/Session"}
+        "401": {$ref: "#/components/responses/Error"}
+
+  /v1/me:
+    get:
+      tags: [me]
+      operationId: getMe
+      responses:
+        "200": {description: The caller., content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
+        "401": {$ref: "#/components/responses/Error"}
+    patch:
+      tags: [me]
+      operationId: updateMe
+      description: Partial update; absent fields are unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: {$ref: "#/components/schemas/DisplayName"}
+                settings: {$ref: "#/components/schemas/SettingsPatch"}
+      responses:
+        "200": {description: The updated caller., content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+  /v1/me/devices:
+    get:
+      tags: [me]
+      operationId: listDevices
+      responses:
+        "200":
+          description: The caller's devices.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [devices]
+                properties:
+                  devices: {type: array, items: {$ref: "#/components/schemas/Device"}}
+  /v1/me/devices/{deviceId}:
+    delete:
+      tags: [me]
+      operationId: revokeDevice
+      parameters:
+        - {name: deviceId, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Revoked (idempotent).}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/me/devices/link-code:
+    post:
+      tags: [me]
+      operationId: createLinkCode
+      description: A single-use code (15 minutes) to sign in another device as the same user.
+      responses:
+        "200":
+          description: The code.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link_code, expires_at]
+                properties:
+                  link_code: {type: string}
+                  expires_at: {type: string, format: date-time}
+  /v1/me/debrid:
+    get:
+      tags: [me]
+      operationId: listDebrid
+      description: Which providers the caller has a key for. Never returns a key.
+      responses:
+        "200":
+          description: One entry per supported provider.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers: {type: array, items: {$ref: "#/components/schemas/DebridStatus"}}
+  /v1/me/debrid/{provider}:
+    parameters:
+      - {name: provider, in: path, required: true, schema: {$ref: "#/components/schemas/Provider"}}
+    put:
+      tags: [me]
+      operationId: putDebridKey
+      description: Validates the key against the provider, then stores it sealed. `400 bad_debrid_key` when rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              properties:
+                api_key: {type: string, writeOnly: true, minLength: 8, maxLength: 256}
+      responses:
+        "200": {description: Stored and valid., content: {application/json: {schema: {$ref: "#/components/schemas/DebridStatus"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [me]
+      operationId: recheckDebridKey
+      description: Re-validates the stored key and updates its status.
+      responses:
+        "200": {description: Current status., content: {application/json: {schema: {$ref: "#/components/schemas/DebridStatus"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [me]
+      operationId: deleteDebridKey
+      responses:
+        "204": {description: Removed (idempotent).}
+
+  /v1/admin/users:
+    get:
+      tags: [admin]
+      operationId: adminListUsers
+      responses:
+        "200":
+          description: All users. Shows whether a user has a key per provider, never the key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users: {type: array, items: {$ref: "#/components/schemas/AdminUser"}}
+        "403": {$ref: "#/components/responses/Error"}
+  /v1/admin/users/{userId}:
+    patch:
+      tags: [admin]
+      operationId: adminUpdateUser
+      description: Disable or re-enable a user (disabling revokes every device). You cannot disable yourself or the last admin.
+      parameters:
+        - {name: userId, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                disabled: {type: boolean}
+      responses:
+        "200": {description: Updated., content: {application/json: {schema: {$ref: "#/components/schemas/AdminUser"}}}}
+        "403": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/admin/invites:
+    get:
+      tags: [admin]
+      operationId: adminListInvites
+      responses:
+        "200":
+          description: Open (unused, unexpired) invites. The code itself is only returned on creation.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invites]
+                properties:
+                  invites: {type: array, items: {$ref: "#/components/schemas/Invite"}}
+    post:
+      tags: [admin]
+      operationId: adminCreateInvite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: {type: string, maxLength: 80}
+                expires_in_hours: {type: integer, minimum: 1, maximum: 720, default: 72}
+      responses:
+        "200":
+          description: The invite, with its one-time `code`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Invite"
+                  - type: object
+                    required: [code]
+                    properties:
+                      code: {type: string}
+        "429": {$ref: "#/components/responses/Error"}
+  /v1/admin/invites/{inviteId}:
+    delete:
+      tags: [admin]
+      operationId: adminRevokeInvite
+      parameters:
+        - {name: inviteId, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Revoked (idempotent).}
+
+  /v1/search:
+    get:
+      tags: [catalog]
+      operationId: search
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 2, maxLength: 120}}
+      responses:
+        "200": {$ref: "#/components/responses/BookList"}
+        "400": {$ref: "#/components/responses/Error"}
+  /v1/discover:
+    get:
+      tags: [catalog]
+      operationId: discover
+      parameters:
+        - {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      responses:
+        "200": {$ref: "#/components/responses/BookList"}
+  /v1/books/{asin}:
+    get:
+      tags: [catalog]
+      operationId: getBook
+      description: |
+        The book and its ranked releases (looks for releases when none are known or the last search is
+        stale). Per-user fields (`cached`, `usable`) are computed for the caller; the rest is shared.
+      parameters:
+        - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
+      responses:
+        "200": {description: The book page., content: {application/json: {schema: {$ref: "#/components/schemas/BookDetail"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/books/{asin}/chapters:
+    get:
+      tags: [catalog]
+      operationId: getChapters
+      description: Audible chapter marks (Audnexus). Empty `chapters` when unknown; the app then uses one chapter per file.
+      parameters:
+        - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
+      responses:
+        "200": {description: Chapters., content: {application/json: {schema: {$ref: "#/components/schemas/Chapters"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+
+  /v1/releases/{hash}/prepare:
+    post:
+      tags: [releases]
+      operationId: prepareRelease
+      description: |
+        Makes the release ready at the caller's debrid provider (adds the torrent with the caller's key when
+        needed). Idempotent and cheap to poll: it never re-adds a torrent that is already queued. Uses the
+        provider's add budget per key; `429 rate_limited` when spent.
+      parameters:
+        - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider: {$ref: "#/components/schemas/Provider"}
+                magnet: {type: string, description: Only needed when the server does not know the release.}
+      responses:
+        "200": {description: Current state., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+  /v1/releases/{hash}/files/{index}/download:
+    get:
+      tags: [releases]
+      operationId: downloadFile
+      description: |
+        `302` to the provider's short-lived CDN link for one file (`Location` is validated against an HTTPS
+        allowlist of provider CDN hosts). The link must be used immediately, never stored. `202` with a
+        `Prepare` body when the file is not ready yet; `403 no_debrid_key` / `bad_debrid_key`.
+        Supports `HEAD` without side effects (never adds a torrent).
+      parameters:
+        - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
+        - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: provider, in: query, required: true, schema: {$ref: "#/components/schemas/Provider"}}
+      responses:
+        "302": {description: Redirect to the CDN., headers: {Location: {schema: {type: string, format: uri}}}}
+        "202": {description: Not ready., content: {application/json: {schema: {$ref: "#/components/schemas/Prepare"}}}}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+  /v1/releases/{hash}/torrent-files:
+    post:
+      tags: [releases]
+      operationId: reportTorrentFiles
+      description: |
+        A phone that fetched the torrent metadata reports the file list (names and sizes only). Stored only when
+        the server has no client-reported list for this hash yet; at most 2000 files, paths at most 512 bytes.
+        Returns the stored list.
+      parameters:
+        - {name: hash, in: path, required: true, schema: {$ref: "#/components/schemas/InfoHash"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files: {type: array, maxItems: 2000, items: {$ref: "#/components/schemas/TorrentFile"}}
+      responses:
+        "200":
+          description: The stored list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [torrent_files]
+                properties:
+                  torrent_files: {type: array, items: {$ref: "#/components/schemas/TorrentFile"}}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+
+  /v1/me/library:
+    get:
+      tags: [library]
+      operationId: listLibrary
+      description: The caller's books, most recently touched first, with their progress.
+      parameters:
+        - {name: status, in: query, schema: {$ref: "#/components/schemas/LibraryStatus"}}
+      responses:
+        "200":
+          description: Entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries: {type: array, items: {$ref: "#/components/schemas/LibraryEntry"}}
+  /v1/me/library/{asin}:
+    parameters:
+      - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
+    get:
+      tags: [library]
+      operationId: getLibraryEntry
+      responses:
+        "200": {description: Entry., content: {application/json: {schema: {$ref: "#/components/schemas/LibraryEntry"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+    put:
+      tags: [library]
+      operationId: putLibraryEntry
+      description: |
+        Upserts the entry. Progress is last-write-wins on `updated_at` (client clock, ms): an older write is
+        ignored and the stored entry is returned. Unknown ASINs are fetched into the catalog first (`404` when
+        Audible does not know them). Limit 2000 entries per user (`409 limit_reached`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/LibraryEntryWrite"}
+      responses:
+        "200": {description: The stored entry., content: {application/json: {schema: {$ref: "#/components/schemas/LibraryEntry"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [library]
+      operationId: deleteLibraryEntry
+      description: Removes the entry, its progress and its bookmarks.
+      responses:
+        "204": {description: Removed (idempotent).}
+  /v1/me/library/{asin}/bookmarks:
+    parameters:
+      - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
+    get:
+      tags: [library]
+      operationId: listBookmarks
+      responses:
+        "200":
+          description: Bookmarks ordered by position.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bookmarks]
+                properties:
+                  bookmarks: {type: array, items: {$ref: "#/components/schemas/Bookmark"}}
+    post:
+      tags: [library]
+      operationId: createBookmark
+      description: Limit 500 per book (`409 limit_reached`). The book must be in the library.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [position_ms]
+              properties:
+                position_ms: {type: integer, format: int64, minimum: 0}
+                note: {type: string, maxLength: 280}
+      responses:
+        "200": {description: Created., content: {application/json: {schema: {$ref: "#/components/schemas/Bookmark"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/me/library/{asin}/bookmarks/{bookmarkId}:
+    delete:
+      tags: [library]
+      operationId: deleteBookmark
+      parameters:
+        - {name: asin, in: path, required: true, schema: {$ref: "#/components/schemas/Asin"}}
+        - {name: bookmarkId, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Removed (idempotent).}
+
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer, bearerFormat: JWT}
+  responses:
+    Error:
+      description: Error.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+    Session:
+      description: A signed-in device.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Session"}}}
+    BookList:
+      description: Books (never null).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [books]
+            properties:
+              books: {type: array, items: {$ref: "#/components/schemas/Book"}}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            retry_after_s: {type: integer}
+    DisplayName: {type: string, minLength: 1, maxLength: 40}
+    DeviceName: {type: string, minLength: 1, maxLength: 80}
+    Asin: {type: string, pattern: "^[A-Z0-9]{10}$"}
+    InfoHash: {type: string, pattern: "^[0-9a-f]{40}$", description: Lowercase hex.}
+    Provider: {type: string, enum: [torbox, realdebrid]}
+    LibraryStatus: {type: string, enum: [saved, listening, finished]}
+    Session:
+      type: object
+      required: [access_token, refresh_token, expires_in, token_type, user]
+      properties:
+        access_token: {type: string}
+        refresh_token: {type: string}
+        expires_in: {type: integer, example: 3600}
+        token_type: {type: string, example: Bearer}
+        user: {$ref: "#/components/schemas/Me"}
+    Settings:
+      type: object
+      required: [region, languages, prefer_format, preferred_provider, source_mode, p2p_enabled]
+      properties:
+        region: {type: string, enum: [us, uk, de, fr, it, es, ca, au, in, nl]}
+        languages: {type: array, items: {type: string, enum: [en, nl]}, minItems: 1}
+        prefer_format: {type: string, enum: ["", m4b, mp3], description: Empty means m4b first.}
+        preferred_provider: {oneOf: [{$ref: "#/components/schemas/Provider"}, {type: "null"}]}
+        source_mode:
+          type: string
+          enum: [auto, debrid, p2p]
+          description: |
+            How the app gets files by default. `auto` = debrid when the user has a working key, otherwise
+            BitTorrent if `p2p_enabled`. `debrid` = never BitTorrent. `p2p` = BitTorrent even with a key.
+        p2p_enabled: {type: boolean, description: The user turned BitTorrent on after the warning. Default false.}
+    SettingsPatch:
+      type: object
+      description: Same fields as Settings, all optional.
+      properties:
+        region: {type: string}
+        languages: {type: array, items: {type: string}}
+        prefer_format: {type: string}
+        preferred_provider: {oneOf: [{$ref: "#/components/schemas/Provider"}, {type: "null"}]}
+        source_mode: {type: string}
+        p2p_enabled: {type: boolean}
+    Me:
+      type: object
+      required: [id, display_name, role, settings]
+      properties:
+        id: {type: string}
+        display_name: {$ref: "#/components/schemas/DisplayName"}
+        role: {type: string, enum: [admin, user]}
+        settings: {$ref: "#/components/schemas/Settings"}
+    Device:
+      type: object
+      required: [id, name, created_at, current]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+        last_seen_at: {type: [string, "null"], format: date-time}
+        current: {type: boolean}
+    DebridStatus:
+      type: object
+      required: [provider, configured]
+      properties:
+        provider: {$ref: "#/components/schemas/Provider"}
+        configured: {type: boolean}
+        status: {type: string, enum: [ok, invalid, error], description: Present when configured.}
+        validated_at: {type: [string, "null"], format: date-time}
+        last_error: {type: [string, "null"]}
+        shared_with_others: {type: boolean, description: Another user holds the same key (household). Informational.}
+    AdminUser:
+      type: object
+      required: [id, display_name, role, disabled, created_at, debrid]
+      properties:
+        id: {type: string}
+        display_name: {type: string}
+        role: {type: string, enum: [admin, user]}
+        disabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        last_seen_at: {type: [string, "null"], format: date-time}
+        device_count: {type: integer}
+        debrid:
+          type: object
+          description: Provider to "has a key" (never the key).
+          additionalProperties: {type: boolean}
+    Invite:
+      type: object
+      required: [id, created_at, expires_at]
+      properties:
+        id: {type: string}
+        note: {type: string}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+    Book:
+      type: object
+      required: [asin, title, authors, narrators, language, runtime_min]
+      properties:
+        asin: {$ref: "#/components/schemas/Asin"}
+        title: {type: string}
+        subtitle: {type: string}
+        authors: {type: array, items: {type: string}}
+        narrators: {type: array, items: {type: string}}
+        series: {type: string}
+        series_position: {type: string}
+        language: {type: string}
+        runtime_min: {type: integer}
+        cover_url: {type: string, format: uri}
+        description: {type: string}
+        release_year: {type: integer}
+        genres: {type: array, items: {type: string}}
+    BookDetail:
+      type: object
+      required: [book, releases, searched_at]
+      properties:
+        book: {$ref: "#/components/schemas/Book"}
+        searched_at: {type: [string, "null"], format: date-time, description: When sources were last queried.}
+        releases: {type: array, items: {$ref: "#/components/schemas/ReleaseView"}, description: Ranked best first.}
+    ReleaseView:
+      type: object
+      required: [info_hash, title, source, size, seeders, score, collection, magnet, files, torrent_files, cached, usable]
+      properties:
+        info_hash: {$ref: "#/components/schemas/InfoHash"}
+        title: {type: string, description: Raw torrent name.}
+        source: {type: string}
+        size: {type: integer, format: int64}
+        seeders: {type: integer}
+        format: {type: string, description: m4b, mp3, ...}
+        bitrate_kbps: {type: integer}
+        narrator: {type: string}
+        language: {type: string}
+        score: {type: number}
+        collection: {type: boolean, description: Multi-book pack; `files` and `torrent_files` hold only this book's files.}
+        magnet: {type: string}
+        files:
+          type: array
+          description: Audio files in chapter order with the debrid provider's index. Empty when unknown.
+          items: {$ref: "#/components/schemas/TorrentFile"}
+        torrent_files:
+          type: array
+          description: Audio files reported by phones (metainfo index). Empty when unknown.
+          items: {$ref: "#/components/schemas/TorrentFile"}
+        cached:
+          type: object
+          description: |
+            Provider to cache state for the caller. Absent = unknown. TorBox state is shared across users; a
+            RealDebrid entry exists only after the caller's own key probed it.
+          additionalProperties: {type: boolean}
+        usable:
+          type: object
+          required: [debrid, p2p]
+          properties:
+            debrid:
+              type: array
+              description: Providers the caller has a working key for.
+              items: {$ref: "#/components/schemas/Provider"}
+            p2p: {type: boolean, description: The release has a magnet and the caller enabled BitTorrent.}
+    TorrentFile:
+      type: object
+      required: [index, path, size]
+      properties:
+        index: {type: integer, minimum: 0}
+        path: {type: string, maxLength: 512}
+        size: {type: integer, format: int64, minimum: 0}
+    Chapters:
+      type: object
+      required: [asin, runtime_ms, chapters]
+      properties:
+        asin: {type: string}
+        runtime_ms: {type: integer, format: int64}
+        chapters:
+          type: array
+          items:
+            type: object
+            required: [title, start_ms, length_ms]
+            properties:
+              title: {type: string}
+              start_ms: {type: integer, format: int64}
+              length_ms: {type: integer, format: int64}
+    Prepare:
+      type: object
+      required: [state]
+      properties:
+        state: {type: string, enum: [ready, preparing, failed]}
+        progress: {type: integer, minimum: 0, maximum: 100}
+        reason:
+          type: string
+          enum: [no_seeders, debrid_cooldown, debrid_busy, debrid_failed, not_found]
+          description: Present when `failed`, or when `preparing` is slow because of the provider.
+        files:
+          type: array
+          description: Files with provider indexes, once known.
+          items: {$ref: "#/components/schemas/TorrentFile"}
+        retry_after_s: {type: integer}
+    LibraryEntry:
+      type: object
+      required: [book, status, updated_at]
+      properties:
+        book: {$ref: "#/components/schemas/Book"}
+        status: {$ref: "#/components/schemas/LibraryStatus"}
+        release_hash: {type: [string, "null"], description: The release the user listens to.}
+        position_ms: {type: integer, format: int64, description: Position in the whole book (all files).}
+        file_path: {type: [string, "null"], description: Path of the file being played (match by path, not index).}
+        file_position_ms: {type: integer, format: int64}
+        speed: {type: number, minimum: 0.5, maximum: 3.0, default: 1.0}
+        updated_at: {type: integer, format: int64, description: Client clock, ms since epoch.}
+    LibraryEntryWrite:
+      type: object
+      required: [status, updated_at]
+      properties:
+        status: {$ref: "#/components/schemas/LibraryStatus"}
+        release_hash: {type: [string, "null"]}
+        position_ms: {type: integer, format: int64, minimum: 0}
+        file_path: {type: [string, "null"], maxLength: 512}
+        file_position_ms: {type: integer, format: int64, minimum: 0}
+        speed: {type: number, minimum: 0.5, maximum: 3.0}
+        updated_at: {type: integer, format: int64}
+    Bookmark:
+      type: object
+      required: [id, position_ms, created_at]
+      properties:
+        id: {type: string}
+        position_ms: {type: integer, format: int64}
+        note: {type: string}
+        created_at: {type: string, format: date-time}
