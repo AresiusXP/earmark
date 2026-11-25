@@ -952,6 +952,20 @@ components:
       properties:
         asin: {type: string}
         runtime_ms: {type: integer, format: int64}
+        intro_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Length of the Audible branding ("This is Audible") at the start of the Audible edition (Audnexus
+            `brandIntroDurationMs`). Absent when unknown. `chapters` and `start_ms` are measured on the Audible
+            edition, branding included; a release that cut the branding is `intro_ms` shorter at the start, so a
+            client aligning marks to such a release subtracts it.
+        outro_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Length of the Audible branding at the end (Audnexus `brandOutroDurationMs`). Absent when unknown.
         chapters:
           type: array
           items:

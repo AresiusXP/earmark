@@ -128,7 +128,7 @@ func newAppEnvDir(t *testing.T, dir string) *appEnv {
 	dune := model.Book{ASIN: duneASIN, Title: "Dune", Authors: []string{"Frank Herbert"}, Language: "en", RuntimeMin: 1260, Region: "us"}
 	other := model.Book{ASIN: otherASIN, Title: "Emma", Authors: []string{"Jane Austen"}, Language: "en", RuntimeMin: 600, Region: "us"}
 	meta := &metaFake{books: map[string]model.Book{duneASIN: dune, otherASIN: other},
-		chap: metadata.ChapterList{RuntimeMs: 75_000_000, Chapters: []metadata.Chapter{{Title: "Opening Credits", StartMs: 0, LengthMs: 60_970}, {Title: "Book One", StartMs: 60_970, LengthMs: 1000}}}}
+		chap: metadata.ChapterList{RuntimeMs: 75_000_000, IntroMs: 3970, OutroMs: 4945, Chapters: []metadata.Chapter{{Title: "Opening Credits", StartMs: 0, LengthMs: 60_970}, {Title: "Book One", StartMs: 60_970, LengthMs: 1000}}}}
 	src := &srcFake{rels: []model.Release{
 		{InfoHash: h40('a'), Title: "Frank Herbert - Dune (Unabridged) [m4b] 64kbps", Source: "fake", Size: 600 << 20, Seeders: 10, Magnet: "magnet:?xt=urn:btih:" + h40('a')},
 		{InfoHash: h40('b'), Title: "Frank Herbert - Dune mp3 128 kbps", Source: "fake", Size: 600 << 20, Seeders: 20, Magnet: "magnet:?xt=urn:btih:" + h40('b')},
@@ -408,13 +408,16 @@ func TestChapters(t *testing.T) {
 	r.status(t, 200)
 	m := r.json(t)
 	chs := m["chapters"].([]any)
-	if m["asin"] != duneASIN || m["runtime_ms"] != float64(75_000_000) || len(chs) != 2 ||
+	if m["asin"] != duneASIN || m["runtime_ms"] != float64(75_000_000) || m["intro_ms"] != float64(3970) || m["outro_ms"] != float64(4945) || len(chs) != 2 ||
 		!equalJSON(chs[0], map[string]any{"title": "Opening Credits", "start_ms": 0, "length_ms": 60970}) || r.cacheControl() != "private, max-age=300" {
 		t.Fatalf("%s %v", r.Body.String(), r.Header())
 	}
 	r = e.req("GET", "/v1/books/"+otherASIN+"/chapters", admin.access, nil) // unknown to Audnexus: empty, not an error
 	r.status(t, 200)
 	if m := r.json(t); m["chapters"] == nil || len(m["chapters"].([]any)) != 0 {
+		t.Fatalf("%s", r.Body.String())
+	}
+	if m := r.json(t); m["intro_ms"] != nil || m["outro_ms"] != nil { // unknown branding is omitted
 		t.Fatalf("%s", r.Body.String())
 	}
 	e.req("GET", "/v1/books/lowercase/chapters", admin.access, nil).errCode(t, 404, "not_found")
@@ -620,8 +623,8 @@ func (nopCatalog) BookFor(context.Context, service.BookRequest) (*service.BookPa
 func (nopCatalog) EnsureBook(_ context.Context, _, asin string) (model.Book, error) {
 	return model.Book{ASIN: asin}, nil
 }
-func (nopCatalog) Chapters(context.Context, string, string) (int64, []metadata.Chapter, error) {
-	return 0, nil, nil
+func (nopCatalog) ChapterList(context.Context, string, string) (metadata.ChapterList, error) {
+	return metadata.ChapterList{}, nil
 }
 
 func TestReleaseRoutesOverHTTP(t *testing.T) {

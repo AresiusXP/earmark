@@ -256,13 +256,17 @@ func TestChapters(t *testing.T) {
 	}
 
 	e, cm := mk()
-	cm.lists["uk"] = metadata.ChapterList{RuntimeMs: 5000, Chapters: []metadata.Chapter{{Title: "One", StartMs: 0, LengthMs: 5000}}}
+	cm.lists["uk"] = metadata.ChapterList{RuntimeMs: 5000, IntroMs: 40, OutroMs: 50, Chapters: []metadata.Chapter{{Title: "One", StartMs: 0, LengthMs: 5000}}}
 	b := dune()
 	b.Region = "uk"
 	e.store.books[testASIN] = BookRecord{Book: b, FetchedAt: e.clock.Now()}
 	rt, chs, err := e.svc.Chapters(ctx, "us", testASIN)
 	if err != nil || rt != 5000 || len(chs) != 1 || !eq(cm.asked, []string{"uk"}) {
 		t.Fatalf("the stored book's region is asked first: %d %v %v asked=%v", rt, chs, err, cm.asked)
+	}
+
+	if cl, err := e.svc.ChapterList(ctx, "us", testASIN); err != nil || cl.IntroMs != 40 || cl.OutroMs != 50 {
+		t.Fatalf("branding must pass through: %+v %v", cl, err)
 	}
 
 	e, cm = mk() // unknown everywhere: empty chapters, runtime from the catalog

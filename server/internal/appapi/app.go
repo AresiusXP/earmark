@@ -20,7 +20,7 @@ type Catalog interface {
 	DiscoverFor(ctx context.Context, p service.Prefs, page int) ([]model.Book, error)
 	BookFor(ctx context.Context, req service.BookRequest) (*service.BookPage, error)
 	EnsureBook(ctx context.Context, region, asin string) (model.Book, error)
-	Chapters(ctx context.Context, region, asin string) (int64, []metadata.Chapter, error)
+	ChapterList(ctx context.Context, region, asin string) (metadata.ChapterList, error)
 }
 
 // ReleaseStore is what the release routes need from the database (implemented by store.Postgres).

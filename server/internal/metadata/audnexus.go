@@ -110,6 +110,8 @@ func (c *Client) Book(ctx context.Context, region, asin string) (model.Book, err
 
 type audnexusChapters struct {
 	RuntimeMs int64 `json:"runtimeLengthMs"`
+	IntroMs   int64 `json:"brandIntroDurationMs"`
+	OutroMs   int64 `json:"brandOutroDurationMs"`
 	Chapters  []struct {
 		Title    string `json:"title"`
 		StartMs  int    `json:"startOffsetMs"`
@@ -118,9 +120,21 @@ type audnexusChapters struct {
 }
 
 // ChapterList is the chapter marks of one book. RuntimeMs is 0 when Audnexus did not say.
+// IntroMs and OutroMs are the lengths of the Audible branding ("This is Audible") at the start and
+// the end of the Audible edition; 0 when unknown. Releases that cut the branding are that much shorter.
 type ChapterList struct {
 	RuntimeMs int64
+	IntroMs   int64
+	OutroMs   int64
 	Chapters  []Chapter
+}
+
+// brandMs sanitises a branding duration: negative or longer than the whole book means unknown.
+func brandMs(v, runtimeMs int64) int64 {
+	if v < 0 || (runtimeMs > 0 && v > runtimeMs) {
+		return 0
+	}
+	return v
 }
 
 // Chapters returns the chapter markers of an ASIN, or ErrNotFound.
@@ -161,6 +175,7 @@ func (c *Client) ChapterList(ctx context.Context, region, asin string) (ChapterL
 		return ChapterList{}, err
 	}
 	out := ChapterList{RuntimeMs: max(ac.RuntimeMs, 0), Chapters: make([]Chapter, 0, len(ac.Chapters))}
+	out.IntroMs, out.OutroMs = brandMs(ac.IntroMs, out.RuntimeMs), brandMs(ac.OutroMs, out.RuntimeMs)
 	for _, ch := range ac.Chapters {
 		if ch.StartMs < 0 || ch.LengthMs < 0 {
 			continue

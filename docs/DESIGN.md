@@ -189,7 +189,10 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
     either list (`files` or `torrent_files`); each list is filtered to this book's files.
   * **Chapters.** `metadata.Client.ChapterList` (Audnexus `/books/{asin}/chapters`) caches 24 h (misses 1 h, errors never) in a
     bounded in-memory map; `service.Chapters` asks the stored book's region first, then the caller's; unknown = empty
-    `chapters` and the catalog runtime; an Audnexus outage is `502 upstream_failed`.
+    `chapters` and the catalog runtime; an Audnexus outage is `502 upstream_failed`. Contract v1.1: `ChapterList` also carries
+    Audnexus' `brandIntroDurationMs` / `brandOutroDurationMs` (cached with the list; negative or longer than the runtime = unknown), exposed as
+    optional `intro_ms` / `outro_ms` (omitted when 0/unknown) so the app can align Audible marks with a release that has the branding cut.
+    Audnexus' `isAccurate` is deliberately not exposed. `service.ChapterList` is the full result (`Chapters` is a thin wrapper).
   * **prepare** (`prepare.go`). Uses only the caller's key (`DebridKey` + `KeyError`; `ErrBadKey` from the provider calls
     `MarkInvalid`, drops the key's cached links and answers `403 bad_debrid_key`). The torrent is added at most once per key:
     in-memory state per (fingerprint, provider, hash) remembers "in the account" for 30 min; before the first add RD is asked

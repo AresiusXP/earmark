@@ -265,7 +265,7 @@ func (a *app) chapters(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	runtime, chs, err := a.d.Catalog.Chapters(r.Context(), p.Region, asin)
+	cl, err := a.d.Catalog.ChapterList(r.Context(), p.Region, asin)
 	if err != nil {
 		a.catalogFail(w, err)
 		return
@@ -275,10 +275,17 @@ func (a *app) chapters(w http.ResponseWriter, r *http.Request) {
 		StartMs  int64  `json:"start_ms"`
 		LengthMs int64  `json:"length_ms"`
 	}
-	out := make([]chapterDTO, len(chs))
-	for i, c := range chs {
+	out := make([]chapterDTO, len(cl.Chapters))
+	for i, c := range cl.Chapters {
 		out[i] = chapterDTO{Title: c.Title, StartMs: int64(c.StartMs), LengthMs: int64(c.LengthMs)}
 	}
 	w.Header().Set("Cache-Control", catalogCacheControl)
-	WriteJSON(w, http.StatusOK, map[string]any{"asin": asin, "runtime_ms": runtime, "chapters": out})
+	resp := struct {
+		ASIN      string       `json:"asin"`
+		RuntimeMs int64        `json:"runtime_ms"`
+		IntroMs   int64        `json:"intro_ms,omitempty"`
+		OutroMs   int64        `json:"outro_ms,omitempty"`
+		Chapters  []chapterDTO `json:"chapters"`
+	}{asin, cl.RuntimeMs, cl.IntroMs, cl.OutroMs, out}
+	WriteJSON(w, http.StatusOK, resp)
 }
