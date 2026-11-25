@@ -28,11 +28,16 @@ interface AudiobooksApi {
     @POST("v1/auth/bootstrap") suspend fun bootstrap(@Body body: BootstrapRequest): SessionResponse
     @POST("v1/auth/join") suspend fun join(@Body body: JoinRequest): SessionResponse
     @POST("v1/auth/link") suspend fun linkDevice(@Body body: LinkRequest): SessionResponse
+    @GET("v1/auth/google/nonce") suspend fun googleNonce(): GoogleNonceResponse
+    @POST("v1/auth/google") suspend fun googleSignIn(@Body body: GoogleSignInRequest): SessionResponse
+    @POST("v1/auth/google/join") suspend fun googleJoin(@Body body: GoogleJoinRequest): SessionResponse
     @POST("v1/auth/refresh") suspend fun refresh(@Body body: RefreshRequest): SessionResponse
 
     // me
     @GET("v1/me") suspend fun getMe(): Me
     @PATCH("v1/me") suspend fun updateMe(@Body body: UpdateMeRequest): Me
+    @POST("v1/me/google") suspend fun linkGoogle(@Body body: GoogleLinkRequest): Me
+    @DELETE("v1/me/google") suspend fun unlinkGoogle()
     @GET("v1/me/devices") suspend fun listDevices(): DevicesResponse
     @DELETE("v1/me/devices/{deviceId}") suspend fun revokeDevice(@Path("deviceId") deviceId: String)
     @POST("v1/me/devices/link-code") suspend fun createLinkCode(): LinkCodeResponse

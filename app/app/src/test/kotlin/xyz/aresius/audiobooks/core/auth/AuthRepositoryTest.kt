@@ -15,7 +15,9 @@ import kotlinx.coroutines.withTimeout
 import xyz.aresius.audiobooks.core.network.SignOutReason
 import xyz.aresius.audiobooks.testutil.FakeServer
 import xyz.aresius.audiobooks.testutil.Samples
+import xyz.aresius.audiobooks.testutil.TestCodes
 import xyz.aresius.audiobooks.testutil.TestApp
+import xyz.aresius.audiobooks.testutil.testSession
 
 class AuthRepositoryTest {
     private val server = FakeServer()
@@ -49,17 +51,24 @@ class AuthRepositoryTest {
     @Test fun joinAndLinkUseTheirOwnRoutes() = runBlocking<Unit> {
         server.onJson("POST", "/v1/auth/join", Samples.session(Samples.ME_USER))
         server.onJson("POST", "/v1/auth/link", Samples.session(Samples.ME_USER))
-        auth.signIn(server.baseUrl, SignInMethod.Invite("INV-1", "Bob"), "Tablet").ok()
-        assertTrue(server.lastBody("POST", "/v1/auth/join").contains(""""invite_code":"INV-1""""))
-        auth.signIn(server.baseUrl, SignInMethod.Link("LINK-1"), "Tablet").ok()
+        auth.signIn(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").ok()
+        assertTrue(server.lastBody("POST", "/v1/auth/join").contains(""""invite_code":"${TestCodes.INVITE}""""))
+        auth.signIn(server.baseUrl, SignInMethod.Link(TestCodes.LINK), "Tablet").ok()
         val link = server.lastBody("POST", "/v1/auth/link")
-        assertTrue(link.contains(""""link_code":"LINK-1""""))
+        assertTrue(link.contains(""""link_code":"${TestCodes.LINK}""""))
         assertTrue("display_name" !in link, "a link code signs in as the existing user: no name is sent")
+    }
+
+    @Test fun aCodeIsSentNormalisedWhateverTheWayItWasTypedOrPasted() = runBlocking<Unit> {
+        server.onJson("POST", "/v1/auth/link", Samples.session())
+        val messy = " " + TestCodes.LINK.chunked(5).joinToString(" - ").lowercase().replace('1', 'l').replace('0', 'o') + "\n"
+        auth.signIn(server.baseUrl, SignInMethod.Link(messy), "Tablet").ok()
+        assertTrue(server.lastBody("POST", "/v1/auth/link").contains(""""link_code":"${TestCodes.LINK}""""), server.lastBody("POST", "/v1/auth/link"))
     }
 
     @Test fun aWrongOrUsedCodeIsBadCredentials() = runBlocking<Unit> {
         server.on("POST", "/v1/auth/join", FakeServer.error(401, "unauthorized", "invite used"))
-        assertEquals(AuthError.BadCredentials, auth.signIn(server.baseUrl, SignInMethod.Invite("x", "Bob"), "Tablet").error())
+        assertEquals(AuthError.BadCredentials, auth.signIn(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").error())
         assertNull(app.sessions.load())
     }
 
@@ -70,29 +79,32 @@ class AuthRepositoryTest {
 
     @Test fun rateLimitCarriesTheWaitTime() = runBlocking<Unit> {
         server.on("POST", "/v1/auth/join", FakeServer.error(429, "rate_limited", null, "Retry-After" to "30"))
-        assertEquals(AuthError.TooManyAttempts(30), auth.signIn(server.baseUrl, SignInMethod.Invite("x", "Bob"), "Tablet").error())
+        assertEquals(AuthError.TooManyAttempts(30), auth.signIn(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").error())
     }
 
     @Test fun invalidInputNeverReachesTheServer() = runBlocking<Unit> {
         val cases = listOf(
-            Triple("", SignInMethod.Invite("x", "Bob"), "Tablet") to InputProblem.UrlEmpty,
+            Triple("", SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet") to InputProblem.UrlEmpty,
             Triple(server.baseUrl, SignInMethod.Invite("  ", "Bob"), "Tablet") to InputProblem.SecretEmpty,
-            Triple(server.baseUrl, SignInMethod.Invite("x", " "), "Tablet") to InputProblem.NameEmpty,
-            Triple(server.baseUrl, SignInMethod.Invite("x", "Bob"), "") to InputProblem.DeviceNameEmpty,
-            Triple(server.baseUrl, SignInMethod.Invite("x", "Bob"), "d".repeat(81)) to InputProblem.DeviceNameTooLong,
+            Triple(server.baseUrl, SignInMethod.Invite("short", "Bob"), "Tablet") to InputProblem.CodeInvalid,
+            Triple(server.baseUrl, SignInMethod.Link(TestCodes.LINK + "X"), "Tablet") to InputProblem.CodeInvalid,
+            Triple(server.baseUrl, SignInMethod.Link("U" + TestCodes.LINK.drop(1)), "Tablet") to InputProblem.CodeInvalid,
+            Triple(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, " "), "Tablet") to InputProblem.NameEmpty,
+            Triple(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "") to InputProblem.DeviceNameEmpty,
+            Triple(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "d".repeat(81)) to InputProblem.DeviceNameTooLong,
         )
         cases.forEach { (args, problem) ->
             assertEquals(AuthError.InvalidInput(problem), auth.signIn(args.first, args.second, args.third).error())
         }
         assertTrue(server.requests.isEmpty())
         val strict = app.auth(allowCleartext = false)
-        assertEquals(AuthError.InvalidInput(InputProblem.UrlNeedsHttps), strict.signIn("http://audiobooks.example.org", SignInMethod.Link("x"), "Tablet").error())
+        assertEquals(AuthError.InvalidInput(InputProblem.UrlNeedsHttps), strict.signIn("http://audiobooks.example.org", SignInMethod.Link(TestCodes.LINK), "Tablet").error())
     }
 
     @Test fun anUnreachableServerIsANetworkError() = runBlocking<Unit> {
         val url = server.baseUrl
         server.close()
-        assertEquals(AuthError.Network, auth.signIn(url, SignInMethod.Invite("x", "Bob"), "Tablet").error())
+        assertEquals(AuthError.Network, auth.signIn(url, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").error())
     }
 
     @Test fun checkServerReadsTheVersionRoute() = runBlocking<Unit> {
@@ -107,7 +119,7 @@ class AuthRepositoryTest {
 
     @Test fun signOutRevokesThisDeviceThenForgetsTheSession() = runBlocking<Unit> {
         server.onJson("POST", "/v1/auth/join", Samples.session(Samples.ME_USER))
-        auth.signIn(server.baseUrl, SignInMethod.Invite("x", "Bob"), "Tablet").ok()
+        auth.signIn(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").ok()
         server.onJson("GET", "/v1/me/devices", """{"devices":[{"id":"d0","name":"Old","created_at":"2026-11-01T10:00:00Z","current":false},{"id":"d1","name":"Tablet","created_at":"2026-11-25T10:00:00Z","current":true}]}""")
         server.on("DELETE", "/v1/me/devices/d1", FakeServer.empty())
         val event = async(start = CoroutineStart.UNDISPATCHED) { app.signedOut.events.first() }
@@ -120,9 +132,29 @@ class AuthRepositoryTest {
 
     @Test fun signOutWorksWhenTheServerIsUnreachable() = runBlocking<Unit> {
         server.onJson("POST", "/v1/auth/join", Samples.session(Samples.ME_USER))
-        auth.signIn(server.baseUrl, SignInMethod.Invite("x", "Bob"), "Tablet").ok()
+        auth.signIn(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").ok()
         server.close()
         auth.signOut()
         assertNull(app.sessions.load())
+    }
+
+    @Test fun signOutWorksWhenTheServerRefusesToRevokeThisDevice() = runBlocking<Unit> {
+        server.onJson("POST", "/v1/auth/join", Samples.session(Samples.ME_USER))
+        auth.signIn(server.baseUrl, SignInMethod.Invite(TestCodes.INVITE, "Bob"), "Tablet").ok()
+        server.onJson("GET", "/v1/me/devices", """{"devices":[{"id":"d1","name":"Tablet","created_at":"2026-11-25T10:00:00Z","current":true}]}""")
+        for (refusal in listOf(FakeServer.error(403, "forbidden", "not this one"), FakeServer.error(409, "conflict"), FakeServer.error(500, "upstream_failed"))) {
+            server.on("DELETE", "/v1/me/devices/d1", refusal)
+            app.sessions.save(testSession(server.baseUrl))
+            auth.signOut()
+            assertNull(app.sessions.load(), "refused with ${refusal.code}")
+        }
+    }
+
+    @Test fun signOutWorksWhenListingDevicesFails() = runBlocking<Unit> {
+        app.sessions.save(testSession(server.baseUrl))
+        server.on("GET", "/v1/me/devices", FakeServer.error(403, "forbidden"))
+        auth.signOut()
+        assertNull(app.sessions.load())
+        assertEquals(0, server.requestsTo("DELETE", "/v1/me/devices/d1").size)
     }
 }

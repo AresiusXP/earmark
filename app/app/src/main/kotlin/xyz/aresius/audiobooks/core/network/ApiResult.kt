@@ -20,6 +20,8 @@ enum class ErrorCode(val wire: String) {
     DebridUnavailable("debrid_unavailable"),
     LimitReached("limit_reached"),
     UpstreamFailed("upstream_failed"),
+    GoogleDisabled("google_disabled"),
+    GoogleNotLinked("google_not_linked"),
     Other(""),
     ;
 

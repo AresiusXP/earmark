@@ -343,6 +343,12 @@ provider index); consumers match by path, never by index.
   seeding when done by default (optional seed to ratio 1.0, Wi-Fi + charging); "only when a VPN is active" setting enforced in
   the engine (pause every torrent when the VPN drops); first-use warning; mobile data off by default; honest "no seeders" /
   "stalled" states; foreground service with WorkManager resume (Android 15 caps dataSync at 6 h per 24 h).
+* Accounts in the app: **Continue with Google** appears only when `GET /v1/version` has `google_enabled` (Credential Manager with a
+  server nonce; an unlinked account is offered "join with an invite code", with a fresh nonce AND a fresh ID token for every attempt;
+  first-setup admins link Google in Settings > Account, unlinking asks to confirm). Invite and link codes (26 Crockford base32
+  characters) are normalised like the server does and shown as QR + blocks of five + Copy/Share + countdown; the sign-in screens take
+  paste or Google's code scanner (no camera permission). Sign-out never waits for the server. `PATCH /v1/me` clears
+  `preferred_provider` with an explicit JSON `null`.
 * Visual design ("reading room": paper, ink, persimmon; Fraunces + Hanken Grotesk; cover-derived color; wavy progress): `app/DESIGN.md`.
 * Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.

@@ -42,8 +42,11 @@ core/network  AudiobooksApi (Retrofit, one method per path of the contract), Dto
               RetryInterceptor (502/503/504 + Retry-After; IO errors for idempotent methods), TokenAuthenticator (401 -> refresh once ->
               sign out when the refresh is rejected), no redirects (the download route answers 302 and the caller reads Location)
 core/auth     Session + SessionStore (Tink AES-GCM, Android Keystore master key, DataStore blob), AuthRepository
-              (bootstrap / join / link / sign out), InputValidation (https required; plain http only for localhost/127.0.0.1/10.0.2.2,
+              (bootstrap / join / link / sign out; sign-out never depends on the server), GoogleAuthRepository (Sign in with Google: sign in,
+              join, link, unlink), GoogleTokenSource (Credential Manager; a debug fake for the demo backend), CodeFormat (invite/link
+              code normalisation), InputValidation (https required; plain http only for localhost/127.0.0.1/10.0.2.2,
               or any host in debug builds; also enforced by the network security config)
+core/qr       QrCode: small pure-Kotlin QR encoder (byte mode, level M, versions 1-10; QrCodeTest decodes it with ZXing)
 core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Catalog/Library/Me/Debrid/Admin/Release repositories,
               AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends)
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
@@ -64,13 +67,16 @@ already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
   validated live by `PUT /v1/me/debrid/{provider}`, skippable) -> BitTorrent step (risk explained, switch "Allow BitTorrent downloads"
   default OFF; turning it on needs a confirmation; sets `p2p_enabled` and a coherent `source_mode` through `PATCH /v1/me`). A kill
   during the last two steps resumes there.
+  **Continue with Google** shows first when `GET /v1/version` says `google_enabled` (hidden otherwise; explained when the device has no
+  Google Play services). Invite and link codes are 26 base32 characters: the field accepts pasted text (case, spaces, dashes forgiven,
+  counted live) and **Scan QR code** (Google code scanner, no camera permission; paste is the fallback).
 * **Main**: Discover, Search, Library, Settings (bottom bar); Book detail (cover, people, series, runtime, description, ranked releases with
   format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key). Play and Download are
   present and answer "Coming in a later phase".
 * **Settings**: account name, region, languages, preferred format, source mode, wallpaper colors (opt-in, Android 12+), debrid keys
   (add/replace/check/remove with status, the key is never shown again), BitTorrent switch with warning, devices (revoke, "Link another
-  device" code), version + update check, sign out (revokes this device on the server first). Admins also see **Users and invites**
-  (users with disable/enable; invites: the code is shown once with a Copy button, revoke).
+  device": QR code + code in blocks of five + Copy/Share + countdown), Google account (link, shows the email, unlink with confirmation), version + update check, sign out (revokes this device on the server first). Admins also see **Users and invites**
+  (users with disable/enable; invites: the code is shown once as QR + Copy/Share, revoke).
 
 ## Demo backend (debug builds only)
 
@@ -81,8 +87,11 @@ before the server implements catalog, releases and library.
 
 1. `./gradlew :app:installDebug`
 2. On the first screen tap **Use the demo backend (debug build)** (or type `http://demo.audiobooks.test`) and continue.
-3. Sign in with: **First setup** + instance password `demo-password` (you become admin), or **invite code** `DEMO-INVITE` (a normal user).
-   Link codes made in Settings work in the demo too. Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+
+3. Sign in with: **First setup** + instance password `demo-password` (you become admin), or **invite code**
+   `DEMO-DEMO-DEMO-DEMO-DEMO-DEMO-DE` (a normal user). Codes made in Settings and Users are 26 characters like the real ones and work in the demo.
+   **Sign in with Google** works too, without Google: the demo backend reports `google_enabled`, and a debug-only fake supplies the ID token
+   of "Demo <demo.listener@example.test>" (the demo server's nonces are routed to the fake; any other server uses the real Credential
+   Manager). Try: Continue with Google -> "not linked" -> invite code -> joined; or First setup, then Settings > Link Google account. Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+
    characters is accepted. A search for `error` returns a 503 to show the error state. State lives in memory: it resets when the app
    process dies (a stored session then continues as the demo admin).
 
@@ -92,5 +101,15 @@ Against a real server in development use `http://10.0.2.2:<port>` (the emulator'
 
 `./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine. API client (error parsing, retry, Retry-After, refresh, sign-out,
 token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup, the updater, WCAG contrast
-of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). The app uses no
-regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
+of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, Google account, admin, discover, search, book, library), the Google flow state
+machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409), the QR encoder, code
+normalisation. The app uses no regular expressions (plain string code), so there is no `AppRegexIcuTest` (add one, run on an emulator, with
+the first regex).
+
+## Sign in with Google
+
+Credential Manager (`androidx.credentials` + `googleid`); `GetSignInWithGoogleOption` for the button (falls back to `GetGoogleIdOption`
+with `filterByAuthorizedAccounts(false)` and no auto-select). The WEB client ID is `BuildConfig.GOOGLE_SERVER_CLIENT_ID`
+(default in `app/build.gradle.kts`, override with `-PgoogleServerClientId=...`); the Android OAuth clients (package + debug/release signing
+SHA-1) are registered in Google Cloud, nothing in code. Never log or store an ID token. Real sign-in needs a Google account on the device:
+emulators and phones without one show "no Google account" (card stays, codes work).

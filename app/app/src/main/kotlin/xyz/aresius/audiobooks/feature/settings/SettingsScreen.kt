@@ -109,6 +109,7 @@ fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, viewModel: SettingsVie
                         Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.settings_rename))
                     }
                 }
+                GoogleAccountCard()
             }
             if (me != null) {
                 val s = me.settings
