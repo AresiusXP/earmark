@@ -12,6 +12,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.Route
 import xyz.aresius.audiobooks.core.auth.Session
+import xyz.aresius.audiobooks.core.auth.SessionHandle
 import xyz.aresius.audiobooks.core.auth.SessionStore
 
 internal fun HttpUrl.sameOrigin(other: HttpUrl) = host == other.host && port == other.port && scheme == other.scheme
@@ -23,14 +24,25 @@ private fun Request.targetsServer(session: Session): Boolean {
     return url.sameOrigin(server)
 }
 
-/** Adds `Authorization: Bearer` to requests for the signed-in server only (never to the CDN or any other host). */
+/** Request tag: the sign-in ([SessionHandle.id]) whose token this request carries; a 401 is only ever handled for that same sign-in. */
+internal data class SessionBinding(val id: Long)
+
+/**
+ * Adds `Authorization: Bearer` to requests for the signed-in server only (never to the CDN or any other host) and binds the request to
+ * the sign-in it was made under ([SessionBinding]).
+ */
 class AuthInterceptor(private val sessions: SessionStore) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         if (request.header("Authorization") != null || request.isAuthEndpoint()) return chain.proceed(request)
-        val session = sessions.snapshot() ?: return chain.proceed(request)
-        if (!request.targetsServer(session)) return chain.proceed(request)
-        return chain.proceed(request.newBuilder().header("Authorization", "Bearer ${session.accessToken}").build())
+        val handle = sessions.handle() ?: return chain.proceed(request)
+        if (!request.targetsServer(handle.session)) return chain.proceed(request)
+        return chain.proceed(
+            request.newBuilder()
+                .header("Authorization", "Bearer ${handle.session.accessToken}")
+                .tag(SessionBinding::class.java, SessionBinding(handle.id))
+                .build(),
+        )
     }
 }
 
@@ -90,6 +102,11 @@ class RetryInterceptor(
  * refreshes; the others see the already-rotated token and just retry. The refresh token rotates (the old one dies), so the new pair is
  * persisted before the request is retried. Only ONE refresh per request: a request that already carries a refreshed token and still gets
  * 401 is not retried again. A 401 from the refresh endpoint clears the session and emits a signed-out event (sign-out path).
+ *
+ * Session identity: every request is bound to the sign-in it was made under ([SessionBinding]). A 401 for a request of an earlier
+ * sign-in (another account was signed in meanwhile, or the user signed out) is NOT retried with the current account's token and starts
+ * no refresh. A refresh result is stored, and a rejected refresh clears the session, only if that same sign-in is still current
+ * ([SessionStore.replaceIfCurrent] / [SessionStore.clearIfCurrent]): a sign-out or user switch during a refresh wins, the late tokens are dropped.
  */
 class TokenAuthenticator(
     private val sessions: SessionStore,
@@ -102,20 +119,22 @@ class TokenAuthenticator(
     override fun authenticate(route: Route?, response: Response): Request? {
         val request = response.request
         val sentHeader = request.header("Authorization") ?: return null
+        val binding = request.tag(SessionBinding::class.java) ?: return null
         // A request that already went out again after a 401 is not refreshed for a second time: one refresh per request.
         if (request.isAuthEndpoint() || response.priorResponse?.code == 401 || responseCount(response) >= 3) return null
         synchronized(lock) {
-            val session = sessions.snapshot() ?: return null
-            if (!request.targetsServer(session)) return null
-            val current = "Bearer ${session.accessToken}"
-            // Another call already rotated the token: just retry with it (once: a second 401 with it ends here via responseCount).
+            val handle = sessions.handle() ?: return null
+            if (handle.id != binding.id || !request.targetsServer(handle.session)) return null
+            val current = "Bearer ${handle.session.accessToken}"
+            // Another call of the same sign-in already rotated the token: just retry with it (once: a second 401 with it ends here via responseCount).
             if (sentHeader != current) return request.newBuilder().header("Authorization", current).build()
-            val refreshed = refresh(session) ?: return null
+            val refreshed = refresh(handle) ?: return null
             return request.newBuilder().header("Authorization", "Bearer ${refreshed.accessToken}").build()
         }
     }
 
-    private fun refresh(session: Session): Session? {
+    private fun refresh(handle: SessionHandle): Session? {
+        val session = handle.session
         val url = session.serverUrl.trimEnd('/').plus("/").toHttpUrlOrNull()?.newBuilder()?.addPathSegments("v1/auth/refresh")?.build() ?: return null
         val body = AudiobooksJson.encodeToString(RefreshRequest.serializer(), RefreshRequest(session.refreshToken))
             .toRequestBody("application/json".toMediaType())
@@ -130,12 +149,11 @@ class TokenAuthenticator(
                             refreshToken = tokens.refreshToken,
                             expiresAtMs = now() + tokens.expiresIn * 1000,
                         )
-                        sessions.saveBlocking(updated)
-                        return updated
+                        // Signed out or switched user while the refresh was in flight: the late result is dropped, nothing is restored.
+                        return if (sessions.replaceIfCurrentBlocking(handle, updated)) updated else null
                     }
                     r.code == 401 -> {
-                        sessions.clearBlocking()
-                        signedOut.emit(SignOutReason.RefreshRejected)
+                        if (sessions.clearIfCurrentBlocking(handle)) signedOut.emit(SignOutReason.RefreshRejected)
                         return null
                     }
                     else -> return null

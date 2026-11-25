@@ -42,4 +42,43 @@ class SessionStoreTest {
         val text = testSession("https://x.example").toString()
         assertTrue("access-1" !in text && "refresh-1" !in text)
     }
+
+    @Test fun aRefreshKeepsTheSignInIdentityButEveryOtherWriteChangesIt() = runBlocking<Unit> {
+        val store = EncryptedSessionStore(ReversingCipher(), MemoryBlob())
+        store.save(testSession("https://x.example"))
+        val first = store.handle()!!
+        assertTrue(store.replaceIfCurrent(first, first.session.copy(accessToken = "a2", refreshToken = "r2")))
+        val refreshed = store.handle()!!
+        assertEquals(first.id, refreshed.id)
+        assertEquals("r2", refreshed.session.refreshToken)
+        store.save(testSession("https://x.example")) // a new sign-in, even with the same user
+        assertTrue(store.handle()!!.id != first.id)
+    }
+
+    @Test fun aStaleHandleCanNeitherReplaceNorClear() = runBlocking<Unit> {
+        val blob = MemoryBlob()
+        val store = EncryptedSessionStore(ReversingCipher(), blob)
+        store.save(testSession("https://x.example", "u1"))
+        val old = store.handle()!!
+        store.save(testSession("https://x.example", "u2"))
+        assertFalse(store.replaceIfCurrent(old, old.session.copy(accessToken = "late")))
+        assertFalse(store.clearIfCurrent(old))
+        assertEquals("u2", store.load()?.userId)
+        assertEquals("access-1", store.load()?.accessToken)
+        val current = store.handle()!!
+        store.clear()
+        assertFalse(store.replaceIfCurrent(current, current.session.copy(accessToken = "late")), "a sign-out is not undone")
+        assertNull(store.load())
+        assertNull(blob.raw)
+        assertFalse(store.clearIfCurrent(current))
+    }
+
+    @Test fun twoRefreshesFromTheSameTokensOnlyOneWins() = runBlocking<Unit> {
+        val store = EncryptedSessionStore(ReversingCipher(), MemoryBlob())
+        store.save(testSession("https://x.example"))
+        val h = store.handle()!!
+        assertTrue(store.replaceIfCurrent(h, h.session.copy(refreshToken = "r2")))
+        assertFalse(store.replaceIfCurrent(h, h.session.copy(refreshToken = "r3")))
+        assertEquals("r2", store.load()?.refreshToken)
+    }
 }

@@ -39,7 +39,7 @@ Debug and release builds use different keys: uninstall one before installing the
 ```
 core/network  AudiobooksApi (Retrofit, one method per path of the contract), Dtos (hand-written from openapi.yaml), ApiResult/ApiError
               (typed {"error":{"code","message"}}), HttpClientFactory: AuthInterceptor (token for the signed-in host only),
-              RetryInterceptor (502/503/504 + Retry-After; IO errors for idempotent methods), TokenAuthenticator (401 -> refresh once ->
+              RetryInterceptor (502/503/504 + Retry-After; IO errors for idempotent methods), TokenAuthenticator (every request is bound to the sign-in it was made under: `SessionStore.handle()`/`SessionHandle.id` changes on sign-in, user switch and sign-out, not on a refresh; a 401 of an earlier sign-in is never retried with the current token, a refresh is stored/cleared only by `replaceIfCurrent`/`clearIfCurrent`, so a sign-out or user switch mid-refresh wins; 401 -> refresh once ->
               sign out when the refresh is rejected); `api()` and `plain()` (auth, onboarding, refresh, APK) NEVER follow redirects (a redirect is an error: a 307/308 can't carry a
               body to another host; the download route answers 302 and the caller reads Location), `cdn()` (covers, provider CDN downloads/streams) is credential-free and follows them
 core/auth     Session + SessionStore (Tink AES-GCM, Android Keystore master key, DataStore blob), AuthRepository
