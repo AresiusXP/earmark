@@ -2,7 +2,7 @@
 
 Kotlin + Jetpack Compose, single module `:app`, package `xyz.aresius.audiobooks`. Design: `../docs/DESIGN.md` ("App direction") and
 `DESIGN.md` (visual design). Server contract: `../api/openapi.yaml` (binding; `ContractTest` fails when a path of the contract has no
-method in `AudiobooksApi`). This is the Phase 2 skeleton: no audio player and no download or torrent engine yet.
+method in `AudiobooksApi`). Phase 2 skeleton plus Phase 3b offline downloads (core/download); the audio player and the BitTorrent engine land in their own phases.
 
 ## Build and test
 
@@ -54,8 +54,45 @@ di/           Hilt modules; src/debug and src/release each provide the (debug-on
 app/          Routes (typed), AppRoot (onboarding gate / shell), BottomBar, NavHost (shared-element transition cover -> Book detail)
 ```
 
-Slots for later phases: `core/player` (Media3 service), `core/download` (WorkManager + engines) next to `core/data`; `ReleaseRepository`
-already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
+```
+core/download  offline downloads (Phase 3b), see below; feature/download = its UI
+core/torrent   TorrentEngine interface (BitTorrent, Phase 4); core/download plugs into it through TorrentSource
+```
+
+## Downloads (core/download, feature/download)
+
+Design: with a debrid key the player STREAMS by default; "Download" is for offline use (per book, optionally "auto-download what I'm
+listening to" on Wi-Fi). Books obtained through BitTorrent are always downloaded. Files live in app-private storage
+(`filesDir/books/<asin>/<releaseHash>/<server path>`, no storage permission); only the files of THIS book are fetched (the release's
+`files` / `torrent_files`, matched with the provider's list by PATH, in the server's chapter order).
+
+```
+DownloadsRepository   what the UI and the player use: state(asin): Flow<BookDownloadState> (None, Queued, Preparing(%), Downloading(bytes,
+                      speed, ETA), Paused(Wi-Fi / network / VPN / battery), Failed(reason, retry-after), Completed), downloads, downloadedAsins,
+                      storageInfo, enqueue / retry / delete / deleteAll, autoDownloadIfEnabled(book, release) for the player, wipe
+LocalFiles            (the player's contract) DownloadedLocalFiles: localFile(asin, hash, path) = ONLY a complete file of the signed-in user
+                      (checked on disk), hasDownloads(asin)
+DownloadsDb (Room)    download_book (one job per book: release, source, state, failure) + download_file (path, localPath, size, state), all
+                      scoped by userId; own database file (downloads.db), not AudiobooksDb
+BookDownloadWorker    one unique expedited WorkManager job per book (dataSync foreground notification, network constraint UNMETERED or
+                      CONNECTED from the "mobile data" setting, exponential backoff 30 s, reschedules itself after the Android 15 dataSync
+                      timeout); MaintenanceWorker every 12 h; WorkManager restores jobs after a reboot, DownloadsStarter re-enqueues active jobs
+DownloadRunner        the policy and the result of a run (Done / Retry / Waiting / Failed / Gone); plain Kotlin, tested with fakes
+DownloadSource        DebridSource (prepare + poll with retry_after_s; per file GET /v1/releases/{hash}/files/{index}/download -> 302 -> CDN,
+                      fresh link right before each file, never stored, the CDN call carries no Authorization) and TorrentSource (TorrentEngine
+                      when a binding exists, else FailReason.TorrentUnavailable)
+HttpFileFetcher       one file: `.part` + HTTP Range resume + size check + atomic rename; only 200/206 with an audio-ish content type is written
+StorageManager        usage, storage limit (default 5 GB) with LRU eviction of FINISHED books only (never the one playing, never active jobs),
+                      auto-delete N days after finishing (off), orphan cleanup, repair of vanished files, wipe
+PathSafety            every server-provided path is untrusted: absolute paths, `..`, backslashes, control characters, drive letters are rejected
+```
+
+* Wi-Fi only is the default (setting "Also download on mobile data"); auto-download is always Wi-Fi only. Free space (300 MB reserve) and the
+  limit are checked before a job starts and again when the file list is known.
+* Hooks other features implement/override: `PlayingBook` (core/download; the player binds it, default none), `TorrentEngine` (core/torrent; optional
+  binding), `SessionWipeHook` (core/data; sign-out/user switch wipes the downloads through it).
+* UI: Book detail (`DownloadButton`, `DownloadStatus`, `ReleaseDownloadButton`: the player can reuse them), Downloads screen (Library toolbar and
+  Settings), Settings > Downloads (`DownloadSettingsSection`), Library "Downloaded" badge/filter that also works offline.
 
 ## Flows
 
@@ -65,8 +102,8 @@ already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
   default OFF; turning it on needs a confirmation; sets `p2p_enabled` and a coherent `source_mode` through `PATCH /v1/me`). A kill
   during the last two steps resumes there.
 * **Main**: Discover, Search, Library, Settings (bottom bar); Book detail (cover, people, series, runtime, description, ranked releases with
-  format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key). Play and Download are
-  present and answer "Coming in a later phase".
+  format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key, a Download button with its
+  state per book and per release). Play still answers "Coming in a later phase".
 * **Settings**: account name, region, languages, preferred format, source mode, wallpaper colors (opt-in, Android 12+), debrid keys
   (add/replace/check/remove with status, the key is never shown again), BitTorrent switch with warning, devices (revoke, "Link another
   device" code), version + update check, sign out (revokes this device on the server first). Admins also see **Users and invites**
@@ -82,7 +119,8 @@ before the server implements catalog, releases and library.
 1. `./gradlew :app:installDebug`
 2. On the first screen tap **Use the demo backend (debug build)** (or type `http://demo.audiobooks.test`) and continue.
 3. Sign in with: **First setup** + instance password `demo-password` (you become admin), or **invite code** `DEMO-INVITE` (a normal user).
-   Link codes made in Settings work in the demo too. Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+
+   Link codes made in Settings work in the demo too. Add any key of 8+ characters in Settings first: then Download works against the demo
+   (prepare needs three polls, the files are 4 MB silent WAVs served under `/cdn/` with Range support, see `DemoDownloads`). Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+
    characters is accepted. A search for `error` returns a 503 to show the error state. State lives in memory: it resets when the app
    process dies (a stored session then continues as the demo admin).
 
@@ -92,5 +130,9 @@ Against a real server in development use `http://10.0.2.2:<port>` (the emulator'
 
 `./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine. API client (error parsing, retry, Retry-After, refresh, sign-out,
 token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup, the updater, WCAG contrast
-of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). The app uses no
-regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
+of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). Downloads:
+`core/download/*Test` (path safety, Range resume / atomic rename / 202 and JSON never saved / redirect without Authorization / error mapping
+with MockWebServer, Wi-Fi gating with a fake network, LRU eviction, orphans, per-user isolation, LocalFiles, TorrentSource with a fake engine,
+worker retry/backoff with WorkManager's test helpers); they run on Robolectric (real in-memory Room). `ContractTest` currently fails on
+the Google sign-in paths of the contract until core/auth gains those methods. The app uses no regular expressions, so there is no
+`AppRegexIcuTest` (add one, run on an emulator, with the first regex).

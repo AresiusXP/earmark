@@ -314,6 +314,15 @@ provider index); consumers match by path, never by index.
   last write wins on the client clock), MediaSession so lock screen, headset buttons and Android Auto work.
 * Downloads: WorkManager, app-private storage, Wi-Fi only by default, storage limit and auto-delete after finish. A debrid
   file that is not ready is a visible "preparing" state, never saved as a silent placeholder.
+* Downloads as built (Phase 3b, `app/.../core/download`, details in `app/README.md`): with a debrid key the player streams by default,
+  "Download" is for offline use (per book; optional Wi-Fi auto-download of the book being played); BitTorrent books are always downloaded.
+  One unique expedited WorkManager job per book (dataSync foreground notification, reschedules after the Android 15 timeout, survives
+  reboot), per file: `prepare` polling (`retry_after_s`), the download route immediately before each file (the CDN link is never stored and
+  the CDN request carries no Authorization), HTTP Range resume into `<file>.part`, size check against the server's size, atomic rename;
+  202 and error bodies are never saved as audio. Files in `filesDir/books/<asin>/<hash>/`, rows (Room, scoped by user) in `downloads.db`;
+  `LocalFiles` returns only complete files. Limit default 5 GB with LRU eviction of FINISHED books only (never the playing one), optional
+  auto-delete N days after finishing, orphan cleanup, wipe on sign-out/user switch. Every server path is sanitized (no `..`, no absolute paths).
+  The BitTorrent engine plugs in through `TorrentSource`/`TorrentEngine`.
 * BitTorrent (Phase 4, libtorrent4j, arm64-v8a only plus x86_64 debug): downloads only the selected files, in order; stop
   seeding when done by default (optional seed to ratio 1.0, Wi-Fi + charging); "only when a VPN is active" setting enforced in
   the engine (pause every torrent when the VPN drops); first-use warning; mobile data off by default; honest "no seeders" /
