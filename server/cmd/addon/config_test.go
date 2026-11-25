@@ -189,15 +189,16 @@ func TestLoadConfigAppSettings(t *testing.T) {
 		return env(m)
 	}
 	c, err := loadConfig(with())
-	if err != nil || c.AddsPerHour != 30 || c.UpdateDir != "" || len(c.LinkHosts) != 0 {
+	if err != nil || c.AddsPerHour != 30 || c.UpdateDir != "" || c.UpdateMaxBytes != 200<<20 || len(c.LinkHosts) != 0 {
 		t.Fatalf("defaults: %+v %v", c, err)
 	}
-	c, err = loadConfig(with("PREPARE_ADDS_PER_HOUR", "5", "APP_UPDATE_DIR", " /srv/update ", "DEBRID_LINK_HOSTS", "realdebrid:cdn.example, torbox:tb.example"))
-	if err != nil || c.AddsPerHour != 5 || c.UpdateDir != "/srv/update" || !slices.Equal(c.LinkHosts["realdebrid"], []string{"cdn.example"}) || !slices.Equal(c.LinkHosts["torbox"], []string{"tb.example"}) {
+	c, err = loadConfig(with("PREPARE_ADDS_PER_HOUR", "5", "APP_UPDATE_DIR", " /srv/update ", "APP_UPDATE_MAX_BYTES", "1048576", "DEBRID_LINK_HOSTS", "realdebrid:cdn.example, torbox:tb.example"))
+	if err != nil || c.AddsPerHour != 5 || c.UpdateDir != "/srv/update" || c.UpdateMaxBytes != 1<<20 || !slices.Equal(c.LinkHosts["realdebrid"], []string{"cdn.example"}) || !slices.Equal(c.LinkHosts["torbox"], []string{"tb.example"}) {
 		t.Fatalf("%+v %v", c, err)
 	}
 	for _, kv := range [][]string{
 		{"PREPARE_ADDS_PER_HOUR", "0"}, {"PREPARE_ADDS_PER_HOUR", "x"}, {"PREPARE_ADDS_PER_HOUR", "100000"},
+		{"APP_UPDATE_MAX_BYTES", "0"}, {"APP_UPDATE_MAX_BYTES", "x"}, {"APP_UPDATE_MAX_BYTES", "-5"}, {"APP_UPDATE_MAX_BYTES", "99999999999"},
 		{"DEBRID_LINK_HOSTS", "premiumize:x.example"}, {"DEBRID_LINK_HOSTS", "realdebrid"},
 	} {
 		if _, err := loadConfig(with(kv...)); err == nil {

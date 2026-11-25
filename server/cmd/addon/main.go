@@ -101,7 +101,7 @@ func run() error {
 		return err
 	}
 	v1 := appapi.New(appapi.Deps{Accounts: acc, Keys: keys, Version: version, Logger: logger})
-	update := appupdate.Load(cfg.UpdateDir, logger)
+	update := appupdate.LoadWithLimit(cfg.UpdateDir, cfg.UpdateMaxBytes, logger)
 	defer update.Close()
 	v1.MountApp(appapi.AppDeps{
 		Catalog: svc, Store: db, Library: db, Providers: providers, Update: update, PublicURL: cfg.PublicURL,

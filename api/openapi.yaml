@@ -59,7 +59,8 @@ info:
     unguessable); over it they answer `429 rate_limited` with `Retry-After`.
 
     **Caching.** All responses are `Cache-Control: no-store`, except catalog responses
-    (`search`, `discover`, `books`) which are `private, max-age=300`.
+    (`search`, `discover`, `books` and `books/{asin}/chapters`) which are `private, max-age=300`.
+    The APK download is `no-store` too.
 
     **Retry.** Clients retry `502`, `503` and `504` (a deploy replaces the single pod) and honour
     `Retry-After`.
@@ -130,6 +131,8 @@ paths:
       operationId: getAppApk
       responses:
         "200": {description: The signed APK. Supports Range requests., content: {application/vnd.android.package-archive: {schema: {type: string, format: binary}}}}
+        "206": {description: "Partial content for a `Range` request (resumable downloads); `Content-Range` is set. `Cache-Control: no-store` like the 200.", content: {application/vnd.android.package-archive: {schema: {type: string, format: binary}}}}
+        "416": {description: The requested range is not satisfiable., content: {text/plain: {schema: {type: string}}}}
         "404": {$ref: "#/components/responses/Error"}
         "503": {description: Too many downloads in progress (global limit); retry after `Retry-After`., content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
 

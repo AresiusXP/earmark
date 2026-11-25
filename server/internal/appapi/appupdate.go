@@ -47,7 +47,6 @@ func (a *app) appUpdateAPK(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "application/vnd.android.package-archive")
 	h.Set("Content-Disposition", `attachment; filename="audiobooks-`+info.VersionName+`.apk"`)
-	h.Set("Cache-Control", "private, no-cache")
 	h.Set("ETag", `"`+info.SHA256+`"`)
 	http.ServeContent(w, r, "", info.ReleasedTime(), content)
 }

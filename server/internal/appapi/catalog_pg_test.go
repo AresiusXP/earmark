@@ -721,6 +721,9 @@ func TestAppUpdate(t *testing.T) {
 	if !bytes.Equal(r.Body.Bytes(), apk) || r.Header().Get("Content-Type") != "application/vnd.android.package-archive" || r.Header().Get("ETag") != `"`+sum+`"` {
 		t.Fatalf("%v", r.Header())
 	}
+	if cc := r.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("APK Cache-Control = %q, the contract says no-store", cc)
+	}
 	// Range requests work (resumable downloads).
 	rq := httptest.NewRequest("GET", "/v1/app/update/apk", nil)
 	rq.Header.Set("Range", "bytes=2-5")
@@ -728,6 +731,9 @@ func TestAppUpdate(t *testing.T) {
 	e2.api.ServeHTTP(rec, rq)
 	if rec.Code != 206 || !bytes.Equal(rec.Body.Bytes(), apk[2:6]) {
 		t.Fatalf("range: %d %q", rec.Code, rec.Body.String())
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("APK 206 Cache-Control = %q, the contract says no-store", cc)
 	}
 }
 

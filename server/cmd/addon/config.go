@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/appapi"
+	"github.com/AresiusXP/stremio-audiobooks/server/internal/appupdate"
 	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
 )
 
@@ -33,6 +34,8 @@ type config struct {
 	SolidTorrents bool
 	// UpdateDir holds the APK bundle (update.json + audiobooks.apk) served by /v1/app/update.
 	UpdateDir string
+	// UpdateMaxBytes is the largest APK the server will bundle (APP_UPDATE_MAX_BYTES, default 200 MiB).
+	UpdateMaxBytes int64
 	// AddsPerHour is the cold-add budget of a debrid key for /v1 prepare/download.
 	AddsPerHour int
 	// LinkHosts adds CDN host suffixes per provider to the redirect allowlist of /v1 downloads.
@@ -113,6 +116,15 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 
 	c.UpdateDir = strings.TrimSpace(getenv("APP_UPDATE_DIR")) // empty: appupdate.DefaultDir (/update)
+	c.UpdateMaxBytes = appupdate.DefaultMaxBytes
+	if v := getenv("APP_UPDATE_MAX_BYTES"); v != "" {
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil || n < 1 || n > 4<<30 {
+			errs = append(errs, fmt.Errorf("APP_UPDATE_MAX_BYTES: invalid value %q (1 to 4294967296 bytes)", v))
+		} else {
+			c.UpdateMaxBytes = n
+		}
+	}
 	c.AddsPerHour = appapi.DefaultAddsPerHour
 	if v := getenv("PREPARE_ADDS_PER_HOUR"); v != "" {
 		n, err := strconv.Atoi(v)

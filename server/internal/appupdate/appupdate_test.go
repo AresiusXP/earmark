@@ -119,6 +119,36 @@ func TestLoadVerifiesTheBundle(t *testing.T) {
 	}
 }
 
+func TestLoadWithLimit(t *testing.T) {
+	n := int64(len(apkBytes))
+	big := goodInfo()
+	big.Size = 1 << 40 // update.json claims a huge file: refused before the APK is even opened
+	cases := []struct {
+		name string
+		dir  string
+		max  int64
+		ok   bool
+	}{
+		{"exactly at the limit", bundle(t, goodInfo(), apkBytes), n, true},
+		{"one byte over", bundle(t, goodInfo(), apkBytes), n - 1, false},
+		{"zero means the default", bundle(t, goodInfo(), apkBytes), 0, true},
+		{"update.json over the limit", bundle(t, big, apkBytes), 1 << 20, false},
+		{"the default is 200 MiB", bundle(t, big, apkBytes), 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := LoadWithLimit(c.dir, c.max, quiet())
+			defer s.Close()
+			if _, ok := s.Info(); ok != c.ok {
+				t.Fatalf("Info ok = %v, want %v", ok, c.ok)
+			}
+		})
+	}
+	if DefaultMaxBytes != 200<<20 {
+		t.Fatalf("DefaultMaxBytes = %d", DefaultMaxBytes)
+	}
+}
+
 func TestLoadDefaultsToDefaultDir(t *testing.T) {
 	// /update does not exist on the dev machine and in CI; either way Load must not panic.
 	Load("", nil).Close()
