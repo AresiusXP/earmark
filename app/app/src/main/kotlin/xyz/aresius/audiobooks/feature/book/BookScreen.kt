@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
 import xyz.aresius.audiobooks.core.design.Badge
@@ -89,6 +90,10 @@ import xyz.aresius.audiobooks.feature.common.seriesLine
 @Composable
 fun BookScreen(onBack: () -> Unit, onPlay: () -> Unit, onOpenSettings: () -> Unit, viewModel: BookViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onResumed()
+        onPauseOrDispose { }
+    }
     val coverUrl = (state.detail as? Load.Content)?.value?.book?.coverUrl
     val cover by rememberCoverColors(coverUrl)
     val scheme = coverColorScheme(MaterialTheme.colorScheme, cover)

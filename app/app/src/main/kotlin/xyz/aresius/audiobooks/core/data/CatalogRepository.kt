@@ -14,8 +14,10 @@ import xyz.aresius.audiobooks.core.network.Chapters
 import xyz.aresius.audiobooks.core.network.safeApiCall
 
 /**
- * Search, discover and book pages, cache-through: a fresh cached answer (5 minutes, the server's own `max-age`) is served without a
- * request unless [refresh] is set; a failed request serves the cached answer, even an old one, marked stale.
+ * Search, discover and book pages, cache-through: a fresh cached answer is served without a request unless [refresh] is set; a failed
+ * request serves the cached answer, even an old one, marked stale (offline use). Fresh means the server's own `max-age` (5 minutes) for
+ * search and discover; a BOOK page is `private, no-store` on the server because it carries per-user fields (`cached`, `usable`), so it is
+ * only reused for [BOOK_FRESH_MS] (a screen and the player opening the same book together). There is no OkHttp cache in the app.
  */
 interface CatalogRepository {
     suspend fun discover(page: Int, refresh: Boolean = false): ApiResult<List<Book>>
@@ -40,14 +42,14 @@ class CatalogRepositoryImpl(
         cached("search:${query.trim().lowercase()}", ListSerializer(Book.serializer()), refresh) { apiSource().search(query.trim()).books }
 
     override suspend fun book(asin: String, refresh: Boolean): ApiResult<BookDetail> =
-        cached("book:$asin", BookDetail.serializer(), refresh) { apiSource().getBook(asin) }
+        cached("book:$asin", BookDetail.serializer(), refresh, BOOK_FRESH_MS) { apiSource().getBook(asin) }
 
     override suspend fun chapters(asin: String): ApiResult<Chapters> = safeApiCall { apiSource().getChapters(asin) }
 
-    private suspend fun <T> cached(key: String, serializer: KSerializer<T>, refresh: Boolean, fetch: suspend () -> T): ApiResult<T> {
+    private suspend fun <T> cached(key: String, serializer: KSerializer<T>, refresh: Boolean, freshMs: Long = FRESH_MS, fetch: suspend () -> T): ApiResult<T> {
         val entry = cache.get(key)
         val cachedValue = entry?.let { runCatching { AudiobooksJson.decodeFromString(serializer, it.json) }.getOrNull() }
-        if (!refresh && entry != null && cachedValue != null && clock() - entry.fetchedAtMs in 0 until FRESH_MS) {
+        if (!refresh && entry != null && cachedValue != null && clock() - entry.fetchedAtMs in 0 until freshMs) {
             return ApiResult.Success(cachedValue)
         }
         return when (val r = safeApiCall { fetch() }) {
@@ -59,7 +61,8 @@ class CatalogRepositoryImpl(
         }
     }
 
-    private companion object {
+    companion object {
         const val FRESH_MS = 5L * 60 * 1000
+        const val BOOK_FRESH_MS = 5_000L
     }
 }
