@@ -13,7 +13,7 @@ services (TorBox, Real-Debrid); the Stremio routes stay until the app replaces t
 * Per-user data: every query on a per-user table is scoped by `user_id`; a debrid call uses only the requesting
   user's key; keys are sealed, never returned. See docs/DESIGN.md "App direction".
 * Private instance: not listed in the Stremio community catalog; public trackers/indexers only.
-* Every route sends `Access-Control-Allow-Origin: *` (Stremio requires it).
+* Every Stremio route sends `Access-Control-Allow-Origin: *` (Stremio requires it); `/v1` (the app API) never does.
 * Stremio JSON arrays are never `null` (use `[]`).
 
 ## Deployment target

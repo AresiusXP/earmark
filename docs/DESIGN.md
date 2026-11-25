@@ -84,6 +84,45 @@ next-chapter auto-play works, Continue Watching / Library reopen correctly.
   time. Limits: a release that drops out of the top `MaxReleases` answers 404 on its hash feed; a
   file that is not cached yet makes `/resolve` serve ~10 s of silence, which an app that downloads
   episodes would keep.
+* Accounts (Phase 1a, `/v1`): packages `accounts` (users, invites, devices, link codes, JWT, limiters, middleware),
+  `userkeys` (sealed per-user debrid keys), `appapi` (the `/v1` handlers) and `testpg` (test schema helper); the
+  Postgres side is `store/accounts.go` + `store/userkeys.go` on migration `0003_accounts.sql`. `cmd/addon` builds them
+  from `CONFIG_SECRET`/`INSTANCE_PASSWORD` (no new env var) and passes the `appapi.API` to `httpapi.Deps.V1`;
+  `httpapi.ServeHTTP` routes every `/v1/` path there BEFORE it sets the Stremio CORS headers, so `/v1` never sends
+  `Access-Control-Allow-Origin` and Stremio routes are unchanged.
+  * Keys derived from `CONFIG_SECRET` with HKDF-SHA256, one label each: `audiobooks-jwt-v1` (access tokens),
+    `audiobooks-keys-v1` (AES-256-GCM sealing of debrid keys; the sealed value is bound to `user_id\0provider` as AAD, so a
+    row copied to another user does not open), `audiobooks-keys-v1/fingerprint` (HMAC key for the key fingerprint).
+    Rotating `CONFIG_SECRET` therefore also logs every device out and makes stored debrid keys unreadable (status
+    `invalid`, "set it again").
+  * Tokens: access = HS256 JWT `{sub, dev, iat, exp}`, 1 h; refresh = 32 random bytes, only the SHA-256 stored, rotated by
+    one `UPDATE ... WHERE refresh_hash = old` (a reused token finds no row and fails; it does not revoke the device).
+    Invite codes (16 chars, 80 bit) and link codes (12 chars, 60 bit, 15 min) are Crockford base32, stored as the
+    SHA-256 of the normalised code; a new link code replaces the user's earlier unused ones.
+  * Revocation is immediate: the middleware checks the device row (not revoked, belongs to the token's user) and the
+    user row (not disabled) through a per-process cache of at most 5 s that `RevokeDevice`/`SetDisabled` clear at once
+    (a second replica would see a change within 5 s). A store failure answers 503 `upstream_failed` (clients retry).
+    **Disabling a user does not revoke its devices** (contract text amended): the flag blocks access tokens, refresh and
+    link codes, and re-enabling restores the devices; otherwise a re-enabled user could never sign in again.
+  * Bootstrap / disabling users take `pg_advisory_xact_lock` (`abk_user`) so "first admin only while zero users" and "never
+    the last enabled admin" hold under concurrency; self-disable is refused (409). Invite redemption is
+    `UPDATE invites SET used_at ... WHERE used_at IS NULL AND expires_at > now` in the same transaction that creates the user.
+  * Limiters (global, in memory; every attempt takes a slot, a success gives it back): 5 failures/min each for
+    bootstrap, join and link, 30/min for refresh (separate buckets so a join flood cannot lock out refreshes),
+    10 invites/min. `429 rate_limited` with `Retry-After` and `retry_after_s`. With `ALLOW_OPEN_CONFIG` and no
+    `INSTANCE_PASSWORD`, bootstrap accepts any password (the operator asked for an open instance).
+  * Debrid keys (`userkeys.Service`): `Put` validates with `Provider.Validate` first (rejected -> 400 `bad_debrid_key`,
+    outage -> 502 `debrid_unavailable`, nothing stored), `Recheck` records ok|invalid|error without echoing provider
+    text, `shared_with_others` is a fingerprint match computed in SQL, `GetForUse(userID, provider)` is the only way to
+    read a key (returns a `Key` that prints as `[redacted]`; `ErrNoKey` -> 403 `no_debrid_key`, `ErrBadKey` -> 403
+    `bad_debrid_key`). The provider list of `/v1/me/debrid` is the debrid registry, so `realdebrid` appears once it is
+    registered in `cmd/addon`. An unknown provider in the path is 400 `invalid_request`.
+  * Extension point for the catalog/library/release routes: `appapi.API.Extend(func(appapi.Router))` gives the `/v1` mux
+    plus `Auth` and `Admin` middleware; inside a handler use `appapi.PrincipalFrom(r)`, `api.DebridKey(r, provider)`,
+    `api.KeyError(w, err)`, `appapi.WriteJSON` / `appapi.WriteError`. Every `/v1` response defaults to `no-store`; the
+    catalog handlers override it.
+  * Tests: unit tests per package; store/appapi tests need Postgres (`scripts/test-store.sh` runs `./internal/store/...`
+    and `./internal/appapi/...`).
 * Known limits: Knaben alone finds few releases per book (more sources: Phase 3); file lists are
   stored per hash, not per provider; a stream's "not cached" label
   also shows when the cache state is simply unknown.
