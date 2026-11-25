@@ -44,4 +44,25 @@ class AppPreferencesTest {
         assertEquals(ThemeMode.System, DataStoreAppPreferences(store).themeMode.first())
         scope.cancel()
     }
+
+    @Test fun `there is no default server, and a saved one is returned untouched after a restart`() = runBlocking {
+        val file = tempFile()
+        val first = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val p = DataStoreAppPreferences(PreferenceDataStoreFactory.create(scope = first) { file })
+        assertEquals("", p.serverUrl.first())
+        p.setServerUrl("https://books.example.org")
+        first.cancel()
+
+        val again = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        assertEquals("https://books.example.org", DataStoreAppPreferences(PreferenceDataStoreFactory.create(scope = again) { file }).serverUrl.first())
+        again.cancel()
+    }
+
+    @Test fun `a server url written by an earlier version still reads back`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val store = PreferenceDataStoreFactory.create(scope = scope) { tempFile() }
+        store.edit { it[stringPreferencesKey("server_url")] = "https://old.example.net" }
+        assertEquals("https://old.example.net", DataStoreAppPreferences(store).serverUrl.first())
+        scope.cancel()
+    }
 }

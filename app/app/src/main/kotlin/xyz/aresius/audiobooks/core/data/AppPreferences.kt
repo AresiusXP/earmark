@@ -16,9 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import xyz.aresius.audiobooks.core.design.ThemeMode
 
-const val DEFAULT_SERVER_URL = "https://earmark.aresius.xyz"
-
-/** Small non-secret app state: which server, whether onboarding finished, update dismissal. Tokens live in the SessionStore. */
+/** Small non-secret app state: which server (empty until the user has entered or saved one; the app ships with no default), whether onboarding finished, update dismissal. Tokens live in the SessionStore. */
 interface AppPreferences {
     val serverUrl: Flow<String>
     suspend fun setServerUrl(url: String)
@@ -46,7 +44,7 @@ interface AppPreferences {
 private val Context.appDataStore: DataStore<Preferences> by preferencesDataStore("audiobooks_app")
 
 class DataStoreAppPreferences(private val dataStore: DataStore<Preferences>) : AppPreferences {
-    override val serverUrl: Flow<String> = dataStore.data.map { it[SERVER_URL] ?: DEFAULT_SERVER_URL }
+    override val serverUrl: Flow<String> = dataStore.data.map { it[SERVER_URL].orEmpty() }
     override suspend fun setServerUrl(url: String) {
         dataStore.edit { it[SERVER_URL] = url }
     }

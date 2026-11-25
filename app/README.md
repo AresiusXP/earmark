@@ -185,7 +185,7 @@ absent = null), so an older server keeps working.
 
 ## Flows
 
-* **Onboarding** (`feature/onboarding`): server URL (default `https://earmark.aresius.xyz`, changeable) -> "I have an invite code" / "First
+* **Onboarding** (`feature/onboarding`): server URL (no default: the field is empty with the placeholder `https://your-server.example` and "Continue" stays disabled until a valid URL is typed; an already-saved URL, or the one of a signed-in session, is prefilled) -> "I have an invite code" / "First
   setup (instance password)" / "Link this device (link code)" -> display name + device name -> Debrid step (TorBox / Real-Debrid key,
   validated live by `PUT /v1/me/debrid/{provider}`, skippable) -> BitTorrent step (risk explained, switch "Allow BitTorrent downloads"
   default OFF; turning it on needs a confirmation; sets `p2p_enabled` and a coherent `source_mode` through `PATCH /v1/me`). A kill
@@ -292,6 +292,8 @@ The app uses no regular expressions, so there is no `AppRegexIcuTest` (add one, 
 
 Credential Manager (`androidx.credentials` + `googleid`); `GetSignInWithGoogleOption` for the button (falls back to `GetGoogleIdOption`
 with `filterByAuthorizedAccounts(false)` and no auto-select). The WEB client ID is `BuildConfig.GOOGLE_SERVER_CLIENT_ID`
-(default in `app/build.gradle.kts`, override with `-PgoogleServerClientId=...`); the Android OAuth clients (package + debug/release signing
-SHA-1) are registered in Google Cloud, nothing in code. Never log or store an ID token. Real sign-in needs a Google account on the device:
+(the default in `app/build.gradle.kts` is the maintainer's public client ID; **override it for your own deployment** with
+`-PgoogleServerClientId=<your web client ID>`, `ORG_GRADLE_PROJECT_googleServerClientId` or `~/.gradle/gradle.properties`, and set the same
+value as `googleClientId` in the Helm chart / `GOOGLE_CLIENT_ID` on the server so the `aud` of the ID token matches); the Android OAuth clients
+(package + debug/release signing SHA-1) are registered in Google Cloud, nothing in code. Never log or store an ID token. Real sign-in needs a Google account on the device:
 emulators and phones without one show "no Google account" (card stays, codes work).

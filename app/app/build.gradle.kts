@@ -38,7 +38,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters += listOf("en", "nl", "es")
         // The WEB OAuth client ID of the server's Google project (public); it is the serverClientId of Sign in with Google and the `aud` of
-        // the ID token the server verifies. Override with -PgoogleServerClientId=... for another Google project.
+        // the ID token the server verifies. The default is the maintainer's; override it for your own deployment with -PgoogleServerClientId=... (see README).
         val googleServerClientId = (findProperty("googleServerClientId") as String?)
             ?: "34828481793-g6n5cm2psogtrga580g41tmgab4h264p.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")

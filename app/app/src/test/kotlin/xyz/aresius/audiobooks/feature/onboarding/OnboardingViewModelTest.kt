@@ -36,15 +36,60 @@ class OnboardingViewModelTest {
 
     private fun version(bootstrapped: Boolean) = server.onJson("GET", "/v1/version", """{"version":"0.4.0","api_version":1,"bootstrapped":$bootstrapped}""")
 
-    @Test fun startsOnTheServerStepWithTheStoredUrlAndTheDeviceModel() = runBlocking<Unit> {
+    @Test fun startsOnTheServerStepWithAnEmptyUrlAndTheDeviceModel() = runBlocking<Unit> {
         val vm = vm()
-        val s = vm.state.awaitState { it.serverUrl.isNotEmpty() }
+        val s = vm.state.value
         assertEquals(OnboardingStep.Server, s.step)
-        assertEquals("https://earmark.aresius.xyz", s.serverUrl)
+        assertEquals("", s.serverUrl)
+        assertFalse(s.serverUrlValid)
         assertEquals("Pixel 9", s.deviceName)
         assertFalse(s.showDemoShortcut)
         assertTrue(vm().state.value.showDemoShortcut.not())
         assertTrue(vm(debugTools = true).state.value.showDemoShortcut)
+    }
+
+    @Test fun anAppWithoutASavedServerNeverInventsOne() = runBlocking<Unit> {
+        val vm = vm()
+        kotlinx.coroutines.yield()
+        assertEquals("", vm.state.value.serverUrl)
+        assertEquals("", app.prefs.serverUrl.first())
+    }
+
+    @Test fun anAlreadySavedServerUrlIsPrefilledAndValid() = runBlocking<Unit> {
+        app.prefs.setServerUrl("https://books.example.org")
+        val s = vm().state.awaitState { it.serverUrl.isNotEmpty() }
+        assertEquals("https://books.example.org", s.serverUrl)
+        assertTrue(s.serverUrlValid)
+    }
+
+    @Test fun anInstallWithASessionButNoSavedUrlKeepsTheSessionsServer() = runBlocking<Unit> {
+        val signedIn = TestApp(server, session = true)
+        val vm = OnboardingViewModel(signedIn.auth(), signedIn.googleAuth(), UnusedTokenSource(), signedIn.sessions, signedIn.prefs, BuildInfo("0.3.0", 300, false, "Pixel 9"))
+        val s = vm.state.awaitState { it.serverUrl.isNotEmpty() }
+        assertEquals(server.baseUrl, s.serverUrl)
+        assertTrue(s.serverUrlValid)
+    }
+
+    @Test fun continueIsOnlyPossibleWithAValidUrl() = runBlocking<Unit> {
+        val vm = vm()
+        vm.onServerUrlChange("   ")
+        assertFalse(vm.state.value.serverUrlValid)
+        vm.onServerUrlChange("http://")
+        assertFalse(vm.state.value.serverUrlValid)
+        vm.onServerUrlChange("your-server.example")
+        assertTrue(vm.state.value.serverUrlValid)
+        vm.onServerUrlChange("")
+        assertFalse(vm.state.value.serverUrlValid)
+        val release = OnboardingViewModel(app.auth(allowCleartext = false), app.googleAuth(), UnusedTokenSource(), app.sessions, app.prefs, BuildInfo("0.3.0", 300, false, "Pixel 9"))
+        release.onServerUrlChange("http://books.example.org")
+        assertFalse(release.state.value.serverUrlValid)
+    }
+
+    @Test fun theDemoShortcutFillsAValidUrl() = runBlocking<Unit> {
+        val vm = vm(debugTools = true)
+        vm.useDemoServer()
+        assertEquals(OnboardingViewModel.DEMO_SERVER_URL, vm.state.value.serverUrl)
+        assertTrue(vm.state.value.serverUrlValid)
     }
 
     @Test fun anUnreachableOrWrongUrlStaysOnTheStepWithTheError() = runBlocking<Unit> {

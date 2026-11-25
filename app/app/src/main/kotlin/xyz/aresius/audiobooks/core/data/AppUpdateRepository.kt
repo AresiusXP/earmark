@@ -11,20 +11,20 @@ import xyz.aresius.audiobooks.core.update.AppUpdateInfo
 
 /** `GET /v1/app/update` (a public route): is a newer build bundled with the server? */
 interface AppUpdateRepository {
-    /** Success(null) = up to date (or nothing bundled, or an offer that fails validation). */
+    /** Success(null) = up to date (or no server chosen yet, or nothing bundled, or an offer that fails validation). */
     suspend fun check(installedVersionCode: Long): ApiResult<AppUpdateInfo?>
 }
 
 @Singleton
 class AppUpdateRepositoryImpl(
-    private val apiSource: suspend () -> AudiobooksApi,
+    private val apiSource: suspend () -> AudiobooksApi?,
 ) : AppUpdateRepository {
     @Inject
-    constructor(provider: ApiProvider, prefs: AppPreferences) : this({ provider.unauthenticated(prefs.serverUrl.first()) })
+    constructor(provider: ApiProvider, prefs: AppPreferences) : this({ prefs.serverUrl.first().takeIf { it.isNotBlank() }?.let(provider::unauthenticated) })
 
     override suspend fun check(installedVersionCode: Long): ApiResult<AppUpdateInfo?> =
-        when (val r = safeApiCall { apiSource().getAppUpdate() }) {
-            is ApiResult.Success -> ApiResult.Success(AppUpdateInfo.from(r.value, installedVersionCode))
+        when (val r = safeApiCall { apiSource()?.getAppUpdate() }) {
+            is ApiResult.Success -> ApiResult.Success(r.value?.let { AppUpdateInfo.from(it, installedVersionCode) })
             is ApiResult.Failure -> r
         }
 }
