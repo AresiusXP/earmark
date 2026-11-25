@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug-only engine harness: `adb shell am start -n xyz.aresius.audiobooks/.debug.TorrentDebugActivity` -->
+        <activity
+            android:name=".debug.TorrentDebugActivity"
+            android:exported="true"
+            android:label="Torrent debug" />
+    </application>
+</manifest>

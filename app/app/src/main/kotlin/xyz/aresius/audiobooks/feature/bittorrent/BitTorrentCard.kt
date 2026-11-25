@@ -27,7 +27,16 @@ import xyz.aresius.audiobooks.feature.common.message
 @Composable
 fun BitTorrentCard(modifier: Modifier = Modifier, viewModel: BitTorrentViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    Card(modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+        BitTorrentSwitchCard(state, viewModel)
+        if (state.enabled) BitTorrentOptions()
+    }
+    BitTorrentWarning(state, viewModel)
+}
+
+@Composable
+private fun BitTorrentSwitchCard(state: BitTorrentUiState, viewModel: BitTorrentViewModel) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
                 Column(Modifier.weight(1f)) {
@@ -43,6 +52,10 @@ fun BitTorrentCard(modifier: Modifier = Modifier, viewModel: BitTorrentViewModel
             state.error?.let { Text(it.message(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
     }
+}
+
+@Composable
+private fun BitTorrentWarning(state: BitTorrentUiState, viewModel: BitTorrentViewModel) {
     if (state.warningVisible) {
         AlertDialog(
             onDismissRequest = viewModel::dismissWarning,

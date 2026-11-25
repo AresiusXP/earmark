@@ -322,6 +322,49 @@ provider index); consumers match by path, never by index.
 * Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.
 
+### BitTorrent engine (Phase 4, `app/app/src/main/kotlin/.../core/torrent`)
+libtorrent4j 2.1.0-39 (`libtorrent4j` + `-android-arm64`, `-android-x86_64` debug only), behind `TorrentEngine` (`fetchFiles`, `download` as a cold
+flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/TorrentModule.kt` (also as `TorrentRuntime` for the service).
+* **Session**: one `SessionManager`, started on first use, stopped 15 s after the last torrent stopped; DHT state in `noBackupFilesDir/torrent`.
+  DHT, LSD, PEX, uTP, UPnP/NAT-PMP on while the policy allows. Not auto-managed: the engine runs its own slots (max active torrents 2) and
+  libtorrent's reconnect wait is 10 s (a pause drops every peer).
+* **Metadata**: `fetchFiles` adds the magnet in upload mode, waits up to 60 s, lists the files in metainfo order (BEP 47 pad files are skipped;
+  `index` is the metainfo position) and stores a minimal `.torrent` (raw info dictionary) so the list never needs the network again; `download`
+  fetches metadata first the same way when it is missing (a bare magnet with no wanted file is "finished" for libtorrent and drops its seeds).
+* **Download**: only the selected files get a priority above 0, set when the torrent is added; the others are never created (pieces they share
+  with a selected file go to libtorrent's part file `.<hash>.parts` inside the destination). Selected files are fetched in request order
+  (priority 7, 6, ..., 1) and the first incomplete file gets piece deadlines when several are selected, so it is playable early. A file is
+  complete only when all its pieces passed the hash check (`fileProgress` with piece granularity). **A single large M4B is playable only
+  when it is complete** (the player plays complete files only). Progress every second, `Finished` after the data is flushed; `Stalled` after
+  3 min without peers or 5 min without progress; `Failed` on disk errors / not enough space / unsafe torrent. Cancelling the collector pauses:
+  fast-resume data (with the info dictionary) is saved every 30 s, on cancel and at the end, in `noBackupFilesDir/torrent/resume`, and a new
+  collect resumes from the pieces on disk (also after process death: core/download re-collects). The magnet's `x.pe` peers and trackers are
+  re-applied on resume.
+* **Paths (zip-slip)**: libtorrent strips `..` and absolute components itself; the engine checks again what it reports (`TorrentPaths`: no `..`,
+  no absolute or drive paths, no control characters or backslashes, component <= 255 bytes) and rejects the whole torrent on an unsafe path or
+  a symlink; every selected path must resolve (canonically, so symlinks count) inside `destination`.
+* **Safety policy** (`TorrentPolicy`, evaluated inside the engine on every settings / VPN / network / battery change):
+  1. opt-in `p2p_enabled` (the server setting, mirrored locally so a resumed download after a cold start sees it): off -> the engine refuses
+     (`fetchFiles` throws `TorrentBlockedException(Disabled)`, `download` emits `Failed`);
+  2. "Only use BitTorrent when a VPN is active" (default ON): the app's default network (per-app, so split tunnelling is respected) must have
+     `TRANSPORT_VPN`; when it drops, the whole libtorrent session is paused at once (all peer connections close) and DHT, LSD, port mapping
+     and incoming connections are switched off; downloads emit `Paused(VPN_REQUIRED)` and continue when the VPN returns. The process is
+     deliberately NOT bound to the VPN network (that would also move API and player traffic), so a leak-proof setup still needs the system's
+     "Block connections without VPN" for the VPN app;
+  3. Wi-Fi (or any unmetered network) only; mobile data needs "Allow mobile data" (`Paused(WIFI_REQUIRED)`, also used for "offline");
+  4. battery < 15 % and not charging -> `Paused(LOW_BATTERY)`, resumes at 20 % or when charging;
+  5. uploads: default is to stop sharing when the download finishes (the torrent is removed from the session); optional "seed to ratio 1.0"
+     only on Wi-Fi while charging (and with the VPN rule), dropped as soon as one of those stops holding;
+  6. caps: max connections (default 100), max active torrents 2, download / upload KiB/s limits; all in DataStore (`audiobooks_torrent`).
+  Order of the reasons: opt-in, VPN, network, battery. `PauseReason.USER` is the notification's Pause / Stop (and the Android time limit).
+* **Service**: `TorrentService`, foreground type `dataSync` (not `specialUse`), started by the engine when the first torrent starts, stops by itself
+  5 s after the engine is idle; notification with speed, peers, ETA and Pause/Resume/Stop; a partial wake lock only while data flows. Android 15
+  limits dataSync to 6 h per 24 h: `onTimeout` pauses everything (`Paused(USER)`), posts "open the app to continue" and schedules
+  `TorrentResumeWorker` (WorkManager, 1 h, network + battery not low); the engine also resumes when the app comes to the foreground. If
+  `startForeground` is refused (budget used up) the same path runs.
+* **Tests**: policy state machine, paths, planner and stall detector, settings, options ViewModel (unit); a real two-session loopback swarm,
+  service and timeout (instrumented, emulator). Not verifiable on an emulator: a real phone behind CGNAT / a real VPN app.
+
 ### Phases
 0 contract + design (this section, `api/openapi.yaml`) -> 1 server (users/invites/devices, per-user keys, `appapi`, Real-Debrid,
 library/progress/bookmarks, chapters, torrent-files) in parallel with 2 app skeleton -> 3 player + debrid downloads -> 4 BitTorrent

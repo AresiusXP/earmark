@@ -252,4 +252,35 @@
     <string name="settings_appearance">Uiterlijk</string>
     <string name="settings_dynamic_color">Kleuren van je achtergrond</string>
     <string name="settings_dynamic_color_help">Gebruik de kleuren van je achtergrond in plaats van het eigen kleurenpalet van de app. Standaard uit.</string>
+    <string name="torrent_channel_name">BitTorrent-downloads</string>
+    <string name="torrent_channel_desc">Zichtbaar zolang audioboeken via BitTorrent worden gedownload.</string>
+    <string name="torrent_notif_title">Audioboeken downloaden (BitTorrent)</string>
+    <string name="torrent_notif_connecting">Verbinden…</string>
+    <string name="torrent_notif_progress">%1$s van %2$s · %3$s/s · %4$d peers</string>
+    <string name="torrent_notif_eta">nog %1$s</string>
+    <string name="torrent_notif_paused_vpn">Gepauzeerd: verbind je VPN om door te gaan</string>
+    <string name="torrent_notif_paused_wifi">Gepauzeerd: wacht op wifi</string>
+    <string name="torrent_notif_paused_battery">Gepauzeerd: de batterij is bijna leeg</string>
+    <string name="torrent_notif_paused_user">Gepauzeerd</string>
+    <string name="torrent_notif_seeding">Seeden tot ratio 1,0 (wifi, aan de lader)</string>
+    <string name="torrent_action_pause">Pauzeren</string>
+    <string name="torrent_action_resume">Hervatten</string>
+    <string name="torrent_action_stop">Stoppen</string>
+    <string name="torrent_timeout_title">BitTorrent-downloads gepauzeerd</string>
+    <string name="torrent_timeout_text">Android beperkt lange downloads op de achtergrond. Open de app om door te gaan.</string>
+    <string name="torrent_options_title">Veiligheid</string>
+    <string name="torrent_vpn_title">BitTorrent alleen gebruiken met een actieve VPN</string>
+    <string name="torrent_vpn_desc">Downloads pauzeren direct als de VPN wegvalt. Aanbevolen.</string>
+    <string name="torrent_vpn_off_title">VPN-vereiste uitzetten?</string>
+    <string name="torrent_vpn_off_message">Zonder deze vereiste draait BitTorrent ook zonder VPN en is je IP-adres zichtbaar in de swarm.</string>
+    <string name="torrent_vpn_off_confirm">Uitzetten</string>
+    <string name="torrent_mobile_title">Mobiele data toestaan</string>
+    <string name="torrent_mobile_desc">Uit: BitTorrent gebruikt alleen wifi.</string>
+    <string name="torrent_seed_title">Blijven delen tot ratio 1,0</string>
+    <string name="torrent_seed_desc">Alleen op wifi aan de lader. Uit: uploaden stopt zodra een download klaar is.</string>
+    <string name="torrent_limits_title">Limieten</string>
+    <string name="torrent_down_limit">Downloadlimiet (KiB/s, 0 = geen)</string>
+    <string name="torrent_up_limit">Uploadlimiet (KiB/s, 0 = geen)</string>
+    <string name="torrent_max_connections">Maximaal aantal verbindingen</string>
+    <string name="torrent_max_active">Maximaal aantal actieve torrents</string>
 </resources>

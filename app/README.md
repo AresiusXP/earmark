@@ -2,7 +2,7 @@
 
 Kotlin + Jetpack Compose, single module `:app`, package `xyz.aresius.audiobooks`. Design: `../docs/DESIGN.md` ("App direction") and
 `DESIGN.md` (visual design). Server contract: `../api/openapi.yaml` (binding; `ContractTest` fails when a path of the contract has no
-method in `AudiobooksApi`). This is the Phase 2 skeleton: no audio player and no download or torrent engine yet.
+method in `AudiobooksApi`). Phase 2 skeleton plus the Phase 4 BitTorrent engine (`core/torrent`); the audio player and `core/download` come from other branches.
 
 ## Build and test
 
@@ -54,6 +54,10 @@ di/           Hilt modules; src/debug and src/release each provide the (debug-on
 app/          Routes (typed), AppRoot (onboarding gate / shell), BottomBar, NavHost (shared-element transition cover -> Book detail)
 ```
 
+core/torrent TorrentEngine (contract) + LibTorrentEngine (libtorrent4j): metadata fetch, selective download, TorrentPolicy (opt-in, VPN, Wi-Fi,
+              battery, seeding), TorrentSettings (DataStore), AndroidDeviceStateMonitor, TorrentService (foreground, dataSync) + resume worker,
+              TorrentPaths (zip-slip), TorrentStore (resume data in the no-backup dir). Binding: di/TorrentModule. Details: DESIGN.md "BitTorrent engine".
+
 Slots for later phases: `core/player` (Media3 service), `core/download` (WorkManager + engines) next to `core/data`; `ReleaseRepository`
 already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
 
@@ -88,9 +92,23 @@ before the server implements catalog, releases and library.
 
 Against a real server in development use `http://10.0.2.2:<port>` (the emulator's host) or, in debug builds, any LAN address.
 
+## BitTorrent engine (debug harness, tests)
+
+* Debug screen: `adb -s emulator-5600 shell am start -n xyz.aresius.audiobooks/.debug.TorrentDebugActivity` (debug builds only, `src/debug`): paste a
+  magnet (public domain only), list files, tick files (tick order = download order), download, pause (= cancel the collector), remove. It shows
+  the policy inputs and the engine activity; the foreground service notification appears while a download is collected.
+* `./gradlew :app:connectedDebugAndroidTest` (needs an emulator; `export ANDROID_SERIAL=emulator-<port>` so a physical device is never used):
+  `LibTorrentEngineTest` generates a torrent at test time and seeds it from a second libtorrent session on 127.0.0.1 (no trackers, no DHT, no
+  real swarm): metadata fetch, selective download (unselected files are never created), VPN drop / return, cancel + resume from disk, seeding
+  policy, malicious paths, production session settings. `TorrentServiceTest` covers the foreground service and, with
+  `-Pandroid.testInstrumentationRunnerArguments.fgsTimeout=true` after `adb shell device_config put activity_manager data_sync_fgs_timeout_duration 20000`,
+  the Android 15 dataSync timeout. `RealSwarmSmokeTest` is a manual, off-by-default test against a real LibriVox magnet
+  (`-Pandroid.testInstrumentationRunnerArguments.librivoxMagnet=...`; your IP is visible in a real swarm: run it behind a VPN).
+* Release ships `arm64-v8a` only; debug adds `x86_64` for the emulator (`ndk.abiFilters` per build type in `app/build.gradle.kts`).
+
 ## Tests
 
 `./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine. API client (error parsing, retry, Retry-After, refresh, sign-out,
 token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup, the updater, WCAG contrast
-of both palettes, and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). The app uses no
+of both palettes, the BitTorrent policy / path / planner / settings tests (core/torrent), and the ViewModels (onboarding, debrid, BitTorrent, settings, admin, discover, search, book, library). The app uses no
 regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
