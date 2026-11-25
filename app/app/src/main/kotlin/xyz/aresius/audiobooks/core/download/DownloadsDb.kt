@@ -17,6 +17,8 @@ object JobState {
 
     /** Held back by a policy of the torrent engine (see [WaitReason]); [DownloadBookEntity.pauseReason] says which. */
     const val PAUSED = "paused"
+    /** Paused by the user: partial files stay, no work is scheduled, nothing restarts it but Resume. Not in [ACTIVE] on purpose (reconcile never re-enqueues it). */
+    const val USER_PAUSED = "user_paused"
     const val FAILED = "failed"
     const val COMPLETED = "completed"
     val ACTIVE = listOf(QUEUED, PREPARING, DOWNLOADING, PAUSED)

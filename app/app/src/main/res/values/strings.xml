@@ -462,6 +462,12 @@
     <string name="player_chapter_progress">Chapter %1$s of %2$s · %3$s left</string>
     <string name="player_estimate_info">Why is this approximate?</string>
     <string name="player_estimate_explainer">Some file lengths are still estimates. They become exact as the files are played, and the time left is corrected then.</string>
+    <string name="downloads_pause">Pause</string>
+    <string name="downloads_resume">Resume</string>
+    <string name="downloads_row_pause">Pause download of %1$s</string>
+    <string name="downloads_row_resume">Resume download of %1$s</string>
+    <string name="download_button_paused_user">Paused</string>
+    <string name="download_status_paused_user">Paused. Resume to continue where it stopped.</string>
     <string name="torrent_channel_name">BitTorrent downloads</string>
     <string name="torrent_channel_desc">Shown while audiobooks are downloading over BitTorrent.</string>
     <string name="torrent_notif_title">Downloading audiobooks (BitTorrent)</string>

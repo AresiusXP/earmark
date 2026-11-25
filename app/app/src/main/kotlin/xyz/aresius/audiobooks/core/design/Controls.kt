@@ -3,6 +3,7 @@ package xyz.aresius.audiobooks.core.design
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -136,7 +137,8 @@ fun SecondaryButton(
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
     ) {
-        Text(text, style = ButtonLabel)
+        // Ink on paper has contrast to spare, so a long label ("Downloading 45%") shrinks to one line instead of wrapping.
+        Text(text, style = ButtonLabel, maxLines = 1, autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = 20.sp, stepSize = 1.sp))
     }
 }
 

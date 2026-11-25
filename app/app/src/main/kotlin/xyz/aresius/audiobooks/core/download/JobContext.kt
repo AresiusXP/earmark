@@ -49,6 +49,9 @@ class JobContext(
 ) {
     class JobGone : CancellationException("download removed")
 
+    /** The user paused the job: it stops at once (the partial files stay) and the runner ends with [RunOutcome.Paused]. */
+    class JobPaused : CancellationException("download paused by the user")
+
     val userId get() = job.userId
     val asin get() = job.asin
     val releaseHash get() = job.releaseHash
@@ -181,7 +184,17 @@ class JobContext(
     }
 
     private suspend fun update(change: (DownloadBookEntity) -> DownloadBookEntity) {
-        if (!dao.updateBook(userId, asin) { change(it).copy(updatedAtMs = clock()) }) throw JobGone()
+        var paused = false
+        val found = dao.updateBook(userId, asin) {
+            if (it.state == JobState.USER_PAUSED) {
+                paused = true
+                it
+            } else {
+                change(it).copy(updatedAtMs = clock())
+            }
+        }
+        if (!found) throw JobGone()
+        if (paused) throw JobPaused()
     }
 
     fun finish() = bus.clear(asin)

@@ -462,6 +462,12 @@
     <string name="player_chapter_progress">Hoofdstuk %1$s van %2$s · %3$s resterend</string>
     <string name="player_estimate_info">Waarom is dit bij benadering?</string>
     <string name="player_estimate_explainer">Sommige bestandslengtes zijn nog schattingen. Ze worden exact zodra de bestanden zijn afgespeeld, en de resterende tijd wordt dan bijgewerkt.</string>
+    <string name="downloads_pause">Pauzeren</string>
+    <string name="downloads_resume">Hervatten</string>
+    <string name="downloads_row_pause">Download van %1$s pauzeren</string>
+    <string name="downloads_row_resume">Download van %1$s hervatten</string>
+    <string name="download_button_paused_user">Gepauzeerd</string>
+    <string name="download_status_paused_user">Gepauzeerd. Hervat om verder te gaan waar het stopte.</string>
     <string name="torrent_channel_name">BitTorrent-downloads</string>
     <string name="torrent_channel_desc">Zichtbaar zolang audioboeken via BitTorrent worden gedownload.</string>
     <string name="torrent_notif_title">Audioboeken downloaden (BitTorrent)</string>

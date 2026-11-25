@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +36,7 @@ import xyz.aresius.audiobooks.core.design.WavyProgressBar
 import xyz.aresius.audiobooks.core.download.BookDownloadState
 import xyz.aresius.audiobooks.core.download.DownloadedBook
 import xyz.aresius.audiobooks.core.download.StorageInfo
+import xyz.aresius.audiobooks.core.download.WaitReason
 import xyz.aresius.audiobooks.feature.common.BookRow
 import xyz.aresius.audiobooks.feature.common.formatSize
 
@@ -58,7 +61,10 @@ fun DownloadsScreen(onBack: () -> Unit, onBook: (String) -> Unit, viewModel: Dow
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(state.books, key = { it.book.asin }) { item ->
-                    DownloadRow(item, onClick = { onBook(item.book.asin) }, onDelete = { confirmBook = item }, onRetry = { viewModel.retry(item.book.asin) })
+                    DownloadRow(
+                        item, onClick = { onBook(item.book.asin) }, onDelete = { confirmBook = item }, onRetry = { viewModel.retry(item.book.asin) },
+                        onPause = { viewModel.pause(item.book.asin) }, onResume = { viewModel.resume(item.book.asin) },
+                    )
                 }
             }
         }
@@ -110,7 +116,7 @@ fun StorageSummary(info: StorageInfo, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DownloadRow(item: DownloadedBook, onClick: () -> Unit, onDelete: () -> Unit, onRetry: () -> Unit) {
+private fun DownloadRow(item: DownloadedBook, onClick: () -> Unit, onDelete: () -> Unit, onRetry: () -> Unit, onPause: () -> Unit, onResume: () -> Unit) {
     val state = item.state
     BookRow(
         book = item.book,
@@ -119,6 +125,15 @@ private fun DownloadRow(item: DownloadedBook, onClick: () -> Unit, onDelete: () 
         progress = (state as? BookDownloadState.Downloading)?.fraction,
         trailing = {
             if (state is BookDownloadState.Failed) TextButton(onClick = onRetry) { Text(stringResource(R.string.download_button_retry), color = MaterialTheme.colorScheme.onSurface) }
+            if (state.isActive) {
+                val userPaused = state is BookDownloadState.Paused && state.waitingFor == WaitReason.User
+                IconButton(onClick = if (userPaused) onResume else onPause) {
+                    Icon(
+                        if (userPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                        contentDescription = stringResource(if (userPaused) R.string.downloads_row_resume else R.string.downloads_row_pause, item.book.title),
+                    )
+                }
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.downloads_row_delete, item.book.title))
             }

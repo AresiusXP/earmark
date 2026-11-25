@@ -37,6 +37,7 @@ import xyz.aresius.audiobooks.core.design.SecondaryButton
 import xyz.aresius.audiobooks.core.design.Spacing
 import xyz.aresius.audiobooks.core.design.WavyProgressBar
 import xyz.aresius.audiobooks.core.download.BookDownloadState
+import xyz.aresius.audiobooks.core.download.WaitReason
 import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.ReleaseView
 
@@ -64,7 +65,7 @@ private fun BookDownloadState.buttonLabel(): String = when (this) {
     BookDownloadState.Queued -> stringResource(R.string.download_button_queued)
     is BookDownloadState.Preparing -> if (percent != null && percent > 0) stringResource(R.string.download_button_preparing_pct, percent) else stringResource(R.string.download_button_preparing)
     is BookDownloadState.Downloading -> stringResource(R.string.download_button_downloading, (fraction * 100).toInt())
-    is BookDownloadState.Paused -> stringResource(R.string.download_button_paused)
+    is BookDownloadState.Paused -> stringResource(if (waitingFor == WaitReason.User) R.string.download_button_paused_user else R.string.download_button_paused)
     is BookDownloadState.Failed -> stringResource(R.string.download_button_retry)
     is BookDownloadState.Completed -> stringResource(R.string.download_button_done)
 }
@@ -114,10 +115,21 @@ fun DownloadStatus(asin: String, modifier: Modifier = Modifier, title: String = 
             )
         }
         val s = state
-        if (s.isActive || s is BookDownloadState.Failed) {
-            TextButton(onClick = { viewModel.delete(asin) }) { Text(stringResource(R.string.downloads_cancel), color = MaterialTheme.colorScheme.onSurface) }
+        if (s.isActive) {
+            // Pause keeps the partial files and Resume continues them with Range; Cancel deletes what was downloaded so far.
+            val userPaused = s is BookDownloadState.Paused && s.waitingFor == WaitReason.User
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
+                CompactButton(
+                    stringResource(if (userPaused) R.string.downloads_resume else R.string.downloads_pause),
+                    onClick = { if (userPaused) viewModel.resume(asin) else viewModel.pause(asin) },
+                    modifier = Modifier.weight(1f),
+                )
+                CompactButton(stringResource(R.string.downloads_cancel), onClick = { viewModel.delete(asin) }, modifier = Modifier.weight(1f))
+            }
+        } else if (s is BookDownloadState.Failed) {
+            CompactButton(stringResource(R.string.downloads_cancel), onClick = { viewModel.delete(asin) })
         } else if (s is BookDownloadState.Completed) {
-            TextButton(onClick = { confirmDelete = true }) { Text(stringResource(R.string.downloads_delete), color = MaterialTheme.colorScheme.onSurface) }
+            CompactButton(stringResource(R.string.downloads_delete), onClick = { confirmDelete = true })
         }
     }
     if (confirmDelete) {

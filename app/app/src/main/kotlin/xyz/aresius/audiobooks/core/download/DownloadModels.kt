@@ -53,7 +53,12 @@ enum class FailReason {
 }
 
 /** What a paused download waits for. */
-enum class WaitReason { WiFi, Network, Vpn, Battery }
+enum class WaitReason {
+    WiFi, Network, Vpn, Battery,
+
+    /** The user pressed Pause: the partial files stay and Resume continues with Range. */
+    User,
+}
 
 /** The per-book state other code observes (Book detail, Downloads screen, the player). */
 sealed interface BookDownloadState {

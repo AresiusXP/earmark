@@ -34,6 +34,7 @@ object DownloadStateLogic {
             else -> {
                 val gate = DownloadGate.check(net, allowMobileData, book.unmeteredOnly)
                 when {
+                    book.state == JobState.USER_PAUSED -> BookDownloadState.Paused(WaitReason.User, done, live?.bytesTotal ?: total)
                     gate is Gate.Wait -> BookDownloadState.Paused(gate.reason, done, live?.bytesTotal ?: total)
                     book.state == JobState.PAUSED -> BookDownloadState.Paused(WaitReason.entries.firstOrNull { it.name == book.pauseReason } ?: WaitReason.Network, done, live?.bytesTotal ?: total)
                     book.state == JobState.QUEUED -> BookDownloadState.Queued
