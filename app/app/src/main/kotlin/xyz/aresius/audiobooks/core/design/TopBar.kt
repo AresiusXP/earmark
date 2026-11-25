@@ -19,20 +19,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import xyz.aresius.audiobooks.R
 
-/** Big title of a top-level screen, below the status bar. */
+/** Big serif title of a top-level screen, below the status bar. */
 @Composable
 fun ScreenTitle(title: String, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
     Row(
-        modifier.fillMaxWidth().statusBarsPadding().padding(start = Spacing.screen, end = Spacing.s, top = Spacing.m, bottom = Spacing.s),
+        modifier.fillMaxWidth().statusBarsPadding().padding(start = Spacing.screen, end = Spacing.s, top = Spacing.l, bottom = Spacing.s),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(title, style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.displaySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         actions()
     }
 }
 
-/** Title bar of a detail screen with a back arrow. */
+/** Title bar of a detail screen with a back arrow; the title is small and quiet so the screen's own hero can lead. */
 @Composable
 fun DetailTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
     Row(
@@ -40,16 +40,16 @@ fun DetailTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifie
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back)) }
-        Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         actions()
     }
 }
 
-/** A titled block of a long screen (Settings). */
+/** A titled block of a long screen (Settings): serif title in the accent text color. */
 @Composable
 fun Section(title: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(modifier.fillMaxWidth().padding(horizontal = Spacing.screen, vertical = Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.extras.accentText)
         content()
     }
 }

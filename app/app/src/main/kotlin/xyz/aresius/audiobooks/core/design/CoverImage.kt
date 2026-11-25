@@ -19,16 +19,24 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 
-/** Remote cover (square) with a neutral placeholder that stays visible if loading fails. */
+/**
+ * Remote cover (square) with a neutral placeholder that stays visible if loading fails. [shadow] gives it the app's one soft cover shadow;
+ * [asin] makes it a shared element between a list and the Book detail (one cover per book per screen).
+ */
 @Composable
 fun CoverImage(
     url: String?,
     modifier: Modifier = Modifier,
     shape: Shape = CoverShape,
     contentDescription: String? = null,
+    shadow: Boolean = false,
+    asin: String? = null,
 ) {
+    var outer = modifier
+    if (asin != null) outer = outer.coverSharedElement(asin)
+    if (shadow) outer = outer.coverShadow(shape)
     Box(
-        modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = outer.clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -51,5 +59,5 @@ fun CoverImage(
 @Preview
 @Composable
 private fun CoverImagePreview() = AudiobooksPreviewSurface {
-    CoverImage(null, Modifier.padding(16.dp).size(120.dp))
+    CoverImage(null, Modifier.padding(16.dp).size(120.dp), shadow = true)
 }

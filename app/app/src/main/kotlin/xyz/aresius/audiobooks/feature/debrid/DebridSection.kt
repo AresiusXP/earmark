@@ -34,6 +34,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
 import xyz.aresius.audiobooks.core.design.Badge
+import xyz.aresius.audiobooks.core.design.BadgeStyle
 import xyz.aresius.audiobooks.core.design.ErrorState
 import xyz.aresius.audiobooks.core.design.LoadingShimmer
 import xyz.aresius.audiobooks.core.design.PrimaryButton
@@ -148,9 +149,9 @@ private fun StatusBadge(row: ProviderUi) {
     val status = row.status
     when {
         status == null || !status.configured -> Badge(stringResource(R.string.debrid_status_none))
-        status.status == "ok" -> Badge(stringResource(R.string.debrid_status_ok), positive = true)
-        status.status == "invalid" -> Badge(stringResource(R.string.debrid_status_invalid), highlight = true)
-        else -> Badge(stringResource(R.string.debrid_status_error), highlight = true)
+        status.status == "ok" -> Badge(stringResource(R.string.debrid_status_ok), style = BadgeStyle.Ok)
+        status.status == "invalid" -> Badge(stringResource(R.string.debrid_status_invalid), style = BadgeStyle.Accent)
+        else -> Badge(stringResource(R.string.debrid_status_error), style = BadgeStyle.Accent)
     }
 }
 

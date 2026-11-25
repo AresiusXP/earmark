@@ -28,6 +28,10 @@ interface AppPreferences {
 
     val dismissedUpdateVersionCode: Flow<Long>
     suspend fun setDismissedUpdateVersionCode(code: Long)
+
+    /** Opt-in wallpaper (dynamic) colors, Android 12+. OFF by default: the app has its own palette. */
+    val dynamicColor: Flow<Boolean>
+    suspend fun setDynamicColor(enabled: Boolean)
 }
 
 private val Context.appDataStore: DataStore<Preferences> by preferencesDataStore("audiobooks_app")
@@ -48,7 +52,13 @@ class DataStoreAppPreferences(private val dataStore: DataStore<Preferences>) : A
         dataStore.edit { it[DISMISSED_UPDATE] = code }
     }
 
+    override val dynamicColor: Flow<Boolean> = dataStore.data.map { it[DYNAMIC_COLOR] ?: false }
+    override suspend fun setDynamicColor(enabled: Boolean) {
+        dataStore.edit { it[DYNAMIC_COLOR] = enabled }
+    }
+
     private companion object {
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val SERVER_URL = stringPreferencesKey("server_url")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         val DISMISSED_UPDATE = longPreferencesKey("dismissed_update_version_code")

@@ -35,7 +35,7 @@ private fun NavDestination?.topLevelTab(): TopLevelTab? = when {
 
 /** Session gate: onboarding while signed out (or before its last steps are done), else the bottom-bar shell. */
 @Composable
-fun AudiobooksAppRoot(viewModel: AppViewModel = hiltViewModel()) {
+fun AudiobooksAppRoot(viewModel: AppViewModel) {
     val appState by viewModel.appState.collectAsStateWithLifecycle()
     when (appState) {
         AppState.Loading -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))

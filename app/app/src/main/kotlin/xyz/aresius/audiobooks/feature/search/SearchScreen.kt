@@ -60,12 +60,12 @@ fun SearchScreen(onBook: (String) -> Unit, viewModel: SearchViewModel = hiltView
         )
         when (val results = state.results) {
             SearchResultsState.Idle -> EmptyState(stringResource(R.string.search_idle_title), message = stringResource(R.string.search_idle_message))
-            SearchResultsState.TooShort -> EmptyState(stringResource(R.string.search_too_short), icon = Icons.Rounded.Search)
+            SearchResultsState.TooShort -> EmptyState(stringResource(R.string.search_too_short))
             is SearchResultsState.Results -> when (val load = results.load) {
                 Load.Loading -> ShimmerTrackRows()
                 is Load.Failed -> ErrorState(load.error.message(), onRetry = viewModel::retry)
                 is Load.Content -> if (load.value.isEmpty()) {
-                    EmptyState(stringResource(R.string.search_no_results_title), message = stringResource(R.string.search_no_results_message, state.query.trim()), icon = Icons.Rounded.Search)
+                    EmptyState(stringResource(R.string.search_no_results_title), message = stringResource(R.string.search_no_results_message, state.query.trim()))
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(load.value, key = { it.asin }) { book ->

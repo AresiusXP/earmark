@@ -1,67 +1,68 @@
 package xyz.aresius.audiobooks.core.design
 
+import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 
-object AudiobooksColors {
-    val Background = Color(0xFF0E0D0B)
-    val Surface = Color(0xFF181612)
-    val SurfaceVariant = Color(0xFF242119)
-    val OnBackground = Color(0xFFF6F1E7)
-    val OnSurfaceVariant = Color(0xFFB9B1A1)
-    val Accent = Color(0xFFF2A93B)
-    val OnAccent = Color(0xFF1C1300)
-    val Error = Color(0xFFFF6B6B)
-    val Outline = Color(0xFF3A3629)
-    val Positive = Color(0xFF6FCF97)
-}
+val LocalAudiobooksExtras = compositionLocalOf { PaperPalette.extras(dark = false) }
 
-private val AudiobooksDarkColors = darkColorScheme(
-    primary = AudiobooksColors.Accent,
-    onPrimary = AudiobooksColors.OnAccent,
-    primaryContainer = AudiobooksColors.Accent,
-    onPrimaryContainer = AudiobooksColors.OnAccent,
-    secondary = AudiobooksColors.Accent,
-    onSecondary = AudiobooksColors.OnAccent,
-    background = AudiobooksColors.Background,
-    onBackground = AudiobooksColors.OnBackground,
-    surface = AudiobooksColors.Surface,
-    onSurface = AudiobooksColors.OnBackground,
-    surfaceVariant = AudiobooksColors.SurfaceVariant,
-    onSurfaceVariant = AudiobooksColors.OnSurfaceVariant,
-    surfaceContainerLowest = AudiobooksColors.Background,
-    surfaceContainerLow = AudiobooksColors.Surface,
-    surfaceContainer = AudiobooksColors.Surface,
-    surfaceContainerHigh = AudiobooksColors.SurfaceVariant,
-    surfaceContainerHighest = AudiobooksColors.SurfaceVariant,
-    error = AudiobooksColors.Error,
-    onError = Color.White,
-    outline = AudiobooksColors.Outline,
-    outlineVariant = AudiobooksColors.Outline,
-)
+/** The extras of the active theme: `MaterialTheme.extras.accentText`. */
+val MaterialTheme.extras: AudiobooksExtras
+    @Composable @ReadOnlyComposable get() = LocalAudiobooksExtras.current
 
-/** Dark only: the app has no light theme. */
+/** Dynamic (wallpaper) color needs Android 12; the Settings switch is only shown from there. */
+val DynamicColorSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+/**
+ * Own light (paper) and dark (ink) schemes following the system setting. Wallpaper-derived dynamic color is OFF unless the user turns it
+ * on in Settings ([dynamicColor]); the extras (accent text, mustard) then derive from the dynamic scheme.
+ */
 @Composable
-fun AudiobooksTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = AudiobooksDarkColors,
-        typography = AudiobooksTypography,
-        shapes = AudiobooksShapes,
-    ) {
-        content()
+fun AudiobooksTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val context = LocalContext.current
+    val palette = if (darkTheme) InkPalette else PaperPalette
+    val useDynamic = dynamicColor && DynamicColorSupported
+    val scheme = remember(darkTheme, useDynamic) {
+        if (useDynamic) (if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)) else palette.toColorScheme(darkTheme)
+    }
+    val extras = remember(darkTheme, useDynamic, scheme) {
+        if (useDynamic) {
+            palette.extras(darkTheme).copy(accentText = scheme.primary, mustard = scheme.secondaryContainer, onMustard = scheme.onSecondaryContainer)
+        } else {
+            palette.extras(darkTheme)
+        }
+    }
+    CompositionLocalProvider(LocalAudiobooksExtras provides extras) {
+        // The expressive motion scheme is not public in material3 1.4: spring motion lives in Motion.kt instead.
+        MaterialTheme(
+            colorScheme = scheme,
+            shapes = AudiobooksShapes,
+            typography = AudiobooksTypography,
+            content = content,
+        )
     }
 }
 
 /** Theme + background fill, for previews. */
 @Composable
-fun AudiobooksPreviewSurface(content: @Composable () -> Unit) {
-    AudiobooksTheme {
+fun AudiobooksPreviewSurface(darkTheme: Boolean = false, content: @Composable () -> Unit) {
+    AudiobooksTheme(darkTheme = darkTheme) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
     }
 }

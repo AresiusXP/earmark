@@ -101,7 +101,11 @@ kotlin {
     jvmToolchain(17)
     compilerOptions {
         allWarningsAsErrors.set(true)
-        freeCompilerArgs.addAll("-opt-in=kotlin.RequiresOptIn")
+        freeCompilerArgs.addAll(
+            "-opt-in=kotlin.RequiresOptIn",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+            "-opt-in=androidx.compose.animation.ExperimentalSharedTransitionApi",
+        )
     }
 }
 
@@ -137,6 +141,8 @@ dependencies {
 
     implementation(libs.datastore.preferences)
 
+    implementation(libs.androidx.palette)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 

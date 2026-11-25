@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Mark of the adaptive icon (inside the 66dp safe zone), drawn on the persimmon background layer. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Open book: two pages meeting at the spine. -->
     <path
-        android:pathData="M31,60 L31,54 A23,23 0 0 1 77,54 L77,60"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
+        android:fillColor="#000000"
+        android:pathData="M54,70 C47,64 38,62 30,63 L30,44 C38,43 47,45 54,51 Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M27,58 L36,58 Q38,58 38,60 L38,74 Q38,76 36,76 L31,76 Q27,76 27,72 Z" />
+        android:fillColor="#000000"
+        android:pathData="M54,70 C61,64 70,62 78,63 L78,44 C70,43 61,45 54,51 Z" />
+    <!-- Waveform rising from the book. -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M81,58 L72,58 Q70,58 70,60 L70,74 Q70,76 72,76 L77,76 Q81,76 81,72 Z" />
+        android:strokeColor="#000000"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M40,38 L40,34 M47,41 L47,30 M54,43 L54,26 M61,41 L61,30 M68,38 L68,34" />
 </vector>

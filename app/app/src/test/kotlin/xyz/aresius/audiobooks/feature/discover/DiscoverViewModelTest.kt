@@ -1,0 +1,101 @@
+package xyz.aresius.audiobooks.feature.discover
+
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
+import org.junit.Rule
+import xyz.aresius.audiobooks.core.network.AudiobooksJson
+import xyz.aresius.audiobooks.core.network.Me
+import xyz.aresius.audiobooks.feature.common.Load
+import xyz.aresius.audiobooks.testutil.FakeServer
+import xyz.aresius.audiobooks.testutil.MainDispatcherRule
+import xyz.aresius.audiobooks.testutil.Samples
+import xyz.aresius.audiobooks.testutil.TestApp
+import xyz.aresius.audiobooks.testutil.awaitState
+
+class DiscoverViewModelTest {
+    @get:Rule val main = MainDispatcherRule()
+
+    private val server = FakeServer()
+    private val app = TestApp(server)
+
+    @AfterTest fun tearDown() = server.close()
+
+    private fun vm(hour: Int = 20): DiscoverViewModel {
+        server.on("GET", "/v1/me/library", FakeServer.error(500, "upstream_failed"))
+        return DiscoverViewModel(app.catalog, app.library, app.me) { hour }
+    }
+
+    @Test fun greetingFollowsTheHour() {
+        assertEquals(Greeting.Night, greetingForHour(3))
+        assertEquals(Greeting.Night, greetingForHour(4))
+        assertEquals(Greeting.Morning, greetingForHour(5))
+        assertEquals(Greeting.Morning, greetingForHour(11))
+        assertEquals(Greeting.Afternoon, greetingForHour(12))
+        assertEquals(Greeting.Afternoon, greetingForHour(17))
+        assertEquals(Greeting.Evening, greetingForHour(18))
+        assertEquals(Greeting.Evening, greetingForHour(22))
+        assertEquals(Greeting.Night, greetingForHour(23))
+        assertEquals(Greeting.Night, greetingForHour(0))
+        (0..23).forEach { greetingForHour(it) }
+    }
+
+    @Test fun shelvesAreChunksOfEight() {
+        assertEquals(listOf(8, 8, 3), shelves((1..19).toList()).map { it.size })
+        assertTrue(shelves(emptyList<Int>()).isEmpty())
+    }
+
+    @Test fun loadsBooksAndGreetsByName() = runBlocking<Unit> {
+        app.me.set(AudiobooksJson.decodeFromString(Me.serializer(), Samples.ME_ADMIN))
+        server.onJson("GET", "/v1/discover", Samples.books("B000000001", "B000000002"))
+        val s = vm(hour = 8).state.awaitState { it.books is Load.Content<*> }
+        assertEquals(2, (s.books as Load.Content).value.size)
+        assertEquals(Greeting.Morning, s.greeting)
+        assertEquals("Ada", s.name)
+        assertNull(s.continueListening)
+    }
+
+    @Test fun theHeroIsTheLatestListeningEntryWithProgress() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/discover", Samples.books("B000000001"))
+        server.onJson(
+            "GET", "/v1/me/library",
+            """{"entries":[${Samples.libraryEntry("B000000001", "saved", 50, position = 0)},${Samples.libraryEntry("B000000002", "listening", 30, position = 0)},${Samples.libraryEntry("B000000003", "listening", 20, position = 900000)},${Samples.libraryEntry("B000000004", "listening", 10, position = 100000)}]}""",
+        )
+        val vm = DiscoverViewModel(app.catalog, app.library, app.me) { 20 }
+        val s = vm.state.awaitState { it.continueListening != null }
+        assertEquals("B000000003", s.continueListening?.book?.asin, "saved and zero-progress entries are no hero")
+    }
+
+    @Test fun morePagesAppendWithoutDuplicatesUntilAnEmptyPage() = runBlocking<Unit> {
+        server.onRequest("GET", "/v1/discover") { req ->
+            when (req.url.queryParameter("page")) {
+                "0" -> FakeServer.json(Samples.books("B000000001", "B000000002"))
+                "1" -> FakeServer.json(Samples.books("B000000002", "B000000003"))
+                else -> FakeServer.json(Samples.books())
+            }
+        }
+        val vm = vm()
+        vm.state.awaitState { it.books is Load.Content<*> }
+        vm.loadMore()
+        assertEquals(listOf("B000000001", "B000000002", "B000000003"), (vm.state.awaitState { (it.books as? Load.Content)?.value?.size == 3 }.books as Load.Content).value.map { it.asin })
+        vm.loadMore()
+        assertFalse(vm.state.awaitState { !it.canLoadMore }.canLoadMore)
+    }
+
+    @Test fun aFailureIsRetryableAndKeepsOldContentOnRefresh() = runBlocking<Unit> {
+        server.on("GET", "/v1/discover", FakeServer.error(500, "upstream_failed"), FakeServer.json(Samples.books("B000000001")))
+        val vm = vm()
+        assertIs<Load.Failed>(vm.state.awaitState { it.books is Load.Failed }.books)
+        vm.load()
+        vm.state.awaitState { it.books is Load.Content<*> }
+        server.on("GET", "/v1/discover", FakeServer.error(500, "upstream_failed"))
+        vm.load()
+        val s = vm.state.awaitState { !it.refreshing && (it.books as? Load.Content)?.stale == true }
+        assertEquals(1, (s.books as Load.Content).value.size)
+    }
+}

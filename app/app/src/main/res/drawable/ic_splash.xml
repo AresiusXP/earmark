@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash icon: the persimmon rounded square with the mark (the system masks it to a circle on Android 12+, hence the padding). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:scaleX="0.8" android:scaleY="0.8" android:pivotX="54" android:pivotY="54">
+        <path
+            android:fillColor="#D9482B"
+            android:pathData="M24,14 L84,14 A10,10 0 0 1 94,24 L94,84 A10,10 0 0 1 84,94 L24,94 A10,10 0 0 1 14,84 L14,24 A10,10 0 0 1 24,14 Z" />
+    <!-- Open book: two pages meeting at the spine. -->
+    <path
+        android:fillColor="#F6F0E6"
+        android:pathData="M54,70 C47,64 38,62 30,63 L30,44 C38,43 47,45 54,51 Z" />
+    <path
+        android:fillColor="#F6F0E6"
+        android:pathData="M54,70 C61,64 70,62 78,63 L78,44 C70,43 61,45 54,51 Z" />
+    <!-- Waveform rising from the book. -->
+    <path
+        android:strokeColor="#F6F0E6"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M40,38 L40,34 M47,41 L47,30 M54,43 L54,26 M61,41 L61,30 M68,38 L68,34" />
+    </group>
+</vector>

@@ -15,6 +15,7 @@ import xyz.aresius.audiobooks.core.auth.AuthRepository
 import xyz.aresius.audiobooks.core.auth.BuildInfo
 import xyz.aresius.audiobooks.core.auth.InputProblem
 import xyz.aresius.audiobooks.core.auth.InputValidation
+import xyz.aresius.audiobooks.core.data.AppPreferences
 import xyz.aresius.audiobooks.core.data.MeRepository
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ApiResult
@@ -41,6 +42,8 @@ data class SettingsUiState(
     val nameProblem: InputProblem? = null,
     val error: ApiError? = null,
     val versionName: String = "",
+    /** Opt-in wallpaper colors (Android 12+); the app's own palette otherwise. */
+    val dynamicColor: Boolean = false,
 ) {
     /** "BitTorrent even with a key" only makes sense once the user allowed BitTorrent. */
     val p2pSourceModeAvailable: Boolean get() = me?.settings?.p2pEnabled == true
@@ -50,11 +53,12 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val meRepository: MeRepository,
     private val auth: AuthRepository,
+    private val prefs: AppPreferences,
     buildInfo: BuildInfo,
 ) : ViewModel() {
     private val local = MutableStateFlow(SettingsUiState(versionName = buildInfo.versionName))
 
-    val state: StateFlow<SettingsUiState> = combine(meRepository.me, local) { me, l -> l.copy(me = me) }
+    val state: StateFlow<SettingsUiState> = combine(meRepository.me, local, prefs.dynamicColor) { me, l, dynamic -> l.copy(me = me, dynamicColor = dynamic) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
 
     init {
@@ -149,6 +153,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun consumeError() = local.update { it.copy(error = null) }
+
+    fun setDynamicColor(enabled: Boolean) {
+        viewModelScope.launch { prefs.setDynamicColor(enabled) }
+    }
 
     fun signOut() {
         viewModelScope.launch { auth.signOut() }

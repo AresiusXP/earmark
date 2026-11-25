@@ -155,6 +155,7 @@ provider index); consumers match by path, never by index.
   seeding when done by default (optional seed to ratio 1.0, Wi-Fi + charging); "only when a VPN is active" setting enforced in
   the engine (pause every torrent when the VPN drops); first-use warning; mobile data off by default; honest "no seeders" /
   "stalled" states; foreground service with WorkManager resume (Android 15 caps dataSync at 6 h per 24 h).
+* Visual design ("reading room": paper, ink, persimmon; Fraunces + Hanken Grotesk; cover-derived color; wavy progress): `app/DESIGN.md`.
 * Every regex used by the app runs on Android's ICU engine in an instrumented test (`AppRegexIcuTest`). Test on an emulator
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.
 

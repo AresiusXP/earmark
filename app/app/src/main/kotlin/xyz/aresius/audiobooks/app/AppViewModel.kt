@@ -32,6 +32,9 @@ class AppViewModel @Inject constructor(
         if (session != null && done) AppState.Main else AppState.Onboarding
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AppState.Loading)
 
+    /** The opt-in Settings switch for wallpaper colors (default off). */
+    val dynamicColor: StateFlow<Boolean> = prefs.dynamicColor.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** Shows the admin-only entry in Settings; the server still enforces it (403). */
     val isAdmin: StateFlow<Boolean> = me.me.map { it?.isAdmin == true }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

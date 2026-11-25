@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,8 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CloudOff
-import androidx.compose.material.icons.rounded.Inbox
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,25 +31,24 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import xyz.aresius.audiobooks.R
 
+/** Nothing to show: a serif line, a short quiet explanation, no illustration. */
 @Composable
 fun EmptyState(
     title: String,
     modifier: Modifier = Modifier,
     message: String? = null,
-    icon: ImageVector = Icons.Rounded.Inbox,
     action: (@Composable () -> Unit)? = null,
 ) {
-    CenteredMessage(modifier, icon, title, message, MaterialTheme.colorScheme.onSurfaceVariant, action)
+    TypographicMessage(modifier, title, message, MaterialTheme.colorScheme.onSurface, withIcon = false, action = action)
 }
 
-/** Error message with a Retry button. */
+/** An error: a small icon and the words (never color alone), a witty-but-short serif title, and Retry. */
 @Composable
 fun ErrorState(
     message: String,
@@ -60,36 +57,31 @@ fun ErrorState(
     title: String = stringResource(R.string.common_error_title),
     retryLabel: String = stringResource(R.string.common_retry),
 ) {
-    CenteredMessage(modifier, Icons.Rounded.CloudOff, title, message, MaterialTheme.colorScheme.error) {
-        PrimaryButton(retryLabel, onClick = onRetry, modifier = Modifier.width(160.dp))
+    TypographicMessage(modifier, title, message, MaterialTheme.colorScheme.error, withIcon = true) {
+        PrimaryButton(retryLabel, onClick = onRetry, modifier = Modifier.width(220.dp))
     }
 }
 
 @Composable
-private fun CenteredMessage(
+private fun TypographicMessage(
     modifier: Modifier,
-    icon: ImageVector,
     title: String,
     message: String?,
-    iconTint: androidx.compose.ui.graphics.Color,
+    titleColor: androidx.compose.ui.graphics.Color,
+    withIcon: Boolean,
     action: (@Composable () -> Unit)?,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        modifier = modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.xl),
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
-        Box(
-            Modifier.size(72.dp).clip(RoundShape).background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) { Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(34.dp)) }
-        Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
+        if (withIcon) Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = titleColor, modifier = Modifier.size(28.dp))
+        Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Start)
         if (message != null) {
-            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(message, style = MaterialTheme.typography.bodyLarge, color = if (withIcon) titleColor else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (action != null) {
-            Box(Modifier.padding(top = 8.dp)) { action() }
-        }
+        if (action != null) Box(Modifier.padding(top = Spacing.m)) { action() }
     }
 }
 
@@ -97,12 +89,12 @@ private fun CenteredMessage(
 @Composable
 fun LoadingShimmer(modifier: Modifier = Modifier, shape: Shape = CoverShape) {
     val base = MaterialTheme.colorScheme.surfaceVariant
-    val highlight = base.copy(red = base.red + 0.07f, green = base.green + 0.07f, blue = base.blue + 0.09f)
+    val highlight = ColorMath.mix(base, MaterialTheme.colorScheme.onSurface, 0.08f)
     val transition = rememberInfiniteTransition(label = "shimmer")
     val progress by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing), RepeatMode.Restart),
         label = "shimmerProgress",
     )
     Box(
@@ -126,14 +118,14 @@ fun ShimmerTrackRows(count: Int = 6, modifier: Modifier = Modifier) {
     Column(modifier) {
         repeat(count) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.screen, vertical = 6.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.screen, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                LoadingShimmer(Modifier.size(52.dp), RoundedCornerShape(6.dp))
+                LoadingShimmer(Modifier.size(72.dp), RoundedCornerShape(18.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LoadingShimmer(Modifier.height(14.dp).width(180.dp), RoundedCornerShape(4.dp))
-                    LoadingShimmer(Modifier.height(12.dp).width(110.dp), RoundedCornerShape(4.dp))
+                    LoadingShimmer(Modifier.height(16.dp).width(180.dp), RoundedCornerShape(6.dp))
+                    LoadingShimmer(Modifier.height(12.dp).width(110.dp), RoundedCornerShape(6.dp))
                 }
             }
         }
@@ -141,13 +133,13 @@ fun ShimmerTrackRows(count: Int = 6, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ShimmerShelf(count: Int = 4, modifier: Modifier = Modifier) {
-    Row(modifier.padding(horizontal = Spacing.screen), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+fun ShimmerShelf(count: Int = 3, modifier: Modifier = Modifier) {
+    Row(modifier.padding(horizontal = Spacing.screen), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         repeat(count) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LoadingShimmer(Modifier.size(144.dp))
-                LoadingShimmer(Modifier.height(14.dp).width(100.dp), RoundedCornerShape(4.dp))
-                LoadingShimmer(Modifier.height(12.dp).width(70.dp), RoundedCornerShape(4.dp))
+                LoadingShimmer(Modifier.size(160.dp))
+                LoadingShimmer(Modifier.height(16.dp).width(110.dp), RoundedCornerShape(6.dp))
+                LoadingShimmer(Modifier.height(12.dp).width(70.dp), RoundedCornerShape(6.dp))
             }
         }
     }
@@ -157,9 +149,8 @@ fun ShimmerShelf(count: Int = 4, modifier: Modifier = Modifier) {
 @Composable
 private fun StatesPreview() = AudiobooksPreviewSurface {
     Column(Modifier.fillMaxSize()) {
-        EmptyState("Nothing here yet", message = "Search for something to get started.")
+        EmptyState("Quiet on the shelves", message = "Nothing here yet.")
         ErrorState("Couldn't reach the server.", onRetry = {})
         ShimmerShelf()
-        ShimmerTrackRows(3)
     }
 }

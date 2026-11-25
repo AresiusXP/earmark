@@ -33,6 +33,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.aresius.audiobooks.R
 import xyz.aresius.audiobooks.core.design.Badge
+import xyz.aresius.audiobooks.core.design.BadgeStyle
 import xyz.aresius.audiobooks.core.design.DetailTopBar
 import xyz.aresius.audiobooks.core.design.ErrorState
 import xyz.aresius.audiobooks.core.design.SecondaryButton
@@ -145,7 +146,7 @@ private fun UserRow(user: AdminUser, isSelf: Boolean, busy: Boolean, onToggle: (
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                 Text(user.displayName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
-                if (user.isAdmin) Badge(stringResource(R.string.settings_role_admin), highlight = true)
+                if (user.isAdmin) Badge(stringResource(R.string.settings_role_admin), style = BadgeStyle.Accent)
                 if (isSelf) Badge(stringResource(R.string.users_you))
                 if (user.disabled) Badge(stringResource(R.string.users_disabled))
             }
@@ -158,7 +159,7 @@ private fun UserRow(user: AdminUser, isSelf: Boolean, busy: Boolean, onToggle: (
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Provider.entries.forEach { p ->
                     val has = user.debrid[p.wire] == true
-                    Badge(stringResource(if (has) R.string.users_has_key else R.string.users_no_key, p.label()), positive = has)
+                    Badge(stringResource(if (has) R.string.users_has_key else R.string.users_no_key, p.label()), style = if (has) BadgeStyle.Ok else BadgeStyle.Neutral)
                 }
             }
         }

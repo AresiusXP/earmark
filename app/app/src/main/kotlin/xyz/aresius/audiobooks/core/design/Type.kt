@@ -11,44 +11,67 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import xyz.aresius.audiobooks.R
 
-/** Figtree variable font (OFL, see assets/licenses/OFL-Figtree.txt). */
+private val Weights = listOf(400, 500, 600, 700, 800)
+
+/**
+ * Fraunces (OFL, variable: opsz, wght, SOFT, WONK) for display and titles: SOFT 50, WONK off, and the optical size tied to the size of the
+ * text it sets (one family per size class: a variable font file has one setting per `Font`).
+ */
 @OptIn(ExperimentalTextApi::class)
-val Figtree = FontFamily(
-    listOf(400, 500, 600, 700, 800).map { w ->
+private fun fraunces(opticalSize: Float) = FontFamily(
+    Weights.map { w ->
         Font(
-            R.font.figtree,
+            R.font.fraunces,
             weight = FontWeight(w),
-            variationSettings = FontVariation.Settings(FontVariation.weight(w)),
+            variationSettings = FontVariation.Settings(
+                FontVariation.weight(w),
+                FontVariation.Setting("opsz", opticalSize),
+                FontVariation.Setting("SOFT", 50f),
+                FontVariation.Setting("WONK", 0f),
+            ),
         )
     },
 )
 
-private fun style(size: Int, weight: FontWeight, line: Int, spacing: TextUnit = 0.sp) = TextStyle(
-    fontFamily = Figtree,
-    fontWeight = weight,
-    fontSize = size.sp,
-    lineHeight = line.sp,
-    letterSpacing = spacing,
+/** Hanken Grotesk (OFL, variable: wght) for the interface and body text. */
+@OptIn(ExperimentalTextApi::class)
+val HankenGrotesk = FontFamily(
+    Weights.map { w ->
+        Font(R.font.hanken_grotesk, weight = FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+    },
 )
 
+val FrauncesDisplay = fraunces(72f)
+val FrauncesHeadline = fraunces(40f)
+val FrauncesTitle = fraunces(24f)
+
+private fun serif(family: FontFamily, size: Int, line: Int, weight: FontWeight, tracking: TextUnit) =
+    TextStyle(fontFamily = family, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp, letterSpacing = tracking)
+
+private fun sans(size: Int, line: Int, weight: FontWeight, tracking: TextUnit = 0.sp) =
+    TextStyle(fontFamily = HankenGrotesk, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp, letterSpacing = tracking)
+
 /**
- * Spotify-like scale: bold large titles, medium body, small captions.
- * display = hero titles, headline = screen titles, title = section/row titles, body = text, label = buttons/chips.
+ * Editorial scale: big serif headlines with tight tracking, quiet grotesque body, small medium-weight labels with a little air.
+ * Titles of books and sections are serif; list metadata, buttons and chips are grotesque.
  */
 val AudiobooksTypography = Typography(
-    displayLarge = style(40, FontWeight.ExtraBold, 48, (-0.5).sp),
-    displayMedium = style(32, FontWeight.ExtraBold, 40, (-0.4).sp),
-    displaySmall = style(28, FontWeight.Bold, 36),
-    headlineLarge = style(26, FontWeight.Bold, 32),
-    headlineMedium = style(22, FontWeight.Bold, 28),
-    headlineSmall = style(20, FontWeight.Bold, 26),
-    titleLarge = style(20, FontWeight.Bold, 26),
-    titleMedium = style(16, FontWeight.SemiBold, 22),
-    titleSmall = style(14, FontWeight.SemiBold, 20),
-    bodyLarge = style(16, FontWeight.Medium, 22),
-    bodyMedium = style(14, FontWeight.Medium, 20),
-    bodySmall = style(12, FontWeight.Medium, 16),
-    labelLarge = style(14, FontWeight.Bold, 20, 0.1.sp),
-    labelMedium = style(12, FontWeight.SemiBold, 16, 0.2.sp),
-    labelSmall = style(10, FontWeight.SemiBold, 14, 0.3.sp),
+    displayLarge = serif(FrauncesDisplay, 48, 52, FontWeight.Bold, (-1.2).sp),
+    displayMedium = serif(FrauncesDisplay, 44, 48, FontWeight.Bold, (-1.0).sp),
+    displaySmall = serif(FrauncesDisplay, 36, 42, FontWeight.Bold, (-0.6).sp),
+    headlineLarge = serif(FrauncesHeadline, 34, 40, FontWeight.Bold, (-0.5).sp),
+    headlineMedium = serif(FrauncesHeadline, 28, 34, FontWeight.SemiBold, (-0.3).sp),
+    headlineSmall = serif(FrauncesHeadline, 24, 30, FontWeight.SemiBold, (-0.2).sp),
+    titleLarge = serif(FrauncesTitle, 22, 28, FontWeight.SemiBold, (-0.1).sp),
+    titleMedium = serif(FrauncesTitle, 18, 24, FontWeight.SemiBold, 0.sp),
+    titleSmall = sans(15, 20, FontWeight.SemiBold, 0.1.sp),
+    bodyLarge = sans(16, 24, FontWeight.Normal, 0.1.sp),
+    bodyMedium = sans(14, 20, FontWeight.Normal, 0.15.sp),
+    bodySmall = sans(12, 16, FontWeight.Normal, 0.3.sp),
+    labelLarge = sans(14, 20, FontWeight.Medium, 0.3.sp),
+    labelMedium = sans(12, 16, FontWeight.Medium, 0.5.sp),
+    labelSmall = sans(11, 16, FontWeight.Medium, 0.6.sp),
 )
+
+/** Time and progress figures keep a fixed width, so a running clock does not jitter. */
+val TabularFigures = TextStyle(fontFeatureSettings = "tnum")

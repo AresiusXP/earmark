@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +41,8 @@ import java.util.Locale
 import xyz.aresius.audiobooks.R
 import xyz.aresius.audiobooks.core.auth.InputValidation
 import xyz.aresius.audiobooks.core.design.Badge
+import xyz.aresius.audiobooks.core.design.DynamicColorSupported
+import xyz.aresius.audiobooks.core.design.BadgeStyle
 import xyz.aresius.audiobooks.core.design.ErrorState
 import xyz.aresius.audiobooks.core.design.PillChip
 import xyz.aresius.audiobooks.core.design.PrimaryButton
@@ -157,6 +160,17 @@ fun SettingsScreen(isAdmin: Boolean, onUsers: () -> Unit, viewModel: SettingsVie
                     }
                 }
             }
+            if (DynamicColorSupported) {
+                Section(stringResource(R.string.settings_appearance)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.settings_dynamic_color), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.settings_dynamic_color_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = state.dynamicColor, onCheckedChange = viewModel::setDynamicColor)
+                    }
+                }
+            }
             Section(stringResource(R.string.settings_debrid)) { DebridSection() }
             Section(stringResource(R.string.settings_bittorrent)) {
                 BitTorrentRiskText()
@@ -262,7 +276,7 @@ private fun DeviceRow(device: Device, busy: Boolean, onRevoke: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                 Text(device.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
-                if (device.current) Badge(stringResource(R.string.settings_this_device), highlight = true)
+                if (device.current) Badge(stringResource(R.string.settings_this_device), style = BadgeStyle.Accent)
             }
             val seen = formatInstant(device.lastSeenAt)
             Text(

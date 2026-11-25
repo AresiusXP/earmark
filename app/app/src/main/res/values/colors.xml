@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="audiobooks_background">#0E0D0B</color>
-    <color name="audiobooks_accent">#F2A93B</color>
+    <!-- Paper (light) and ink (dark) base colors, used by the window background and the splash. Keep in sync with core/design/Color.kt. -->
+    <color name="audiobooks_background">#F6F0E6</color>
+    <color name="audiobooks_accent">#D9482B</color>
+    <color name="audiobooks_persimmon">#D9482B</color>
+    <color name="audiobooks_paper">#F6F0E6</color>
 </resources>

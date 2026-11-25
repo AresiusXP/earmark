@@ -46,6 +46,9 @@ class MemoryPrefs(url: String = "https://audiobooks.aresius.xyz", done: Boolean 
     override suspend fun setOnboardingDone(done: Boolean) { this.done.value = done }
     override val dismissedUpdateVersionCode: Flow<Long> = dismissed
     override suspend fun setDismissedUpdateVersionCode(code: Long) { dismissed.value = code }
+    private val dynamic = MutableStateFlow(false)
+    override val dynamicColor: Flow<Boolean> = dynamic
+    override suspend fun setDynamicColor(enabled: Boolean) { dynamic.value = enabled }
     val doneNow: Boolean get() = done.value
 }
 
