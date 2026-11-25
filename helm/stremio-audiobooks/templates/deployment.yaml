@@ -71,6 +71,22 @@ spec:
             - name: GOOGLE_CLIENT_ID
               value: {{ .Values.googleClientId | quote }}
             {{- end }}
+            {{- if .Values.prepareAddsPerHour }}
+            - name: PREPARE_ADDS_PER_HOUR
+              value: {{ .Values.prepareAddsPerHour | int64 | toString | quote }}
+            {{- end }}
+            {{- if .Values.debridLinkHosts }}
+            - name: DEBRID_LINK_HOSTS
+              value: {{ .Values.debridLinkHosts | quote }}
+            {{- end }}
+            {{- if .Values.appUpdateDir }}
+            - name: APP_UPDATE_DIR
+              value: {{ .Values.appUpdateDir | quote }}
+            {{- end }}
+            {{- if .Values.appUpdateMaxBytes }}
+            - name: APP_UPDATE_MAX_BYTES
+              value: {{ .Values.appUpdateMaxBytes | int64 | toString | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
