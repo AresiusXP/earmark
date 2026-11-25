@@ -19,8 +19,8 @@ object Samples {
     fun bookDetail(asin: String = "B000000001", releases: String = release()) =
         """{"book":${book(asin)},"searched_at":"2026-11-25T10:00:00Z","releases":[$releases]}"""
 
-    fun libraryEntry(asin: String, status: String = "listening", updated: Long = 1000, position: Long = 600000) =
-        """{"book":${book(asin, "Book $asin")},"status":"$status","release_hash":null,"position_ms":$position,"file_path":null,"file_position_ms":0,"speed":1.0,"updated_at":$updated}"""
+    fun libraryEntry(asin: String, status: String = "listening", updated: Long = 1000, position: Long = 600000, finishedAt: String? = null) =
+        """{"book":${book(asin, "Book $asin")},"status":"$status","release_hash":null,"position_ms":$position,"file_path":null,"file_position_ms":0,"speed":1.0,"updated_at":$updated,"finished_at":${finishedAt?.let { "\"$it\"" } ?: "null"}}"""
 
     fun debrid(provider: String, configured: Boolean = true, status: String = "ok") =
         if (configured) """{"provider":"$provider","configured":true,"status":"$status","validated_at":"2026-11-25T10:00:00Z","last_error":null}"""

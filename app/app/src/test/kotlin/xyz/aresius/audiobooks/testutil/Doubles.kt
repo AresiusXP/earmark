@@ -64,6 +64,7 @@ class MemoryLibraryDao : LibraryDao() {
     val all: List<LibraryEntryEntity> get() = rows.value
     override fun observeAll(userId: String): Flow<List<LibraryEntryEntity>> =
         rows.map { list -> list.filter { it.userId == userId }.sortedByDescending { it.updatedAt } }
+    override suspend fun get(userId: String, asin: String): LibraryEntryEntity? = rows.value.firstOrNull { it.userId == userId && it.asin == asin }
     override fun observe(userId: String, asin: String): Flow<LibraryEntryEntity?> =
         rows.map { list -> list.firstOrNull { it.userId == userId && it.asin == asin } }
     override suspend fun upsert(entry: LibraryEntryEntity) { rows.value = rows.value.filterNot { it.userId == entry.userId && it.asin == entry.asin } + entry }

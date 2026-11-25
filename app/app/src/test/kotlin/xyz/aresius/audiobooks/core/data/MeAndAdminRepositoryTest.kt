@@ -6,6 +6,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import xyz.aresius.audiobooks.core.network.ApiError
 import xyz.aresius.audiobooks.core.network.ErrorCode
@@ -53,6 +55,43 @@ class MeAndAdminRepositoryTest {
         assertEquals("Ada", second.me.value?.displayName)
         second.clear()
         assertNull(second.me.value)
+    }
+
+    @Test fun aRefreshThatWasOvertakenByAWriteDoesNotUndoIt() = runBlocking<Unit> {
+        app.me.set(AudiobooksJson.decodeFromString(Me.serializer(), Samples.ME_ADMIN)) // region us
+        val gotRequest = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        server.onRequest("GET", "/v1/me") {
+            gotRequest.countDown()
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            FakeServer.json(Samples.ME_ADMIN) // what the server said BEFORE the PATCH
+        }
+        server.onJson("PATCH", "/v1/me", Samples.ME_ADMIN.replace(""""region":"us"""", """"region":"de""""))
+        val refresh = async(Dispatchers.IO) { app.me.refresh() }
+        assertTrue(gotRequest.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        app.me.updateSettings(xyz.aresius.audiobooks.core.network.SettingsPatch(region = "de"))
+        release.countDown()
+        refresh.await()
+        assertEquals("de", app.me.me.value?.settings?.region, "the older GET answer must not replace the newer PATCH answer")
+        val cached = MeRepository({ server.api }, app.cache) { app.now }.also { it.restore() }
+        assertEquals("de", cached.me.value?.settings?.region, "nor the offline copy")
+    }
+
+    @Test fun refreshAfterSignOutDoesNotBringTheUserBack() = runBlocking<Unit> {
+        app.me.set(AudiobooksJson.decodeFromString(Me.serializer(), Samples.ME_ADMIN))
+        val gotRequest = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        server.onRequest("GET", "/v1/me") {
+            gotRequest.countDown()
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            FakeServer.json(Samples.ME_ADMIN)
+        }
+        val refresh = async(Dispatchers.IO) { app.me.refresh() }
+        assertTrue(gotRequest.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        app.me.clear()
+        release.countDown()
+        refresh.await()
+        assertNull(app.me.me.value)
     }
 
     @Test fun failedUpdatesKeepTheOldProfile() = runBlocking<Unit> {

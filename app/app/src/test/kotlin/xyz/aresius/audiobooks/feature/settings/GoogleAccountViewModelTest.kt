@@ -78,7 +78,7 @@ class GoogleAccountViewModelTest {
         assertEquals(AuthError.GoogleConflict, s.error)
         assertFalse(s.google.linked)
         vm.consumeError()
-        assertNull(vm.state.value.error)
+        vm.state.awaitState { it.error == null }
     }
 
     @Test fun cancellingOrHavingNoAccountLeavesThingsAsTheyWereOrExplains() = runBlocking<Unit> {

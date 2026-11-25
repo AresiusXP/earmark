@@ -74,7 +74,7 @@ class UsersViewModelTest {
         vm.setDisabled(users[1], true)
         assertEquals(ErrorCode.Conflict, (vm.state.awaitState { it.error != null }.error as ApiError.Http).code)
         vm.consumeError()
-        assertNull(vm.state.value.error)
+        vm.state.awaitState { it.error == null }
     }
 
     @Test fun aCreatedInviteShowsItsCodeOnceAndJoinsTheList() = runBlocking<Unit> {
@@ -87,7 +87,7 @@ class UsersViewModelTest {
         assertEquals(2, (s.invites as Load.Content).value.size)
         assertFalse(s.toString().contains("INV-SECRET"))
         vm.dismissCreatedInvite()
-        assertNull(vm.state.value.createdInvite)
+        vm.state.awaitState { it.createdInvite == null }
     }
 
     @Test fun revokingAnInviteRemovesIt() = runBlocking<Unit> {

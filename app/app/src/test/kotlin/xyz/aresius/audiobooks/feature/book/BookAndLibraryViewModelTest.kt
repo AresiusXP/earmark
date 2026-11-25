@@ -77,7 +77,7 @@ class BookAndLibraryViewModelTest {
         vm.toggleLibrary()
         assertTrue(vm.state.awaitState { it.error != null }.error is ApiError.Http)
         vm.consumeError()
-        assertNull(vm.state.value.error)
+        vm.state.awaitState { it.error == null }
     }
 
     // --- usable-via chips ------------------------------------------------------------------------------------
@@ -112,7 +112,7 @@ class BookAndLibraryViewModelTest {
         val s = vm.state.awaitState { it.loaded }
         assertEquals(3, s.visible.size)
         vm.setFilter(LibraryStatus.SAVED)
-        assertEquals(listOf("B000000002"), vm.state.value.visible.map { it.book.asin })
+        assertEquals(listOf("B000000002"), vm.state.awaitState { it.visible.size == 1 }.visible.map { it.book.asin })
         vm.setFilter(null)
         server.on("GET", "/v1/me/library", FakeServer.error(503, "upstream_failed", null, "Retry-After" to "0"))
         vm.refresh()
@@ -125,5 +125,25 @@ class BookAndLibraryViewModelTest {
         val s = LibraryViewModel(app.library).state.awaitState { it.loaded }
         assertTrue(s.entries.isEmpty())
         assertIs<ApiError.Http>(s.error)
+    }
+
+    @Test fun comingBackAsksTheServerAgainSoAKeyAddedMeanwhileIsSeen() = runBlocking<Unit> {
+        val noKey = Samples.bookDetail(releases = Samples.release(usable = """{"debrid":[],"p2p":false}""", cached = "{}"))
+        server.on("GET", "/v1/books/$asin", FakeServer.json(noKey), FakeServer.json(Samples.bookDetail()))
+        server.on("GET", "/v1/me/library/$asin", FakeServer.error(404, "not_found"))
+        val vm = bookVm()
+        assertEquals(PlayAvailability.NeedsKey, vm.state.awaitState { it.detail is Load.Content<*> && !it.refreshing }.availability)
+        app.now += 6_000 // the user went to Settings and added a key; a page only seconds old is still served from the copy
+        vm.onResumed()
+        vm.state.awaitState { it.availability is PlayAvailability.Playable }
+        assertEquals(2, server.requestsTo("GET", "/v1/books/$asin").size, "one load, one more on return: no extra 'refresh once' request")
+    }
+
+    @Test fun theFirstResumeDoesNotLoadTwice() = runBlocking<Unit> {
+        server.onJson("GET", "/v1/books/$asin", Samples.bookDetail())
+        val vm = bookVm()
+        vm.onResumed() // the screen's first ON_RESUME arrives while the first load is still running
+        vm.state.awaitState { it.detail is Load.Content<*> && !it.refreshing }
+        assertEquals(1, server.requestsTo("GET", "/v1/books/$asin").size)
     }
 }
