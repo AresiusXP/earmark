@@ -80,7 +80,7 @@ private fun greetingText(greeting: Greeting, name: String?): String {
 /** Editorial Discover: a serif greeting, the "Continue listening" hero straight on the page (no card), then shelves of large covers. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiscoverScreen(onBook: (String) -> Unit, viewModel: DiscoverViewModel = hiltViewModel()) {
+fun DiscoverScreen(onBook: (String) -> Unit, onPlay: (LibraryEntry) -> Unit, viewModel: DiscoverViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
         when (val books = state.books) {
@@ -104,7 +104,7 @@ fun DiscoverScreen(onBook: (String) -> Unit, viewModel: DiscoverViewModel = hilt
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = Spacing.l)) {
                     item { Greeting(state) }
                     state.continueListening?.let { entry ->
-                        item { ContinueListening(entry, onClick = { onBook(entry.book.asin) }) }
+                        item { ContinueListening(entry, onClick = { onBook(entry.book.asin) }, onPlay = { onPlay(entry) }) }
                         item { HorizontalDivider(Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.l), color = MaterialTheme.colorScheme.outlineVariant) }
                     }
                     if (books.stale) {
@@ -166,10 +166,10 @@ private fun Shelf(title: String, books: List<xyz.aresius.audiobooks.core.network
 /**
  * Variant B of the hero: no card, everything on the page. The cover (24 dp radius) has a soft glow of its own palette in the dark theme
  * and a soft warm shadow in the light theme; below it the serif title, the author, a resting wavy progress, the time left and the round
- * persimmon play button. (Playing comes with the player phase: the button opens the book for now.)
+ * persimmon play button, which starts the book and opens the player; the rest of the hero opens the book page.
  */
 @Composable
-private fun ContinueListening(entry: LibraryEntry, onClick: () -> Unit) {
+private fun ContinueListening(entry: LibraryEntry, onClick: () -> Unit, onPlay: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val cover by rememberCoverColors(entry.book.coverUrl)
     val progress = progressFraction(entry.positionMs, entry.book.runtimeMin)
@@ -209,7 +209,7 @@ private fun ContinueListening(entry: LibraryEntry, onClick: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             Box(
-                Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape).clickable(onClick = onClick),
+                Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape).clickable(onClick = onPlay),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.book_play), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))

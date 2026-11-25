@@ -279,7 +279,7 @@ backend. The Stremio addon routes keep working untouched until the app is in dai
 `api/openapi.yaml` is the contract between server and app; change it first, in the same commit as the code.
 
 ### Model
-* **Download-first.** Audiobooks are small, so the app downloads the files of a release to the phone and the
+* **Download-first (streaming-first with debrid since Phase 3, see "Player").** Audiobooks are small, so the app downloads the files of a release to the phone and the
   player plays local files only. Debrid and BitTorrent are two ways to get the files onto the phone. Playback can
   start on file 1 while the rest downloads. No audio ever passes through the server or Cloudflare:
   `GET /v1/releases/{hash}/files/{index}/download` answers 302 to the provider's short-lived CDN link (never stored by
@@ -337,6 +337,7 @@ provider index); consumers match by path, never by index.
   the Audible total differs from the files' total by more than 2 %. Skip back/forward 30 s (configurable), speed 0.5-3x per
   book, sleep timer (end of chapter / N minutes), bookmarks, resume (local every few seconds + on pause, synced to the server;
   last write wins on the client clock), MediaSession so lock screen, headset buttons and Android Auto work.
+  Layout and decisions of the built player: see "Player (Phase 3)" below.
 * Downloads: WorkManager, app-private storage, Wi-Fi only by default, storage limit and auto-delete after finish. A debrid
   file that is not ready is a visible "preparing" state, never saved as a silent placeholder.
 * Downloads as built (Phase 3b, `app/.../core/download`, details in `app/README.md`): with a debrid key the player streams by default,
@@ -404,6 +405,42 @@ flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/Tor
   `startForeground` is refused (budget used up) the same path runs.
 * **Tests**: policy state machine, paths, planner and stall detector, settings, options ViewModel (unit); a real two-session loopback swarm,
   service and timeout (instrumented, emulator). Not verifiable on an emulator: a real phone behind CGNAT / a real VPN app.
+
+### Player (Phase 3, built 2026-11-25)
+Streaming-first: with a debrid key the player streams `GET /v1/releases/{hash}/files/{index}/download?provider=` (302 to the provider CDN,
+Range requests, `202 Prepare` while the provider is busy); a complete local copy (`LocalFiles.localFile`, implemented by core/download's `DownloadedLocalFiles`) always wins, file by file; downloads stay optional. Code: `app/.../core/player` (service, model, data) and
+`feature/player` (screens).
+* **Service.** `PlaybackService` (Media3 `MediaSessionService`, foreground `mediaPlayback`, wake + Wi-Fi lock while playing) owns one
+  ExoPlayer; `PlaybackCore` is its brain (load, ticker, sleep timer, smart rewind, persistence, errors). The UI never touches the player: it
+  reads `PlayerHub` (a `StateFlow<PlayerState>`, same process) and sends commands through a `MediaController` (`PlaybackController`; book-level
+  custom `SessionCommand`s in `PlayerCommands`: load, seek in the book, speed, skip, sleep start/cancel/extend, retry, close).
+* **One timeline per book.** `BookTimeline(files, catalog runtime)` maps book position <-> (file, offset); unknown file durations are
+  estimated (rest of the runtime by size) until ExoPlayer has prepared the file, then learned and stored (`file_duration`). One ExoPlayer item
+  per file, next item preloaded. The media session sees a `BookPlayer` (`ForwardingSimpleBasePlayer`): the book as a playlist of CHAPTERS
+  (position inside the chapter, next/previous = chapter, skip back/forward cross chapter and file borders), so lock screen, headset buttons
+  and Android Auto speak chapters while the app's own seek bar covers the whole book.
+* **Chapters.** `/v1/books/{asin}/chapters` marks are used as they are when the Audible runtime is within 2 % of the files' total (an estimated
+  total counts), else one chapter per file (`ChapterSource.Files`, the sheet says why). Marks are not stretched: an intro or outro of unknown
+  length shifts them by an unknowable amount. Embedded M4B chapters are not read (Media3 does not expose them).
+* **Streaming.** `StreamLinkResolver` asks the server (authenticated client, no redirect following) and reads `Location`; the CDN hop is a
+  PLAIN OkHttp client without the auth interceptor, so the token only ever reaches the server's host. 202 -> `Preparing` (visible state, the
+  core polls `prepare` and resumes), 403 `no_debrid_key`/`bad_debrid_key` -> "Add a debrid key", other answers are typed errors; a broken stream
+  becomes a Retry that resumes at the same place.
+* **Resume and sync.** Room `audiobooks_player.db` (its own database: `progress`, `book_pref`, `file_duration`, `bookmark`; every user row is
+  scoped by `userId` and wiped on sign-out). Position is written every 5 s while playing and on pause/stop/end; `PUT /v1/me/library/{asin}` at
+  most every 30 s and at once on pause/stop (status listening/finished, `release_hash`, `position_ms`, `file_path` + `file_position_ms` (resume
+  prefers the file position: it stays exact while durations are estimates), `speed`, `updated_at` = client clock). The `dirty` progress row is
+  the offline queue (latest write per book; a WorkManager job retries when online; 400/404/409 are dropped). Opening a book takes the newer
+  `updated_at` of the local row and the server entry. Finished = last 30 s (or 5 % of a short book) or 99 %; a finished book restarts from 0.
+* **Controls.** Skip 10/15/30/45/60 s (Settings > Playback, separate back/forward), speed 0.5-3.0 on a 0.05 grid saved per book, sleep timer
+  (end of chapter / 5-60 min, fades the last 10 s, shake or button extends; runs in the service), smart rewind (>1 min pause: 5/10/15 s back;
+  also on resume from a saved position), bookmarks (local first, mirrored to `/bookmarks`, offline-safe).
+* **Release choice.** `ReleaseChooser`: remembered choice per book > best ranked release the user can stream, cached first > best with local files.
+* **UI.** Player (always dark, cover-derived colors, `docs/design/design-player.jpg`), mini player above the bottom bar, Discover hero and Library
+  rows play, Book detail shows the chosen release, its files, the catalog chapters and the needs-key / preparing / failed states, with Play and the
+  Download button (per book and per release, `feature/download`) side by side; Library rows carry the "Downloaded" badge and the play button.
+* **Downloads link.** The player reads files through `LocalFiles` (`DownloadedLocalFiles`, bound in `di/LocalFilesModule`) and tells core/download which
+  book it holds through `PlayingBook` (`PlayerPlayingBook`, bound in `di/PlayerModule`), so the storage LRU never evicts the playing book.
 
 ### Phases
 0 contract + design (this section, `api/openapi.yaml`) -> 1 server (users/invites/devices, per-user keys, `appapi`, Real-Debrid,

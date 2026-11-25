@@ -26,8 +26,11 @@ import xyz.aresius.audiobooks.core.network.BootstrapRequest
 import xyz.aresius.audiobooks.core.network.Book
 import xyz.aresius.audiobooks.core.network.BookDetail
 import xyz.aresius.audiobooks.core.network.BookListResponse
+import xyz.aresius.audiobooks.core.network.Bookmark
+import xyz.aresius.audiobooks.core.network.BookmarksResponse
 import xyz.aresius.audiobooks.core.network.Chapter
 import xyz.aresius.audiobooks.core.network.Chapters
+import xyz.aresius.audiobooks.core.network.CreateBookmarkRequest
 import xyz.aresius.audiobooks.core.network.CreateInviteRequest
 import xyz.aresius.audiobooks.core.network.CreatedInvite
 import xyz.aresius.audiobooks.core.network.DebridListResponse
@@ -49,6 +52,7 @@ import xyz.aresius.audiobooks.core.network.LibraryStatus
 import xyz.aresius.audiobooks.core.network.LinkCodeResponse
 import xyz.aresius.audiobooks.core.network.LinkRequest
 import xyz.aresius.audiobooks.core.network.Me
+import xyz.aresius.audiobooks.core.network.Prepare
 import xyz.aresius.audiobooks.core.network.PutDebridKeyRequest
 import xyz.aresius.audiobooks.core.network.ReleaseView
 import xyz.aresius.audiobooks.core.network.Roles
@@ -78,6 +82,8 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private val googleIdentities = HashMap<String, String>() // Google sub -> user id
     private val debridKeys = HashMap<String, DebridStatus>()
     private val library = LinkedHashMap<String, LibraryEntry>()
+    private val bookmarks = HashMap<String, MutableList<Bookmark>>()
+    private val prepareCalls = HashMap<String, Int>()
     private val books = sampleBooks()
     private val downloads = DemoDownloads()
 
@@ -242,7 +248,13 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
 
     private fun session(user: Me) = SessionResponse("demo-access-${UUID.randomUUID()}", "demo-refresh-${UUID.randomUUID()}", 3600, "Bearer", user)
 
-    private fun defaultUser(): Me = Me("u-demo", "Demo Admin", Roles.ADMIN, Settings()).also { me[it.id] = it; currentUserId = it.id; bootstrapped = true }
+    /** The user a restarted process continues as. It already has a working TorBox key so a reinstall during development can stream at once. */
+    private fun defaultUser(): Me = Me("u-demo", "Demo Admin", Roles.ADMIN, Settings()).also {
+        me[it.id] = it
+        currentUserId = it.id
+        bootstrapped = true
+        debridKeys["torbox"] = DebridStatus("torbox", configured = true, status = "ok", validatedAt = Instant.now().toString())
+    }
 
     /** The app may outlive the fake's memory (a process restart keeps the stored session): start from a default admin then. */
     private fun ensureUser() {
@@ -379,7 +391,9 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         val book = books.firstOrNull { it.asin == path.getOrNull(1) } ?: return error(request, 404, "not_found", "unknown book")
         return when (path.getOrNull(2)) {
             null -> json(request, BookDetail(book, Instant.now().minusSeconds(600).toString(), releasesFor(book)))
-            "chapters" -> json(request, Chapters(book.asin, book.runtimeMin * 60_000L, (0 until 8).map { Chapter("Chapter ${it + 1}", it * book.runtimeMin * 7_500L, book.runtimeMin * 7_500L) }))
+            "chapters" ->
+                if (book.asin == DEMO_ASIN) json(request, Chapters(book.asin, DEMO_PARTS * FIXTURE_PART_MS, (0 until DEMO_PARTS).map { Chapter("Part ${it + 1}: ${listOf("Opening", "Middle", "Ending")[it]}", it * FIXTURE_PART_MS, FIXTURE_PART_MS) }))
+                else json(request, Chapters(book.asin, book.runtimeMin * 60_000L, (0 until 8).map { Chapter("Chapter ${it + 1}", it * book.runtimeMin * 7_500L, book.runtimeMin * 7_500L) }))
             else -> error(request, 404, "not_found", "no such route")
         }
     }
@@ -397,7 +411,8 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
 
     private fun release(book: Book, format: String, kbps: Int, size: Long, seeders: Int, cached: Map<String, Boolean>, usable: Usable): ReleaseView {
         val hash = (book.asin + format + kbps).hashCode().toUInt().toString(16).padStart(8, '0').repeat(5)
-        val files = (1..6).map { TorrentFile(it - 1, "${book.title}/Part ${it}.$format", DemoDownloads.FILE_BYTES) }
+        val parts = if (book.asin == DEMO_ASIN) DEMO_PARTS else 6
+        val files = (1..parts).map { TorrentFile(it - 1, "${book.title}/Part ${it}.$format", if (book.asin == DEMO_ASIN) 0L else DemoDownloads.FILE_BYTES) }
         return ReleaseView(
             infoHash = hash, title = "${book.authors.firstOrNull().orEmpty()} - ${book.title} [${format.uppercase()} ${kbps}kbps]", source = "demo", size = size, seeders = seeders,
             format = format, bitrateKbps = kbps, narrator = book.narrators.firstOrNull(), language = book.language, score = 0.9 - kbps / 1000.0, collection = false,
@@ -408,12 +423,43 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
     private fun demoFiles(hash: String): List<Pair<Int, String>> =
         books.flatMap { releasesFor(it) }.firstOrNull { it.infoHash == hash }?.files?.map { it.index to it.path }.orEmpty()
 
-    private fun releaseRoutes(request: Request, m: String, path: List<String>): Response = when {
-        path.getOrNull(2) == "prepare" && m == "POST" ->
-            downloads.prepare(request, path[1], demoFiles(path[1]), debridKeys.isNotEmpty())
-        path.getOrNull(2) == "files" && path.getOrNull(4) == "download" && m == "GET" ->
-            downloads.download(request, path[1], path[3].toIntOrNull() ?: 0, debridKeys.isNotEmpty())
-        else -> error(request, 404, "not_found", "not implemented by the demo backend")
+    /**
+     * The demo book ([DEMO_ASIN]) streams AND downloads from the local audio fixture ([FIXTURE_BASE], see app/scripts/audio_fixture.py): a cached
+     * release answers `prepare` with `ready` and its download route with a 302 to the fixture; an uncached one is `preparing` (25 % more per
+     * poll) for its first four polls, so the "getting the book ready" state shows. Its files list no size (the fixture's real sizes are not
+     * known here), so the download's size check is skipped and the player shares the runtime equally among the parts. Every other book goes through [DemoDownloads]: `prepare`
+     * after a few polls, then a 302 to this host's own `/cdn/` that serves a silent WAV (playable too). Every route needs a working debrid key
+     * (`403 no_debrid_key`).
+     */
+    private fun releaseRoutes(request: Request, m: String, path: List<String>): Response {
+        val hash = path.getOrNull(1).orEmpty()
+        val release = books.flatMap { releasesFor(it) }.firstOrNull { it.infoHash == hash } ?: return error(request, 404, "not_found", "unknown release")
+        if (debridKeys.values.none { it.status == "ok" }) return error(request, 403, "no_debrid_key", "add a debrid key first")
+        val fixture = books.any { it.asin == DEMO_ASIN && releasesFor(it).any { r -> r.infoHash == hash } }
+        if (!fixture) {
+            return when {
+                path.getOrNull(2) == "prepare" && m == "POST" -> downloads.prepare(request, hash, demoFiles(hash), true)
+                path.getOrNull(2) == "files" && path.getOrNull(4) == "download" && m == "GET" -> downloads.download(request, hash, path[3].toIntOrNull() ?: 0, true)
+                else -> error(request, 404, "not_found", "not implemented by the demo backend")
+            }
+        }
+        val cached = release.cached["torbox"] == true || release.cached["realdebrid"] == true
+        return when {
+            path.getOrNull(2) == "prepare" && m == "POST" -> {
+                val n = prepareCalls.merge(hash, 1, Int::plus) ?: 1
+                json(request, if (cached || n > PREPARE_POLLS) Prepare(Prepare.READY, 100, files = release.files) else Prepare(Prepare.PREPARING, n * 100 / (PREPARE_POLLS + 1), retryAfterS = 2))
+            }
+            path.getOrNull(2) == "files" && path.getOrNull(4) == "download" && (m == "GET" || m == "HEAD") -> {
+                val index = path[3].toIntOrNull()?.takeIf { it in release.files.indices } ?: return error(request, 404, "not_found", "no such file")
+                if (!cached && (prepareCalls[hash] ?: 0) <= PREPARE_POLLS) {
+                    json(request, Prepare(Prepare.PREPARING, 30, retryAfterS = 2), 202)
+                } else {
+                    Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(302).message("Found").header("Location", "$FIXTURE_BASE/part${index % FIXTURE_PARTS + 1}.mp3")
+                        .header("Cache-Control", "no-store").body("".toResponseBody(JSON)).build()
+                }
+            }
+            else -> error(request, 404, "not_found", "not implemented by the demo backend")
+        }
     }
 
     // --- library ----------------------------------------------------------------------------------------------
@@ -424,7 +470,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
             return json(request, LibraryResponse(library.values.filter { status == null || it.status == status }.sortedByDescending { it.updatedAt }))
         }
         val asin = path.getOrNull(2) ?: return error(request, 404, "not_found", "no such route")
-        if (path.size > 3) return error(request, 404, "not_found", "bookmarks are not part of the demo backend")
+        if (path.size > 3) return bookmarkRoutes(request, m, asin, path)
         return when (m) {
             "GET" -> library[asin]?.let { json(request, it) } ?: error(request, 404, "not_found", "not in the library")
             "PUT" -> {
@@ -438,6 +484,25 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
             }
             "DELETE" -> {
                 library.remove(asin)
+                noContent(request)
+            }
+            else -> error(request, 404, "not_found", "no such route")
+        }
+    }
+
+    private fun bookmarkRoutes(request: Request, m: String, asin: String, path: List<String>): Response {
+        val list = bookmarks.getOrPut(asin) { ArrayList() }
+        return when {
+            path.size == 4 && m == "GET" -> json(request, BookmarksResponse(list.sortedBy { it.positionMs }))
+            path.size == 4 && m == "POST" -> {
+                if (asin !in library) return error(request, 404, "not_found", "the book is not in the library")
+                val b = body(request, CreateBookmarkRequest.serializer())
+                val bookmark = Bookmark("bm-${UUID.randomUUID().toString().take(8)}", b.positionMs, b.note, Instant.now().toString())
+                list.add(bookmark)
+                json(request, bookmark)
+            }
+            path.size == 5 && m == "DELETE" -> {
+                list.removeAll { it.id == path[4] }
                 noContent(request)
             }
             else -> error(request, 404, "not_found", "no such route")
@@ -476,8 +541,8 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         return AudiobooksJson.decodeFromString(serializer, buffer.readUtf8())
     }
 
-    private inline fun <reified T> json(request: Request, value: T): Response =
-        respond(request, 200, AudiobooksJson.encodeToString(kotlinx.serialization.serializer<T>(), value).toResponseBody(JSON))
+    private inline fun <reified T> json(request: Request, value: T, status: Int = 200): Response =
+        respond(request, status, AudiobooksJson.encodeToString(kotlinx.serialization.serializer<T>(), value).toResponseBody(JSON))
 
     private fun text(request: Request, value: String) = respond(request, 200, value.toResponseBody("text/plain".toMediaType()))
 
@@ -503,6 +568,14 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         /** 26 base32 characters like every real invite; the sign-in screen forgives case, spaces and dashes ("demo demo ...", O = 0). */
         const val DEMO_INVITE = "DEMO-DEMO-DEMO-DEMO-DEMO-DEMO-DE"
         const val BAD_KEY = "badkeybadkey"
+        const val DEMO_ASIN = "B0DEMOSHORT"
+
+        /** The local audio fixture (a host-side HTTP server with Range support, see app/scripts/audio_fixture.py), seen from the emulator. */
+        const val FIXTURE_BASE = "http://10.0.2.2:8765"
+        const val FIXTURE_PARTS = 3
+        const val FIXTURE_PART_MS = 60_000L
+        private const val DEMO_PARTS = 3
+        private const val PREPARE_POLLS = 4
         private const val PAGE_SIZE = 12
         private val WARM_HUES = floatArrayOf(8f, 16f, 24f, 34f, 42f, 350f, 335f, 12f)
         private val JSON = "application/json".toMediaType()
@@ -534,7 +607,13 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
                 Triple("Crime and Punishment", "Fyodor Dostoevsky", "Constantine Gregory"),
                 Triple("The Hobbit-like Tale (Demo)", "Demo Author", "Demo Narrator"),
             )
-            return seeds.mapIndexed { i, (title, author, narrator) ->
+            val demo = Book(
+                asin = DEMO_ASIN, title = "Demo: Three Short Parts", subtitle = "A 3-minute book for the player", authors = listOf("Demo Author"), narrators = listOf("Demo Narrator"),
+                language = "en", runtimeMin = 3, coverUrl = "http://$HOST/covers/$DEMO_ASIN.png",
+                description = "Three one-minute parts served by the local audio fixture: streaming, chapters, speed, sleep timer and bookmarks can be tried in minutes.",
+                releaseYear = 2026, genres = listOf("Demo"),
+            )
+            return listOf(demo) + seeds.mapIndexed { i, (title, author, narrator) ->
                 val asin = "B0DEMO%04d".format(i)
                 Book(
                     asin = asin, title = title, subtitle = if (i % 4 == 0) "Unabridged" else null, authors = listOf(author), narrators = listOf(narrator),

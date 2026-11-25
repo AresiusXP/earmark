@@ -2,7 +2,7 @@
 
 Kotlin + Jetpack Compose, single module `:app`, package `xyz.aresius.audiobooks`. Design: `../docs/DESIGN.md` ("App direction") and
 `DESIGN.md` (visual design). Server contract: `../api/openapi.yaml` (binding; `ContractTest` fails when a path of the contract has no
-method in `AudiobooksApi`). Phase 2 skeleton, Phase 3b offline downloads (`core/download`), Phase 4 BitTorrent engine (`core/torrent`); the audio player (`core/player`) comes from its own branch.
+method in `AudiobooksApi`). Phase 2 skeleton, Phase 3 audio player (`core/player`, `feature/player`), Phase 3b offline downloads (`core/download`), Phase 4 BitTorrent engine (`core/torrent`).
 
 ## Build and test
 
@@ -13,7 +13,7 @@ cd app
 ```
 
 Toolchain: Gradle 9.9.1 (wrapper), AGP 9.5.1 (built-in Kotlin), Kotlin 2.4.21 + Compose compiler plugin (all warnings are errors), KSP,
-Hilt, Room, Retrofit + kotlinx-serialization, Coil 3, Palette, Tink. compileSdk 37 (install `platforms;android-37.0`), targetSdk 35,
+Hilt, Room, Retrofit + kotlinx-serialization, Coil 3, Palette, Tink, Media3 (ExoPlayer + session), WorkManager. compileSdk 37 (install `platforms;android-37.0`), targetSdk 35,
 minSdk 26. Versions live in `gradle/libs.versions.toml`. Strings: edit the table in `scripts/gen_strings.py` and run it (it writes English and
 Dutch together, so no key can miss a translation; CI checks they are in sync).
 
@@ -50,16 +50,19 @@ core/qr       QrCode: small pure-Kotlin QR encoder (byte mode, level M, versions
 core/data     Room AudiobooksDb (cache_entry, library_entry scoped by user), Catalog/Library/Me/Debrid/Admin/Release repositories,
               AppPreferences (DataStore), SessionCleanup (wipes everything of an account when its session ends)
 core/update   Update check (GET /v1/app/update), APK download with size + SHA-256 check, PackageInstaller session, banner state machine
+core/player   Media3 playback: PlaybackService (MediaSessionService) + PlaybackCore, BookTimeline / BookChapters (one timeline per book), BookPlayer
+              (chapters as the session playlist), StreamLinkResolver + PlaybackDataSources (302 -> CDN, no token on the CDN), BookLoader +
+              ReleaseChooser, ProgressSync (Room `audiobooks_player.db`, last write wins, offline queue), BookmarkRepository, SleepTimerLogic,
+              PlayerHub (state) + PlaybackController (commands), PlayerPreferences (skip lengths, smart rewind)
+core/download  offline downloads (Phase 3b), see below; feature/download = its UI
+core/torrent   TorrentEngine (contract) + LibTorrentEngine (libtorrent4j, Phase 4): metadata fetch, selective download, TorrentPolicy (opt-in, VPN, Wi-Fi,
+               battery, seeding), TorrentSettings (DataStore), AndroidDeviceStateMonitor, TorrentService (foreground, dataSync) + resume worker,
+               TorrentPaths (zip-slip), TorrentStore (resume data in the no-backup dir). Binding: di/TorrentModule. Details: DESIGN.md "BitTorrent engine".
 core/design   "Reading room" theme: Color, Type (Fraunces + Hanken Grotesk), Shape, Motion, WavyProgressBar, CoverColors (Palette), components
-feature/*     one package per screen: XxxScreen + XxxViewModel (Hilt, StateFlow, Load<T> = loading / content / failed with retry)
-              onboarding, discover, search, book, library, settings, admin (Users), debrid + bittorrent (shared by onboarding and Settings), update
+feature/*     one package per screen (player: PlayerScreen, MiniPlayer, sheets, Settings > Playback): XxxScreen + XxxViewModel (Hilt, StateFlow, Load<T> = loading / content / failed with retry)
+              onboarding, discover, search, book, library, download (Downloads screen, DownloadButton), settings, admin (Users), debrid + bittorrent (shared by onboarding and Settings), update
 di/           Hilt modules; src/debug and src/release each provide the (debug-only) interceptors
 app/          Routes (typed), AppRoot (onboarding gate / shell), BottomBar, NavHost (shared-element transition cover -> Book detail)
-```
-
-```
-core/download  offline downloads (Phase 3b), see below; feature/download = its UI
-core/torrent   TorrentEngine interface (BitTorrent, Phase 4); core/download plugs into it through TorrentSource
 ```
 
 ## Downloads (core/download, feature/download)
@@ -92,16 +95,15 @@ PathSafety            every server-provided path is untrusted: absolute paths, `
 
 * Wi-Fi only is the default (setting "Also download on mobile data"); auto-download is always Wi-Fi only. Free space (300 MB reserve) and the
   limit are checked before a job starts and again when the file list is known.
-* Hooks other features implement/override: `PlayingBook` (core/download; the player binds it, default none), `TorrentEngine` (core/torrent; optional
+* Hooks other features implement/override: `PlayingBook` (core/download; bound by the player), `TorrentEngine` (core/torrent; optional
   binding), `SessionWipeHook` (core/data; sign-out/user switch wipes the downloads through it).
-* UI: Book detail (`DownloadButton`, `DownloadStatus`, `ReleaseDownloadButton`: the player can reuse them), Downloads screen (Library toolbar and
+* UI: Book detail (`DownloadButton`, `DownloadStatus`, `ReleaseDownloadButton`; next to Play), Downloads screen (Library toolbar and
   Settings), Settings > Downloads (`DownloadSettingsSection`), Library "Downloaded" badge/filter that also works offline.
-core/torrent TorrentEngine (contract) + LibTorrentEngine (libtorrent4j): metadata fetch, selective download, TorrentPolicy (opt-in, VPN, Wi-Fi,
-              battery, seeding), TorrentSettings (DataStore), AndroidDeviceStateMonitor, TorrentService (foreground, dataSync) + resume worker,
-              TorrentPaths (zip-slip), TorrentStore (resume data in the no-backup dir). Binding: di/TorrentModule. Details: DESIGN.md "BitTorrent engine".
 
-Slots for later phases: `core/player` (Media3 service), `core/download` (WorkManager + engines) next to `core/data`; `ReleaseRepository`
-already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
+The player consumes downloads through the `LocalFiles` interface (`core/download/LocalFiles.kt`, bound to `DownloadedLocalFiles` in
+`di/LocalFilesModule`): a complete local copy always wins over streaming, file by file. The player in turn tells the storage rules which book it
+holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/PlayerModule`), so the LRU eviction never deletes it, and calls `DownloadsRepository.autoDownloadIfEnabled` when a streamed book starts (`PlaybackService`).
+`ReleaseRepository` has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
 
 ## Flows
 
@@ -114,9 +116,14 @@ already has `prepare`, `downloadLink` (302/202) and `reportTorrentFiles`.
   Google Play services). Invite and link codes are 26 base32 characters: the field accepts pasted text (case, spaces, dashes forgiven,
   counted live) and **Scan QR code** (Google code scanner, no camera permission; paste is the fallback).
 * **Main**: Discover, Search, Library, Settings (bottom bar); Book detail (cover, people, series, runtime, description, ranked releases with
-  format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key, a Download button with its
-  state per book and per release). Play still answers "Coming in a later phase".
-* **Settings**: account name, region, languages, preferred format, source mode, wallpaper colors (opt-in, Android 12+), debrid keys
+  format/size/seeders, cached badges per provider and "usable via" chips: Debrid / BitTorrent / needs a key). **Play** streams (or
+  plays local files) with the chosen release ("Listen with this release", remembered per book; default = best release the user can stream, cached
+  first), shows the file list, the catalog chapters and the needs-key / preparing / failed states. Next to Play, **Download** (per book and per
+  release) shows its state (preparing, progress, paused, failed with retry, downloaded, delete).
+* **Player**: full-screen (cover-derived dark page, whole-book wavy seek bar with chapter ticks, skip, chapters, speed, sleep timer, bookmarks), a
+  mini player above the bottom bar on every screen, notification and lock-screen controls, playback with the screen off. Details:
+  `../docs/DESIGN.md` ("Player (Phase 3)").
+* **Settings**: playback (skip back/forward 10/15/30/45/60 s, smart rewind), account name, region, languages, preferred format, source mode, wallpaper colors (opt-in, Android 12+), debrid keys
   (add/replace/check/remove with status, the key is never shown again), BitTorrent switch with warning, devices (revoke, "Link another
   device": QR code + code in blocks of five + Copy/Share + countdown), Google account (link, shows the email, unlink with confirmation), version + update check, sign out (revokes this device on the server first). Admins also see **Users and invites**
   (users with disable/enable; invites: the code is shown once as QR + Copy/Share, revoke).
@@ -134,12 +141,12 @@ before the server implements catalog, releases and library.
    `DEMO-DEMO-DEMO-DEMO-DEMO-DEMO-DE` (a normal user). Codes made in Settings and Users are 26 characters like the real ones and work in the demo.
    **Sign in with Google** works too, without Google: the demo backend reports `google_enabled`, and a debug-only fake supplies the ID token
    of "Demo <demo.listener@example.test>" (the demo server's nonces are routed to the fake; any other server uses the real Credential
-   Manager). Try: Continue with Google -> "not linked" -> invite code -> joined; or First setup, then Settings > Link Google account. Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+
-3. Sign in with: **First setup** + instance password `demo-password` (you become admin), or **invite code** `DEMO-INVITE` (a normal user).
-   Link codes made in Settings work in the demo too. Add any key of 8+ characters in Settings first: then Download works against the demo
-   (prepare needs three polls, the files are 4 MB silent WAVs served under `/cdn/` with Range support, see `DemoDownloads`). Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+
-   characters is accepted. A search for `error` returns a 503 to show the error state. State lives in memory: it resets when the app
-   process dies (a stored session then continues as the demo admin).
+   Manager). Try: Continue with Google -> "not linked" -> invite code -> joined; or First setup, then Settings > Link Google account.
+   Link codes made in Settings work in the demo too.
+4. Debrid key `badkeybadkey` is rejected (`bad_debrid_key`), any other key of 8+ characters is accepted; with a key, Play and Download work
+   against the demo (`prepare` needs a few polls; the demo book streams from the local audio fixture, every other book serves 4 MB silent WAVs under
+   `/cdn/` with Range support, see `DemoDownloads`; the debug FakeBackend is the only server involved). A search for `error` returns a 503 to show
+   the error state. State lives in memory: it resets when the app process dies (a stored session then continues as the demo admin, with a TorBox key).
 
 Against a real server in development use `http://10.0.2.2:<port>` (the emulator's host) or, in debug builds, any LAN address.
 
@@ -157,16 +164,43 @@ Against a real server in development use `http://10.0.2.2:<port>` (the emulator'
   (`-Pandroid.testInstrumentationRunnerArguments.librivoxMagnet=...`; your IP is visible in a real swarm: run it behind a VPN).
 * Release ships `arm64-v8a` only; debug adds `x86_64` for the emulator (`ndk.abiFilters` per build type in `app/build.gradle.kts`).
 
+## Player on an emulator
+
+The debug FakeBackend streams a local audio fixture: the demo book **Demo: Three Short Parts** (3 min, 3 x 1 min parts, in the library as
+"Continue listening") has real chapters; every other demo book plays a silent WAV served by the demo backend itself (the downloads' `/cdn/`). Cached releases are `ready` at once, the
+64 kbit/s release is "preparing" for four polls (progress 20-80 %) first. The first-setup user has no debrid key (Play asks for one); a
+process restart continues as the default admin WITH a TorBox key, so a reinstall during development streams at once.
+
+```bash
+cd app
+python3 scripts/audio_fixture.py &            # generates 3 x 60 s MP3 with ffmpeg in /tmp/opencode/audio-fixture, serves them with Range
+                                              # support on 0.0.0.0:8765 (the emulator sees it as http://10.0.2.2:8765) and logs every request
+                                              # with its Range and whether an Authorization header came along (it never does)
+./gradlew :app:installDebug                   # then: demo backend, First setup, Skip, Skip, restart the app, Continue listening -> play
+```
+
+The demo book can also be downloaded for offline use (from the same fixture); the other demo books download the silent WAV (4 MB per file).
+
+Own emulator, never a shared one: `emulator -avd audiobooks_pixel -port 5570 -read-only -no-audio -no-window`, `ANDROID_SERIAL=emulator-5570`.
+
 ## Tests
 
 `./gradlew :app:testDebugUnitTest`: JUnit + MockWebServer + Turbine (+ Robolectric for Room/WorkManager). API client (error parsing, retry,
 Retry-After, refresh, sign-out, token never sent to other hosts), the contract coverage test, DTO parsing, auth, repositories, session cleanup,
 the updater, WCAG contrast of both palettes, the ViewModels (onboarding, debrid, BitTorrent, settings, Google account, admin, discover, search,
-book, library), the Google flow state machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409),
-the QR encoder, code normalisation. Downloads: `core/download/*Test` (path safety, Range resume / atomic rename / 202 and JSON never saved /
-redirect without Authorization / error mapping, Wi-Fi gating with a fake network, LRU eviction, orphans, per-user isolation, LocalFiles,
-TorrentSource with a fake engine, worker retry/backoff). BitTorrent: policy / path / planner / settings tests (`core/torrent`). The app uses no
-regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
+book, library, player), the Google flow state machine (fresh nonce + fresh ID token after every failed attempt, not linked -> join, link/unlink, 409),
+the QR encoder, code normalisation. Player: `BookTimeline` mapping (randomised), chapter fallback, sleep timer, smart rewind / finished / speed rules,
+`ReleaseChooser`, resume + sync queue and last-write-wins against a fake `PlayerDao`/server, bookmarks, the stream link (302/202/403/404/429/502, token
+only to the server) on MockWebServer, the book loader (local-first, remembered release, offline chapters), shake detection, preferences. Downloads:
+`core/download/*Test` (path safety, Range resume / atomic rename / 202 and JSON never saved / redirect without Authorization / error mapping, Wi-Fi
+gating with a fake network, LRU eviction, orphans, per-user isolation, LocalFiles, TorrentSource with a fake engine, worker retry/backoff).
+BitTorrent: policy / path / planner / settings tests (`core/torrent`).
+
+`./gradlew :app:connectedDebugAndroidTest` (needs an emulator; set `ANDROID_SERIAL=emulator-<port>` so a physical device is never used) runs
+`BookPlayerTest` (the session's chapter view on a real ExoPlayer over generated WAV files), `PlaybackDataSourcesTest` (the real data source against two
+MockWebServers: Range, no token on the CDN) and `PlaybackServiceTest` (service + MediaController), plus the BitTorrent tests described above.
+
+The app uses no regular expressions, so there is no `AppRegexIcuTest` (add one, run on an emulator, with the first regex).
 
 ## Sign in with Google
 

@@ -35,7 +35,8 @@ import kotlin.math.sin
 /**
  * The signature element: a progress / seek bar whose played part is a sine wave. The wave runs (phase moves) and has full amplitude while
  * [playing]; it relaxes to [restingAmplitude] (0 = a flat line) with a spring when paused. The rest of the track is a straight line,
- * [ticks] adds the small chapter-style marks of the player. Pass [onSeek] to make it a seek bar (tap or drag, fraction 0..1).
+ * [ticks] adds evenly spaced marks, [tickFractions] marks at given places instead (the chapters of a book). Pass [onSeek] to make it a seek bar
+ * (tap or drag, fraction 0..1; [onSeekEnd] follows when the finger lifts, so a caller can commit once instead of on every move).
  */
 @Composable
 fun WavyProgressBar(
@@ -44,7 +45,9 @@ fun WavyProgressBar(
     playing: Boolean = false,
     restingAmplitude: Float = 0f,
     onSeek: ((Float) -> Unit)? = null,
+    onSeekEnd: (() -> Unit)? = null,
     ticks: Boolean = false,
+    tickFractions: List<Float>? = null,
     height: Dp = 32.dp,
     strokeWidth: Dp = 4.dp,
     waveLength: Dp = 40.dp,
@@ -73,8 +76,17 @@ fun WavyProgressBar(
     var seekModifier: Modifier = Modifier
     if (onSeek != null) {
         seekModifier = Modifier
-            .pointerInput(onSeek) { detectTapGestures { onSeek((it.x / size.width).coerceIn(0f, 1f)) } }
-            .pointerInput(onSeek) { detectDragGestures { change, _ -> onSeek((change.position.x / size.width).coerceIn(0f, 1f)) } }
+            .pointerInput(onSeek, onSeekEnd) {
+                detectTapGestures {
+                    onSeek((it.x / size.width).coerceIn(0f, 1f))
+                    onSeekEnd?.invoke()
+                }
+            }
+            .pointerInput(onSeek, onSeekEnd) {
+                detectDragGestures(onDragEnd = { onSeekEnd?.invoke() }, onDragCancel = { onSeekEnd?.invoke() }) { change, _ ->
+                    onSeek((change.position.x / size.width).coerceIn(0f, 1f))
+                }
+            }
     }
     Canvas(
         modifier
@@ -90,10 +102,10 @@ fun WavyProgressBar(
         val x = inset + usable * fraction
         // The rest of the track: a straight line (with ticks for the player).
         drawLine(trackColor, Offset(x, cy), Offset(size.width - inset, cy), strokeWidth = stroke, cap = StrokeCap.Round)
-        if (ticks) {
-            val n = 10
-            for (i in 1..n) {
-                val tx = inset + usable * i / n
+        if (ticks || tickFractions != null) {
+            val marks = tickFractions ?: (1..10).map { it / 10f }
+            for (f in marks) {
+                val tx = inset + usable * f.coerceIn(0f, 1f)
                 if (tx > x + stroke * 2) drawLine(trackColor, Offset(tx, cy + stroke * 2), Offset(tx, cy + stroke * 3.2f), strokeWidth = stroke / 3f, cap = StrokeCap.Round)
             }
         }

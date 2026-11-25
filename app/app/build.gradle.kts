@@ -90,6 +90,8 @@ android {
 
     lint {
         abortOnError = true
+        // Media3's @UnstableApi is androidx's lint-only opt-in marker; the player is built on exactly those APIs (version pinned in libs.versions.toml).
+        disable += "UnsafeOptInUsageError"
         checkReleaseBuilds = false
     }
 
@@ -172,6 +174,9 @@ dependencies {
     implementation(libs.libtorrent4j.android.arm64)
     // x86_64 only so the emulator can run the engine; release ships arm64-v8a only (see the abiFilters in buildTypes).
     debugImplementation(libs.libtorrent4j.android.x86)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.session)
+    implementation(libs.media3.datasource.okhttp)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
@@ -188,6 +193,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlin.test)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(platform(libs.compose.bom))
     debugImplementation(libs.compose.ui.test.manifest)
 }

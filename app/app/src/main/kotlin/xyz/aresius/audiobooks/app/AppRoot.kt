@@ -22,6 +22,7 @@ import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import xyz.aresius.audiobooks.feature.onboarding.OnboardingScreen
+import xyz.aresius.audiobooks.feature.player.MiniPlayer
 import xyz.aresius.audiobooks.feature.update.UpdateBanner
 
 private fun NavDestination?.topLevelTab(): TopLevelTab? = when {
@@ -58,20 +59,24 @@ private fun AppShell(viewModel: AppViewModel) {
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            Column {
-                UpdateBanner()
-                AudiobooksBottomBar(selected = lastTab, onSelect = { tab ->
-                    if (tab == lastTab && destination.topLevelTab() == null) {
-                        // Re-selecting the current tab from one of its detail screens goes back to the tab's root.
-                        navController.popBackStack(tab.route, inclusive = false)
-                        return@AudiobooksBottomBar
-                    }
-                    navController.navigate(tab.route) {
-                        popUpTo<Routes.Discover> { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                })
+            // The full-screen player has no bars; everywhere else the mini player sits right above the bottom bar.
+            if (destination?.hasRoute<Routes.Player>() != true) {
+                Column {
+                    MiniPlayer(visible = true, onOpen = { navController.navigate(Routes.Player) { launchSingleTop = true } })
+                    UpdateBanner()
+                    AudiobooksBottomBar(selected = lastTab, onSelect = { tab ->
+                        if (tab == lastTab && destination.topLevelTab() == null) {
+                            // Re-selecting the current tab from one of its detail screens goes back to the tab's root.
+                            navController.popBackStack(tab.route, inclusive = false)
+                            return@AudiobooksBottomBar
+                        }
+                        navController.navigate(tab.route) {
+                            popUpTo<Routes.Discover> { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    })
+                }
             }
         },
     ) { innerPadding ->

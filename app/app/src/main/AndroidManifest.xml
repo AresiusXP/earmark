@@ -10,7 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- BitTorrent engine (core/torrent): foreground service of type dataSync, its notification, and a wake lock held only while data flows. -->
+    <!-- Player: a foreground media service (notification, lock-screen controls) that keeps the CPU and Wi-Fi awake while a book plays. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- BitTorrent engine (core/torrent): foreground service of type dataSync, its notification, and a wake lock held only while data flows; the player shares the wake lock. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
@@ -38,6 +40,16 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- The playback service holds the ExoPlayer and the media session. Exported so controllers (lock screen, Bluetooth, later Android Auto) can bind. -->
+        <service
+            android:name=".core.player.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <!-- PackageInstaller session status; reached only through the PendingIntent the app created. -->
         <receiver android:name=".core.update.InstallResultReceiver" android:exported="false" />

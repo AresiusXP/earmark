@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +34,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,7 +65,11 @@ import xyz.aresius.audiobooks.core.design.coverColorScheme
 import xyz.aresius.audiobooks.core.design.coverShadow
 import xyz.aresius.audiobooks.core.design.rememberCoverColors
 import xyz.aresius.audiobooks.core.network.Book
+import xyz.aresius.audiobooks.core.network.Chapters
 import xyz.aresius.audiobooks.core.network.ReleaseView
+import xyz.aresius.audiobooks.core.player.PlayerPhase
+import xyz.aresius.audiobooks.feature.player.formatClock
+import xyz.aresius.audiobooks.feature.player.text
 import xyz.aresius.audiobooks.feature.common.Load
 import xyz.aresius.audiobooks.feature.download.DownloadButton
 import xyz.aresius.audiobooks.feature.download.DownloadControlsViewModel
@@ -77,27 +87,20 @@ import xyz.aresius.audiobooks.feature.common.seriesLine
  * text keeps AA contrast), cross-faded when the cover arrives; without a cover color the base scheme shows.
  */
 @Composable
-fun BookScreen(onBack: () -> Unit, viewModel: BookViewModel = hiltViewModel()) {
+fun BookScreen(onBack: () -> Unit, onPlay: () -> Unit, onOpenSettings: () -> Unit, viewModel: BookViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val coverUrl = (state.detail as? Load.Content)?.value?.book?.coverUrl
     val cover by rememberCoverColors(coverUrl)
     val scheme = coverColorScheme(MaterialTheme.colorScheme, cover)
     MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-        BookContent(state, onBack, viewModel, glow = cover?.glow)
+        BookContent(state, onBack, onPlay, onOpenSettings, viewModel, glow = cover?.glow)
     }
 }
 
 @Composable
-private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookViewModel, glow: Color?) {
+private fun BookContent(state: BookUiState, onBack: () -> Unit, onPlay: () -> Unit, onOpenSettings: () -> Unit, viewModel: BookViewModel, glow: Color?) {
     val snackbar = remember { SnackbarHostState() }
-    val comingSoon = stringResource(R.string.book_coming_soon)
     val errorText = state.error?.message()
-    LaunchedEffect(state.comingSoon) {
-        if (state.comingSoon) {
-            snackbar.showSnackbar(comingSoon)
-            viewModel.consumeComingSoon()
-        }
-    }
     LaunchedEffect(errorText) {
         if (errorText != null) {
             snackbar.showSnackbar(errorText)
@@ -136,7 +139,12 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookV
                 is Load.Failed -> ErrorState(detail.error.message(), onRetry = { viewModel.load() })
                 is Load.Content -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
                     item {
-                        Hero(detail.value.book, detail.value.releases, inLibrary = state.libraryEntry != null, busy = state.libraryBusy, onToggleLibrary = viewModel::toggleLibrary, onPlay = viewModel::onDownloadOrPlay)
+                        Hero(
+                            detail.value.book, detail.value.releases, state,
+                            onToggleLibrary = viewModel::toggleLibrary,
+                            onPlay = { viewModel.play(); onPlay() },
+                            onOpenSettings = onOpenSettings,
+                        )
                     }
                     detail.value.book.description?.takeIf { it.isNotBlank() }?.let { description ->
                         item { Text(description, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = Spacing.screen)) }
@@ -155,8 +163,15 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookV
                         }
                     }
                     items(detail.value.releases, key = { it.infoHash }) { release ->
-                        ReleaseCard(release, book = detail.value.book, modifier = Modifier.padding(horizontal = Spacing.screen))
+                        ReleaseCard(
+                            release,
+                            book = detail.value.book,
+                            chosen = state.chosen?.release?.infoHash == release.infoHash,
+                            onChoose = { viewModel.choose(release) },
+                            modifier = Modifier.padding(horizontal = Spacing.screen),
+                        )
                     }
+                    chaptersSection(state.chapters)
                     item { Box(Modifier.height(Spacing.l)) }
                 }
             }
@@ -176,8 +191,9 @@ private fun BookLoading() {
 
 /** One strong hero: a big cover (soft glow in the dark theme, soft shadow in the light one), the serif title, then the facts. */
 @Composable
-private fun Hero(book: Book, releases: List<ReleaseView>, inLibrary: Boolean, busy: Boolean, onToggleLibrary: () -> Unit, onPlay: () -> Unit) {
+private fun Hero(book: Book, releases: List<ReleaseView>, state: BookUiState, onToggleLibrary: () -> Unit, onPlay: () -> Unit, onOpenSettings: () -> Unit) {
     val downloads: DownloadControlsViewModel = hiltViewModel()
+    val downloadRelease = state.chosen?.release?.takeIf { downloads.canDownload(it) } ?: downloads.bestRelease(releases)
     val dark = isSystemInDarkTheme()
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
         Box(Modifier.size(224.dp).then(if (dark) Modifier else Modifier.coverShadow(CoverShape))) {
@@ -199,18 +215,50 @@ private fun Hero(book: Book, releases: List<ReleaseView>, inLibrary: Boolean, bu
                 book.genres.forEach { Badge(it) }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            PrimaryButton(stringResource(R.string.book_play), onClick = onPlay, modifier = Modifier.weight(1f))
-            DownloadButton(book, downloads.bestRelease(releases), modifier = Modifier.weight(1f))
+        when (state.availability) {
+            is PlayAvailability.Playable -> {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    val resume = (state.libraryEntry?.positionMs ?: 0) > 0
+                    PrimaryButton(stringResource(if (resume) R.string.book_play_resume else R.string.book_play), onClick = onPlay, modifier = Modifier.weight(1f))
+                    DownloadButton(book, downloadRelease, modifier = Modifier.weight(1f))
+                }
+                state.playerPhase?.let { PlayerStatusLine(it) }
+            }
+            PlayAvailability.NeedsKey -> {
+                NeedsKeyBlock(onOpenSettings)
+                DownloadButton(book, downloadRelease, modifier = Modifier.fillMaxWidth())
+            }
+            PlayAvailability.NoReleases -> Unit
         }
         DownloadStatus(book.asin)
         SecondaryButton(
-            text = stringResource(if (inLibrary) R.string.book_remove_from_library else R.string.book_add_to_library),
+            text = stringResource(if (state.libraryEntry != null) R.string.book_remove_from_library else R.string.book_add_to_library),
             onClick = onToggleLibrary,
-            enabled = !busy,
+            enabled = !state.libraryBusy,
         )
-        Text(stringResource(R.string.book_coming_soon), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** Streaming needs a debrid key and there are no downloads yet: say it and offer Settings (the Download button next to it may still work over BitTorrent). */
+@Composable
+private fun NeedsKeyBlock(onOpenSettings: () -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        Text(stringResource(R.string.book_needs_key_title), style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.book_needs_key_message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        PrimaryButton(stringResource(R.string.book_open_settings), onClick = onOpenSettings)
+    }
+}
+
+/** What the player is doing with this book when it is not simply playing: opening, being prepared by the provider, or failed. */
+@Composable
+private fun PlayerStatusLine(phase: PlayerPhase) {
+    val text = when (phase) {
+        PlayerPhase.Idle, PlayerPhase.Ready -> return
+        PlayerPhase.Loading -> stringResource(R.string.player_loading)
+        is PlayerPhase.Preparing -> listOfNotNull(stringResource(R.string.player_preparing_title), phase.progress?.let { stringResource(R.string.player_preparing_progress, it) }).joinToString(" · ")
+        is PlayerPhase.Failed -> phase.text()
+    }
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
 }
 
 @Composable
@@ -230,7 +278,9 @@ private fun ReleasesHeader(count: Int, searchedAt: String?, stale: Boolean, refr
 }
 
 @Composable
-private fun ReleaseCard(release: ReleaseView, book: Book, modifier: Modifier = Modifier) {
+private fun ReleaseCard(release: ReleaseView, book: Book, chosen: Boolean, onChoose: () -> Unit, modifier: Modifier = Modifier) {
+    var showFiles by remember(release.infoHash) { mutableStateOf(false) }
+    val files = release.files.ifEmpty { release.torrentFiles }
     Card(modifier.fillMaxWidth(), shape = CardShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Text(release.title, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
@@ -257,7 +307,53 @@ private fun ReleaseCard(release: ReleaseView, book: Book, modifier: Modifier = M
                     }
                 }
             }
-            ReleaseDownloadButton(book, release)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                if (chosen) Badge(stringResource(R.string.book_release_chosen), style = BadgeStyle.Ok)
+                else TextButton(onClick = onChoose) { Text(stringResource(R.string.book_release_choose), color = MaterialTheme.colorScheme.onSurface) }
+                ReleaseDownloadButton(book, release)
+            }
+            if (files.isEmpty()) {
+                Text(stringResource(R.string.book_release_files_unknown), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                TextButton(onClick = { showFiles = !showFiles }) {
+                    Text(
+                        stringResource(R.string.book_release_files, files.size) + " · " + stringResource(if (showFiles) R.string.book_release_files_hide else R.string.book_release_files_show),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                if (showFiles) {
+                    files.forEach { f ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                            Text(f.path.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(formatSize(f.size), style = MaterialTheme.typography.bodySmall.merge(xyz.aresius.audiobooks.core.design.TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The catalog's chapters of the book (the player follows them when they fit the release's audio, else the files). */
+private fun LazyListScope.chaptersSection(chapters: Load<Chapters>) {
+    item {
+        Column(Modifier.padding(horizontal = Spacing.screen), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            HorizontalDivider(Modifier.padding(vertical = Spacing.s), color = MaterialTheme.colorScheme.outlineVariant)
+            Text(stringResource(R.string.book_chapters_title), style = MaterialTheme.typography.headlineSmall)
+        }
+    }
+    val list = (chapters as? Load.Content)?.value?.chapters.orEmpty()
+    if (list.isEmpty()) {
+        if (chapters !is Load.Loading) {
+            item { Text(stringResource(R.string.book_chapters_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Spacing.screen)) }
+        }
+        return
+    }
+    itemsIndexed(list) { i, c ->
+        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen), horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+            Text((i + 1).toString(), style = MaterialTheme.typography.labelLarge.merge(xyz.aresius.audiobooks.core.design.TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(28.dp))
+            Text(c.title.ifBlank { stringResource(R.string.player_chapter_n, i + 1) }, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(formatClock(c.startMs), style = MaterialTheme.typography.bodyMedium.merge(xyz.aresius.audiobooks.core.design.TabularFigures), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

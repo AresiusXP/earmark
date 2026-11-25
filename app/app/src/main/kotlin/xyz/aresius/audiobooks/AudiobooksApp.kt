@@ -16,6 +16,7 @@ import okio.Path.Companion.toOkioPath
 import xyz.aresius.audiobooks.core.data.SessionCleanup
 import xyz.aresius.audiobooks.core.download.DownloadsStarter
 import xyz.aresius.audiobooks.core.network.HttpClientFactory
+import xyz.aresius.audiobooks.core.player.PlayerStarter
 import xyz.aresius.audiobooks.core.update.UpdateStarter
 
 @HiltAndroidApp
@@ -23,6 +24,7 @@ class AudiobooksApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var sessionCleanup: SessionCleanup
     @Inject lateinit var updateStarter: UpdateStarter
     @Inject lateinit var downloadsStarter: DownloadsStarter
+    @Inject lateinit var playerStarter: PlayerStarter
     @Inject lateinit var httpClients: HttpClientFactory
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -31,6 +33,7 @@ class AudiobooksApp : Application(), SingletonImageLoader.Factory {
         sessionCleanup.start(appScope)
         updateStarter.start()
         downloadsStarter.start(appScope)
+        playerStarter.start(appScope)
     }
 
     /** Images: memory 15 % of the app heap, disk 100 MB, through the app's HTTP client (timeouts; the debug FakeBackend serves its covers). */
