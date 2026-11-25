@@ -141,7 +141,12 @@ jobs:
             echo "::error::Tag ${TAG} does not exist in this repository"
             exit 1
           fi
-          git fetch --quiet origin main
+          # The checkout above fetched every branch (fetch-depth 0), so origin/main is already here: no credentials
+          # are persisted, a second `git fetch` would fail while the repository is private.
+          if ! git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null; then
+            echo "::error::origin/main is not available in the checkout"
+            exit 1
+          fi
           if ! git merge-base --is-ancestor "$commit" origin/main; then
             echo "::error::Tag ${TAG} (${commit}) is not reachable from origin/main; refusing to build it with release credentials"
             exit 1
