@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.3.0...v0.3.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* clamp release metadata before int4 batch upserts ([f3b4a54](https://github.com/AresiusXP/stremio-audiobooks/commit/f3b4a54af153ad83a813696b8d2b502350c68543))
+
 ## [0.3.0](https://github.com/AresiusXP/stremio-audiobooks/compare/v0.2.1...v0.3.0) (2026-11-16)
 
 
