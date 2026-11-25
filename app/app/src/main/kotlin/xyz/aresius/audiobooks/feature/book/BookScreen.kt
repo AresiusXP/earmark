@@ -100,7 +100,20 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookV
             viewModel.consumeError()
         }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val dark = isSystemInDarkTheme()
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(
+            if (dark && glow != null) {
+                // Dark theme: a soft glow of the cover's swatch behind the cover (light theme: the cover's shadow instead).
+                Modifier.drawBehind {
+                    val center = Offset(size.width / 2, 150.dp.toPx() + 112.dp.toPx())
+                    drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.30f), Color.Transparent), center = center, radius = 260.dp.toPx()), radius = 260.dp.toPx(), center = center)
+                }
+            } else {
+                Modifier
+            },
+        ),
+    ) {
         val detail = state.detail
         DetailTopBar(
             title = "",
@@ -119,7 +132,7 @@ private fun BookContent(state: BookUiState, onBack: () -> Unit, viewModel: BookV
                 is Load.Failed -> ErrorState(detail.error.message(), onRetry = { viewModel.load() })
                 is Load.Content -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
                     item {
-                        Hero(detail.value.book, inLibrary = state.libraryEntry != null, busy = state.libraryBusy, glow = glow, onToggleLibrary = viewModel::toggleLibrary, onPlayOrDownload = viewModel::onDownloadOrPlay)
+                        Hero(detail.value.book, inLibrary = state.libraryEntry != null, busy = state.libraryBusy, onToggleLibrary = viewModel::toggleLibrary, onPlayOrDownload = viewModel::onDownloadOrPlay)
                     }
                     detail.value.book.description?.takeIf { it.isNotBlank() }?.let { description ->
                         item { Text(description, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = Spacing.screen)) }
@@ -159,23 +172,10 @@ private fun BookLoading() {
 
 /** One strong hero: a big cover (soft glow in the dark theme, soft shadow in the light one), the serif title, then the facts. */
 @Composable
-private fun Hero(book: Book, inLibrary: Boolean, busy: Boolean, glow: Color?, onToggleLibrary: () -> Unit, onPlayOrDownload: () -> Unit) {
+private fun Hero(book: Book, inLibrary: Boolean, busy: Boolean, onToggleLibrary: () -> Unit, onPlayOrDownload: () -> Unit) {
     val dark = isSystemInDarkTheme()
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-        Box(
-            Modifier.size(224.dp).then(
-                if (dark && glow != null) {
-                    Modifier.drawBehind {
-                        drawCircle(
-                            Brush.radialGradient(listOf(glow.copy(alpha = 0.30f), Color.Transparent), center = Offset(size.width / 2, size.height / 2), radius = size.maxDimension * 0.9f),
-                            radius = size.maxDimension * 0.9f,
-                        )
-                    }
-                } else {
-                    Modifier.coverShadow(CoverShape)
-                },
-            ),
-        ) {
+        Box(Modifier.size(224.dp).then(if (dark) Modifier else Modifier.coverShadow(CoverShape))) {
             CoverImage(book.coverUrl, Modifier.size(224.dp), shape = CoverShape, contentDescription = book.title, asin = book.asin)
         }
         Text(book.title, style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center)

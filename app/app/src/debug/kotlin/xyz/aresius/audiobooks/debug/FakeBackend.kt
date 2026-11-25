@@ -359,10 +359,11 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
 
     private fun cover(request: Request, asin: String): Response {
         val title = books.firstOrNull { it.asin == asin }?.title ?: "?"
-        val hue = (asin.hashCode().mod(360)).toFloat()
+        // Warm hues only (persimmon, mustard, rose, plum): the design has no blue or green.
+        val hue = WARM_HUES[asin.hashCode().mod(WARM_HUES.size)]
         val bmp = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
-        canvas.drawColor(Color.HSVToColor(floatArrayOf(hue, 0.45f, 0.45f)))
+        canvas.drawColor(Color.HSVToColor(floatArrayOf(hue, 0.55f, 0.55f)))
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 110f; textAlign = Paint.Align.CENTER }
         val initials = title.split(' ').filter { it.isNotEmpty() }.take(2).joinToString("") { it.take(1).uppercase() }
         canvas.drawText(initials, 150f, 190f, paint)
@@ -404,6 +405,7 @@ class FakeBackend(private val latencyMs: Long = 250) : Interceptor {
         const val DEMO_INVITE = "DEMO-INVITE"
         const val BAD_KEY = "badkeybadkey"
         private const val PAGE_SIZE = 12
+        private val WARM_HUES = floatArrayOf(8f, 16f, 24f, 34f, 42f, 350f, 335f, 12f)
         private val JSON = "application/json".toMediaType()
 
         private fun sampleBooks(): List<Book> {

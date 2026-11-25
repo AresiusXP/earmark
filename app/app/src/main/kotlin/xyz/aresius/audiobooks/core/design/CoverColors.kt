@@ -15,6 +15,7 @@ import androidx.palette.graphics.Palette
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import coil3.request.crossfade
 import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +37,8 @@ data class CoverColors(
 
 object CoverColorDeriver {
     private const val TEXT_RATIO = 4.5
+    private const val MAX_DARK_L = 0.13f
+    private const val MIN_LIGHT_L = 0.88f
 
     /**
      * [swatch] is a Palette swatch (dominant or muted); [vibrant] an optional more saturated one for the accent. [ink] and [paper] are the
@@ -44,6 +47,8 @@ object CoverColorDeriver {
     fun derive(swatch: Color, vibrant: Color?, dark: Boolean, ink: Color, paper: Color): CoverColors {
         val quiet = ColorMath.scaleSaturation(swatch, 0.65f)
         var bg = if (dark) ColorMath.mix(quiet, ink, 0.66f) else ColorMath.mix(quiet, paper, 0.80f)
+        // A pale cover (dark text on white) must not turn the dark page gray, nor a dark one the light page muddy: keep the tone of the theme.
+        bg = ColorMath.toHsl(bg).let { hsl -> ColorMath.fromHsl(hsl.copy(l = if (dark) hsl.l.coerceAtMost(MAX_DARK_L) else hsl.l.coerceAtLeast(MIN_LIGHT_L))) }
         var on = if (ColorMath.contrast(ink, bg) >= ColorMath.contrast(paper, bg)) ink else paper
         // Pull the background toward the side opposite the text until the text is readable (always terminates: ink/paper themselves pass).
         var steps = 0
@@ -52,11 +57,29 @@ object CoverColorDeriver {
             steps++
         }
         val muted = nudge(ColorMath.mix(on, bg, 0.30f), bg, on)
-        val accentSource = ColorMath.scaleSaturation(vibrant ?: swatch, 0.9f)
-        val accent = nudge(accentSource, bg, on)
+        val accent = accentFor(vibrant ?: swatch, bg, on == paper)
         val onAccent = if (ColorMath.contrast(ink, accent) >= ColorMath.contrast(paper, accent)) ink else paper
         val tonal = ColorMath.mix(bg, on, 0.07f)
         return CoverColors(bg, on, muted, accent, onAccent, tonal, glow = swatch.copy(alpha = 0.34f))
+    }
+
+    /**
+     * The cover's hue as the accent: saturation kept (at least 0.4, so a gray cover still gets a warm accent), only the lightness moves
+     * (lighter on a dark page, darker on a light one) until it reads on [bg] with AA contrast.
+     */
+    private fun accentFor(source: Color, bg: Color, lighten: Boolean): Color {
+        val hsl = ColorMath.toHsl(source)
+        var l = hsl.l.coerceIn(0.2f, 0.8f)
+        val s = hsl.s.coerceIn(0.4f, 0.9f)
+        var out = ColorMath.fromHsl(ColorMath.Hsl(hsl.h, s, l))
+        var steps = 0
+        while (ColorMath.contrast(out, bg) < TEXT_RATIO && steps < 40) {
+            l = (l + if (lighten) 0.02f else -0.02f).coerceIn(0f, 1f)
+            out = ColorMath.fromHsl(ColorMath.Hsl(hsl.h, s, l))
+            steps++
+        }
+        // Always terminates in a pass: the extremes (near-white on dark, near-black on light) have AA contrast on these backgrounds.
+        return if (ColorMath.contrast(out, bg) >= TEXT_RATIO) out else nudge(out, bg, if (lighten) Color.White else Color.Black)
     }
 
     /** Moves [c] toward [target] (the text color) until it reads on [bg] with AA contrast. */
@@ -86,10 +109,12 @@ fun rememberCoverColors(url: String?): State<CoverColors?> {
         }
         value = withContext(Dispatchers.Default) {
             runCatching {
-                val request = ImageRequest.Builder(context).data(url).allowHardware(false).build()
+                val request = ImageRequest.Builder(context).data(url).allowHardware(false).crossfade(false).size(coil3.size.Size(240, 240)).build()
                 val bitmap: Bitmap = SingletonImageLoader.get(context).execute(request).image?.toBitmap() ?: return@runCatching null
-                val palette = Palette.from(bitmap).maximumColorCount(16).resizeBitmapArea(160 * 160).generate()
-                val base = palette.dominantSwatch ?: palette.mutedSwatch ?: return@runCatching null
+                val palette = // clearFilters: the default filter drops hues 10-37 degrees (its "skin tone" I-line), which is exactly the warm range of many covers.
+                Palette.from(bitmap).maximumColorCount(16).resizeBitmapArea(160 * 160).clearFilters().generate()
+                // The most present color, weighted toward the colorful ones: a white title on a brown cover must not win.
+                val base = palette.swatches.maxByOrNull { it.population * (0.25f + it.hsl[1]) } ?: palette.dominantSwatch ?: return@runCatching null
                 val vibrant = palette.vibrantSwatch ?: palette.lightVibrantSwatch
                 CoverColorDeriver.derive(Color(base.rgb), vibrant?.let { Color(it.rgb) }, dark, ink, paper)
             }.getOrNull()
