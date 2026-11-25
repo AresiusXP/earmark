@@ -414,7 +414,7 @@ provider index); consumers match by path, never by index.
   `LocalFiles` returns only complete files. Limit default 5 GB with LRU eviction of FINISHED books only (never the playing one), optional
   auto-delete N days after finishing, orphan cleanup, wipe on sign-out/user switch. Every server path is sanitized (no `..`, no absolute paths).
   The BitTorrent engine plugs in through `TorrentSource`/`TorrentEngine`.
-* BitTorrent (Phase 4, libtorrent4j, arm64-v8a only plus x86_64 debug): downloads only the selected files, in order; stop
+* BitTorrent (Phase 4, libtorrent4j; release supports `arm64-v8a` and `armeabi-v7a`, debug also supports `x86_64`): downloads only the selected files, in order; stop
   seeding when done by default (optional seed to ratio 1.0, Wi-Fi + charging); "only when a VPN is active" setting enforced in
   the engine (pause every torrent when the VPN drops); first-use warning; mobile data off by default; honest "no seeders" /
   "stalled" states; foreground service with WorkManager resume (Android 15 caps dataSync at 6 h per 24 h).
@@ -436,7 +436,7 @@ provider index); consumers match by path, never by index.
   against production responses before shipping. Never uninstall or `pm clear` the user's phone.
 
 ### BitTorrent engine (Phase 4, `app/app/src/main/kotlin/.../core/torrent`)
-libtorrent4j 2.1.0-39 (`libtorrent4j` + `-android-arm64`, `-android-x86_64` debug only), behind `TorrentEngine` (`fetchFiles`, `download` as a cold
+libtorrent4j 2.1.0-39 (`libtorrent4j` + `-android-arm64` and `-android-arm` for release and debug; `-android-x86_64` debug only), behind `TorrentEngine` (`fetchFiles`, `download` as a cold
 flow, `remove`); `LibTorrentEngine` is the only implementation, bound in `di/TorrentModule.kt` (also as `TorrentRuntime` for the service).
 * **Session**: one `SessionManager`, started on first use, stopped 15 s after the last torrent stopped; DHT state in `noBackupFilesDir/torrent`.
   DHT, LSD, PEX, uTP, UPnP/NAT-PMP on while the policy allows. Not auto-managed: the engine runs its own slots (max active torrents 2) and

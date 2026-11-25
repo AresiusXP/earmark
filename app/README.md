@@ -247,7 +247,7 @@ Against a real server in development use `http://10.0.2.2:<port>` (the emulator'
 * Policy ordering: `PolicyGate` (decision + the one lock for policy changes and every torrent/session resume; `PolicyGateTest` stress-tests it) and
   `NetworkSwitches` (blocked = DHT/LSD/port maps/incoming/listen sockets all off, also at session start). Instrumented:
   `aSessionStartedWhileBlockedIsPausedAndSilent`, `aPolicyFlipDuringMetadataFetchLeavesNothingRunning`.
-* Release ships `arm64-v8a` only; debug adds `x86_64` for the emulator (`ndk.abiFilters` per build type in `app/build.gradle.kts`).
+* ABI packaging follows `ndk.abiFilters` per build type in `app/build.gradle.kts`: release includes `arm64-v8a` and `armeabi-v7a`; debug includes those ARM ABIs plus `x86_64` for the emulator. Libtorrent's matching native artifacts (`libtorrent4j-android-arm64` and `libtorrent4j-android-arm`, both 2.1.0-39) are included for ARM builds; `libtorrent4j-android-x86_64` is debug-only. The filters keep each APK limited to its supported ABIs.
 
 ## Player on an emulator
 

@@ -384,6 +384,16 @@ jobs:
           export AUDIOBOOKS_KEYSTORE_FILE="$keystore"
           ./gradlew :app:assembleRelease -PappVersion="$VERSION" --stacktrace
 
+      # Recovery can build a legacy tag from before the verifier existed. Newer tags use the
+      # verifier from their checked-out, verified release commit.
+      - name: Verify release APK native libraries
+        run: |
+          if [[ -f scripts/verify_apk_native_libs.py ]]; then
+            python3 scripts/verify_apk_native_libs.py app/app/build/outputs/apk/release/app-release.apk
+          else
+            echo "::notice::Legacy release tag has no native library verifier; skipping APK ABI check"
+          fi
+
       - name: Verify signature and package
         id: pkg
         env:

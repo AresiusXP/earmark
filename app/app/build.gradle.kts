@@ -60,12 +60,12 @@ android {
             applicationIdSuffix = ""
             // Debug builds only: the in-process FakeBackend (see app/README.md) and plain http to any host.
             buildConfigField("boolean", "DEBUG_TOOLS", "true")
-            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
         }
         release {
             isDebuggable = false
             buildConfigField("boolean", "DEBUG_TOOLS", "false")
-            ndk { abiFilters += listOf("arm64-v8a") }
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
             // TODO: enable R8 (isMinifyEnabled/isShrinkResources) once keep rules cover Hilt, Room and serialization.
             isMinifyEnabled = false
             signingConfig = if (hasReleaseSigning) {
@@ -172,7 +172,8 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     implementation(libs.libtorrent4j)
     implementation(libs.libtorrent4j.android.arm64)
-    // x86_64 only so the emulator can run the engine; release ships arm64-v8a only (see the abiFilters in buildTypes).
+    implementation(libs.libtorrent4j.android.arm)
+    // x86_64 only so the emulator can run the engine; release ships ARM ABIs only (see abiFilters in buildTypes).
     debugImplementation(libs.libtorrent4j.android.x86)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
