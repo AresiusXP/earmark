@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/parse"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/parse"
 )
 
 const minFileCoverage = 0.75 // share of the book's main-title words a file/folder name must contain

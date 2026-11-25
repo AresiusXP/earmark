@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/googleid"
+	"github.com/AresiusXP/earmark/server/internal/googleid"
 )
 
 // GoogleVerifier verifies Google ID tokens and mints their nonces (implemented by

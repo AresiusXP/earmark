@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/appapi"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/appupdate"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
+	"github.com/AresiusXP/earmark/server/internal/appapi"
+	"github.com/AresiusXP/earmark/server/internal/appupdate"
+	"github.com/AresiusXP/earmark/server/internal/sources"
 )
 
-// config is read from the environment (see helm/stremio-audiobooks and docs/DESIGN.md).
+// config is read from the environment (see helm/earmark and docs/DESIGN.md).
 type config struct {
 	Port             int
 	AdminPort        int // serves /metrics; 0 disables the admin listener

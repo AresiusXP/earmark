@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 // Threshold is the minimum Score for Result.Match. Hard gates (title, author, collection)

@@ -16,8 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/service"
 )
 
 // newSchemaURL creates a fresh schema and returns a database URL whose search_path points

@@ -23,7 +23,7 @@
       "extra-files": [
         {
           "type": "generic",
-          "path": "helm/stremio-audiobooks/Chart.yaml"
+          "path": "helm/earmark/Chart.yaml"
         }
       ]
     }

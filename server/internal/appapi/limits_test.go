@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
 )
 
 func TestProviderWorkIsBoundedPerKeyAndHeadCounts(t *testing.T) {

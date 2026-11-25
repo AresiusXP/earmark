@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 func main() {

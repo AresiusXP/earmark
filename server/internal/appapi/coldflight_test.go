@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
 )
 
 // coldWaiters is how many outer flights wait on the cold-add flight of the key.

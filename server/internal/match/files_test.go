@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 func filesOf(paths ...string) []model.File {

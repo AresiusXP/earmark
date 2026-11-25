@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 const testKey = "tb-SECRET-key-123"

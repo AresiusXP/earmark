@@ -8,7 +8,7 @@ class InputValidationTest {
     private fun url(input: String, anyHost: Boolean = false) = InputValidation.validateUrl(input, anyHost)
 
     @Test fun httpsIsTheDefaultSchemeAndTheUrlIsNormalised() {
-        assertEquals(UrlValidation.Valid("https://audiobooks.aresius.xyz"), url(" audiobooks.aresius.xyz/ "))
+        assertEquals(UrlValidation.Valid("https://earmark.aresius.xyz"), url(" earmark.aresius.xyz/ "))
         assertEquals(UrlValidation.Valid("https://host.example/prefix"), url("https://host.example:443/prefix/"))
         assertEquals(UrlValidation.Valid("https://host.example:8443"), url("https://host.example:8443"))
     }
@@ -18,7 +18,7 @@ class InputValidationTest {
         assertEquals(UrlValidation.Valid("http://10.0.2.2:8080"), url("http://10.0.2.2:8080"))
         assertEquals(UrlValidation.Valid("http://127.0.0.1:7000"), url("http://127.0.0.1:7000"))
         assertEquals(UrlValidation.Invalid(InputProblem.UrlNeedsHttps), url("http://192.168.1.20:8080"))
-        assertEquals(UrlValidation.Invalid(InputProblem.UrlNeedsHttps), url("http://audiobooks.aresius.xyz"))
+        assertEquals(UrlValidation.Invalid(InputProblem.UrlNeedsHttps), url("http://earmark.aresius.xyz"))
     }
 
     @Test fun debugBuildsMayUseHttpEverywhere() {

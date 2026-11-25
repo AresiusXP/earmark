@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
 )
 
 // google_identities (migration 0010): sub is the primary key and user_id is UNIQUE, so one

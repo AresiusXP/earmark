@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	knabenPageSize    = 50
 	defaultMaxBody    = 8 << 20
 	defaultReqTimeout = 20 * time.Second
-	defaultUserAgent  = "stremio-audiobooks/0.1 (+https://github.com/AresiusXP/stremio-audiobooks)"
+	defaultUserAgent  = "earmark/0.1 (+https://github.com/AresiusXP/earmark)"
 )
 
 var (

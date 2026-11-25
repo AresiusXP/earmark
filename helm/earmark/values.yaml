@@ -14,7 +14,7 @@ dnsConfig:
       value: "1"
 
 image:
-  repository: ghcr.io/aresiusxp/stremio-audiobooks
+  repository: ghcr.io/aresiusxp/earmark
   # Empty = .Chart.AppVersion
   tag: ""
   pullPolicy: IfNotPresent
@@ -92,7 +92,11 @@ affinity: {}
 ingress:
   enabled: true
   className: traefik
-  host: audiobooks.aresius.xyz
+  host: earmark.aresius.xyz
+  # Extra hostnames served by the same Ingress (and covered by the same certificate). audiobooks.aresius.xyz
+  # is the old name: Stremio install URLs contain the host, so it keeps working until the addon is retired.
+  extraHosts:
+    - audiobooks.aresius.xyz
   annotations:
     kubernetes.io/tls-acme: "true"
     cert-manager.io/cluster-issuer: letsencrypt
@@ -102,7 +106,7 @@ ingress:
     external-dns.aresius.xyz: pihole
   tls:
     enabled: true
-    secretName: audiobooks.aresius.xyz-tls
+    secretName: earmark.aresius.xyz-tls
 
 # Prometheus Operator ServiceMonitor (scrapes /metrics on the admin port).
 serviceMonitor:

@@ -24,7 +24,7 @@ defaults:
     shell: bash
 
 env:
-  CHART_PATH: helm/stremio-audiobooks
+  CHART_PATH: helm/earmark
   HELM_VERSION: v3.18.4
   KUBECONFORM_VERSION: v0.8.0
   KUBERNETES_VERSION: 1.30.0

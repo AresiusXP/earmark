@@ -107,7 +107,7 @@ holds through `PlayingBook` (`core/player/PlayerPlayingBook`, bound in `di/Playe
 
 ## Flows
 
-* **Onboarding** (`feature/onboarding`): server URL (default `https://audiobooks.aresius.xyz`, changeable) -> "I have an invite code" / "First
+* **Onboarding** (`feature/onboarding`): server URL (default `https://earmark.aresius.xyz`, changeable) -> "I have an invite code" / "First
   setup (instance password)" / "Link this device (link code)" -> display name + device name -> Debrid step (TorBox / Real-Debrid key,
   validated live by `PUT /v1/me/debrid/{provider}`, skippable) -> BitTorrent step (risk explained, switch "Allow BitTorrent downloads"
   default OFF; turning it on needs a confirmation; sets `p2p_enabled` and a coherent `source_mode` through `PATCH /v1/me`). A kill

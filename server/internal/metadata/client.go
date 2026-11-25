@@ -28,7 +28,7 @@ import (
 const (
 	defaultAudibleBase  = "https://api.audible.%s" // %s = tld
 	defaultAudnexusBase = "https://api.audnex.us"
-	defaultUserAgent    = "stremio-audiobooks/0.1 (+https://github.com/AresiusXP/stremio-audiobooks)"
+	defaultUserAgent    = "earmark/0.1 (+https://github.com/AresiusXP/earmark)"
 	defaultMaxBody      = 4 << 20
 	defaultTimeout      = 15 * time.Second
 	maxResults          = 50 // Audible rejects more than 50 per page

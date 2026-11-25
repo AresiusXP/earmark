@@ -8,13 +8,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/match"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/parse"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/match"
+	"github.com/AresiusXP/earmark/server/internal/metadata"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/parse"
+	"github.com/AresiusXP/earmark/server/internal/sources"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 const defaultMaxReleases = 5

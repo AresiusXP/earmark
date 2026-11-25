@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
 )
 
 var _ accounts.Store = (*Postgres)(nil)

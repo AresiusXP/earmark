@@ -24,15 +24,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/service"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 // Deps are the collaborators of the HTTP layer.
 type Deps struct {
 	API              service.API
 	Sealer           *userconfig.Sealer
-	PublicURL        string // e.g. https://audiobooks.aresius.xyz (no trailing slash needed)
+	PublicURL        string // e.g. https://earmark.aresius.xyz (no trailing slash needed)
 	InstancePassword string // empty = no password on POST /api/config
 	Logger           *slog.Logger
 	Version          string

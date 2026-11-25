@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/metadata"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 // Search finds books by free text for every language of cfg and interleaves the results.

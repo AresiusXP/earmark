@@ -4,7 +4,7 @@ package sources
 import (
 	"context"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 // Query is a book search. Title is required; Author helps narrow results.

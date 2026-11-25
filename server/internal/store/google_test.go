@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/googleid/googleidtest"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/googleid/googleidtest"
 )
 
 type googleEnv struct {

@@ -1,6 +1,6 @@
-# AGENTS.md — stremio-audiobooks
+# AGENTS.md — Earmark (repo: earmark)
 
-Audiobooks backend + Android app (`app/`). Originally a Stremio addon serving audiobooks via debrid
+Earmark: self-hosted audiobook app (`app/`, Android) and its Go backend (`server/`). Originally a Stremio addon serving audiobooks via debrid
 services (TorBox, Real-Debrid); the Stremio routes stay until the app replaces them.
 `api/openapi.yaml` is the server/app contract; update it in the same change as the code.
 **Read `docs/DESIGN.md` first**; if code and design diverge, update the design in the same change.
@@ -20,7 +20,7 @@ services (TorBox, Real-Debrid); the Stremio routes stay until the app replaces t
 
 Homelab microk8s, GitOps via `AresiusXP/argocd-apps` (app-of-apps, Traefik, cert-manager
 `letsencrypt`, external-dns Pi-hole, shared CloudPirates Postgres, never Bitnami).
-Host `audiobooks.aresius.xyz`. Same release pipeline as tutti-frutti (release-please, ghcr images,
+Host `earmark.aresius.xyz`. Same release pipeline as tutti-frutti (release-please, ghcr images,
 OCI Helm chart, `register` job). Client IPs are NOT visible behind Traefik (SNAT).
 
 ## Commands

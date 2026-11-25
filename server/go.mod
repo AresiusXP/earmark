@@ -1,4 +1,4 @@
-module github.com/AresiusXP/stremio-audiobooks/server
+module github.com/AresiusXP/earmark/server
 
 go 1.26.0
 

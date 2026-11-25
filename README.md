@@ -1,20 +1,29 @@
 <p align="center">
-  <img src="docs/images/logo.png" alt="Audiobooks for Stremio logo" width="128" height="128">
+  <img src="docs/images/logo.png" alt="Earmark logo" width="128" height="128">
 </p>
 
-<h1 align="center">Audiobooks for Stremio</h1>
+<h1 align="center">Earmark</h1>
 
 <p align="center">
-  A self-hosted <a href="https://www.stremio.com/">Stremio</a> addon for <b>audiobooks</b>, in the spirit of
-  Torrentio and Knight Crawler. It finds audiobook torrents, checks which ones your debrid service already
-  has, and streams the audio from there. Listen in Stremio, or in any podcast app with the screen off.
+  A self-hosted <b>audiobook</b> app for Android and the server behind it. Earmark finds audiobook releases,
+  plays them through your debrid service (TorBox, Real-Debrid) or, if you choose, BitTorrent on the phone, and keeps
+  your place across devices: chapters, speed, sleep timer, bookmarks, offline downloads.
+  It also still works as a <a href="https://www.stremio.com/">Stremio</a> addon (see below) until the app replaces it.
 </p>
 
 <p align="center">
-  <a href="https://github.com/AresiusXP/stremio-audiobooks/actions/workflows/ci-server.yml"><img alt="CI" src="https://github.com/AresiusXP/stremio-audiobooks/actions/workflows/ci-server.yml/badge.svg"></a>
+  <a href="https://github.com/AresiusXP/earmark/actions/workflows/ci-server.yml"><img alt="CI" src="https://github.com/AresiusXP/earmark/actions/workflows/ci-server.yml/badge.svg"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white">
-  <img alt="Debrid" src="https://img.shields.io/badge/debrid-TorBox-7b5bd6">
+  <img alt="Debrid" src="https://img.shields.io/badge/debrid-TorBox%20%C2%B7%20Real--Debrid-7b5bd6">
 </p>
+
+* **App:** `app/` (Kotlin, Compose, Media3), see `app/README.md` and `app/DESIGN.md`.
+* **Server and API:** `server/`, contract in `api/openapi.yaml`; decisions and rules in `docs/DESIGN.md`.
+* **Releases:** `docs/RELEASING.md`.
+
+## The Stremio addon (legacy)
+
+The addon below keeps working at the same host (the old `audiobooks.aresius.xyz` name is still served).
 
 ---
 
@@ -92,7 +101,7 @@ Then open `http://localhost:8080/configure`. For use outside your own machine pu
 | `ABB_BASE_URLS` | AudioBook Bay mirrors, comma separated; `off` disables the source |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
 
-A container image is built from `server/Dockerfile`, and a Helm chart lives in `helm/stremio-audiobooks`.
+A container image is built from `server/Dockerfile`, and a Helm chart lives in `helm/earmark`.
 
 ## Development
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/googleid"
+	"github.com/AresiusXP/earmark/server/internal/googleid"
 )
 
 type fakeVerifier struct {

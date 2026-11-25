@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/sources"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 // ctxStore fails the write calls of a release search when their context is already done, like

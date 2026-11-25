@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 func fixture(t *testing.T, name string) []byte {
@@ -47,7 +47,7 @@ func TestKnabenSearchMapsLiveFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if method != http.MethodPost || ctype != "application/json" || !strings.HasPrefix(ua, "stremio-audiobooks/") {
+	if method != http.MethodPost || ctype != "application/json" || !strings.HasPrefix(ua, "earmark/") {
 		t.Errorf("method=%s ctype=%s ua=%s", method, ctype, ua)
 	}
 	want := knabenRequest{

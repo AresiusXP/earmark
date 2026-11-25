@@ -30,7 +30,7 @@ func TestTorrentsCSVSearchMapsFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/service/search" || rawQuery != "q=dungeon+crawler+carl&size=50" || !strings.HasPrefix(ua, "stremio-audiobooks/") {
+	if path != "/service/search" || rawQuery != "q=dungeon+crawler+carl&size=50" || !strings.HasPrefix(ua, "earmark/") {
 		t.Errorf("path=%q query=%q ua=%q", path, rawQuery, ua)
 	}
 	// Dropped: EPUB, S01E02/1080p, bad hash, 5 MB sample; the duplicate keeps the higher seeders.

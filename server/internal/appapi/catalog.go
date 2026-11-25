@@ -8,11 +8,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/metadata"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/service"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 // Search, discover and chapters carry nothing per user: a client may repeat them cheaply. The book

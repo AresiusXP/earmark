@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 var _ userkeys.Store = (*Postgres)(nil)

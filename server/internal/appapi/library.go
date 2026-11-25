@@ -10,8 +10,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/library"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
+	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/metadata"
 )
 
 // maxClockSkew bounds how far in the future a client's updated_at may be: last-write-wins on it, so

@@ -17,7 +17,7 @@ Use Stremio to **find** a book and a podcast app to **listen**.
 ## 1. Install the addon
 
 1. Open `https://<your-instance>/configure` in a browser (for the homelab:
-   <https://audiobooks.aresius.xyz/configure>).
+   <https://earmark.aresius.xyz/configure>).
 2. Enter the **instance password** (set by whoever runs the instance), your **TorBox API key**
    (TorBox → Settings → API), the Audible region, and your languages (English and/or Nederlands).
    Your key is checked with TorBox and then sealed into the install link. It is never shown again and

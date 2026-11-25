@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/googleid/googleidtest"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/store"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/testpg"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/googleid/googleidtest"
+	"github.com/AresiusXP/earmark/server/internal/store"
+	"github.com/AresiusXP/earmark/server/internal/testpg"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 const secret = "0123456789abcdef0123456789abcdef"

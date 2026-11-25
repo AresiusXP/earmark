@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
+	"github.com/AresiusXP/earmark/server/internal/service"
 )
 
 const idPrefix = "abk:"

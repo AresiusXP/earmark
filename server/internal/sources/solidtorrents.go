@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 const (

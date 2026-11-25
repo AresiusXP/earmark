@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/sources"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 // Default tunables, used when the matching Deps field is zero.

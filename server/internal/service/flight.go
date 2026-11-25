@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 // flightGroup deduplicates concurrent work by key. The work runs in its own goroutine, so a

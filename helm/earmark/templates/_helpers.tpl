@@ -31,7 +31,7 @@ helm.sh/chart: {{ include "abk.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: stremio-audiobooks
+app.kubernetes.io/part-of: earmark
 {{- end }}
 
 {{/* Public URL: explicit override, otherwise derived from the ingress host. */}}

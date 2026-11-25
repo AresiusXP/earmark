@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Audiobooks API
+  title: Earmark API
   version: 0.1.0
   summary: HTTP API between the audiobooks Go server and the Android app.
   description: |
@@ -79,7 +79,7 @@ info:
     **Retry.** Clients retry `502`, `503` and `504` (a deploy replaces the single pod) and honour
     `Retry-After`.
 servers:
-  - url: https://audiobooks.aresius.xyz
+  - url: https://earmark.aresius.xyz
     description: Production
 tags:
   - {name: meta, description: Liveness, version, app updates.}

@@ -21,8 +21,8 @@ base64 -w0 ~/android/keys/audiobooks.jks | gh secret set ANDROID_KEYSTORE_BASE64
 The workflow maps these to the Gradle inputs `AUDIOBOOKS_KEYSTORE_FILE/_PASSWORD`, `AUDIOBOOKS_KEY_ALIAS/_PASSWORD` (see `app/README.md`).
 
 **ARGOCD deploy key**: generate a key pair (`ssh-keygen -t ed25519 -N '' -f key`), add `key.pub` as a deploy key **with write access**,
-titled `stremio-audiobooks-release`, on `AresiusXP/argocd-apps` only, and store `key` as the secret `ARGOCD_APPS_DEPLOY_KEY` here.
-`register` uses it to move `targetRevision` of the `stremio-audiobooks` entry in `bootstrap/values.yaml` forward. If it fails,
+titled `earmark-release`, on `AresiusXP/argocd-apps` only, and store `key` as the secret `ARGOCD_APPS_DEPLOY_KEY` here.
+`register` uses it to move `targetRevision` of the `earmark` entry in `bootstrap/values.yaml` forward. If it fails,
 Renovate in the cluster is the fallback.
 
 **Back up the keystore and its passwords** (`audiobooks.jks`, `audiobooks.properties`) in a password manager or encrypted drive. The
@@ -33,7 +33,7 @@ the app's local data, and nothing can restore the old key.
 
 1. Merge conventional commits to `main`. `release-please` keeps a release PR open (changelog, `Chart.yaml`, `.release-please-manifest.json`).
 2. Merge it: `gh pr merge N --squash --admin`. This creates the tag `vX.Y.Z` and the GitHub release.
-3. The same workflow run then: builds and signs the APK (`apk`), builds `ghcr.io/aresiusxp/stremio-audiobooks:X.Y.Z` with the APK baked
+3. The same workflow run then: builds and signs the APK (`apk`), builds `ghcr.io/aresiusxp/earmark:X.Y.Z` with the APK baked
    in (`images`), pushes the chart (`chart`) and bumps `argocd-apps` (`register`). ArgoCD deploys; the app's update check then offers the new APK.
 4. Check the run summary: **"In-app update APK: included"**. "NOT included" means the image has no APK (see recovery).
 

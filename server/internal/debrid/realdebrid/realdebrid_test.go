@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 const testKey = "rd-SECRET-key-123"

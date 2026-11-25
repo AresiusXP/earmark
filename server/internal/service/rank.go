@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 // scored is a candidate release together with what is known about its debrid availability.

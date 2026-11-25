@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 // APIVersion is the contract version (bumped on breaking changes).

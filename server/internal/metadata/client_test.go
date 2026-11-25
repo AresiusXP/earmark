@@ -56,7 +56,7 @@ func TestSearch(t *testing.T) {
 			t.Errorf("query %q lacks %q", gotQuery, want)
 		}
 	}
-	if !strings.HasPrefix(gotUA, "stremio-audiobooks/") {
+	if !strings.HasPrefix(gotUA, "earmark/") {
 		t.Errorf("UA = %q", gotUA)
 	}
 	if len(books) != 3 {

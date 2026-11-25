@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-const val DEFAULT_SERVER_URL = "https://audiobooks.aresius.xyz"
+const val DEFAULT_SERVER_URL = "https://earmark.aresius.xyz"
 
 /** Small non-secret app state: which server, whether onboarding finished, update dismissal. Tokens live in the SessionStore. */
 interface AppPreferences {

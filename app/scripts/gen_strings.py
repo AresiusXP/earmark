@@ -9,7 +9,7 @@ def add(key, en, nl):
     assert key not in S, key
     S[key] = (en, nl)
 
-add("app_name", "Audiobooks", "Audiobooks")
+add("app_name", "Earmark", "Earmark")
 # common
 add("common_back", "Back", "Terug")
 add("common_cancel", "Cancel", "Annuleren")
@@ -51,10 +51,10 @@ add("auth_already_set_up", "This server already has an account. Use an invite co
 add("auth_too_many_in", "Too many attempts. Try again in %1$d s.", "Te veel pogingen. Probeer het over %1$d s opnieuw.")
 add("auth_too_many", "Too many attempts. Try again in a minute.", "Te veel pogingen. Probeer het over een minuut opnieuw.")
 add("auth_network", "Can't reach the server. Check the address and your connection.", "Kan de server niet bereiken. Controleer het adres en je verbinding.")
-add("auth_unknown", "That doesn't look like an Audiobooks server.", "Dat lijkt geen Audiobooks-server.")
+add("auth_unknown", "That doesn't look like an Earmark server.", "Dat lijkt geen Earmark-server.")
 # onboarding
 add("onboarding_server_title", "Welcome", "Welkom")
-add("onboarding_server_subtitle", "Connect the app to your Audiobooks server.", "Verbind de app met je Audiobooks-server.")
+add("onboarding_server_subtitle", "Connect the app to your Earmark server.", "Verbind de app met je Earmark-server.")
 add("onboarding_server_label", "Server address", "Serveradres")
 add("onboarding_server_help", "Leave as is unless you host your own server.", "Laat dit staan, tenzij je zelf een server host.")
 add("onboarding_use_demo", "Use the demo backend (debug build)", "Gebruik de demo-backend (debug-build)")

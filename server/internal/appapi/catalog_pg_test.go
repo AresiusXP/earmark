@@ -19,17 +19,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/appupdate"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/library"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/service"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/sources"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/store"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/testpg"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/appupdate"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/metadata"
+	"github.com/AresiusXP/earmark/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/service"
+	"github.com/AresiusXP/earmark/server/internal/sources"
+	"github.com/AresiusXP/earmark/server/internal/store"
+	"github.com/AresiusXP/earmark/server/internal/testpg"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 // These tests run the whole /v1 stack (auth middleware, real accounts, real Postgres store, the real

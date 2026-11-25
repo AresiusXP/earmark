@@ -1,10 +1,10 @@
 apiVersion: v2
-name: stremio-audiobooks
-description: Self-hosted Stremio addon for audiobooks via debrid services (TorBox, Real-Debrid)
+name: earmark
+description: Earmark, a self-hosted audiobook app backend (and legacy Stremio addon) using debrid services (TorBox, Real-Debrid)
 type: application
-home: https://audiobooks.aresius.xyz
+home: https://earmark.aresius.xyz
 sources:
-  - https://github.com/AresiusXP/stremio-audiobooks
+  - https://github.com/AresiusXP/earmark
 # version and appVersion are bumped by release-please (see release-please-config.json).
 # Keep the marker comments on the same line as the values.
 version: 0.3.0 # x-release-please-version

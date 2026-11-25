@@ -86,7 +86,7 @@ func NewSealer(secret string) (*Sealer, error) {
 	if len(secret) < minSecretLen {
 		return nil, fmt.Errorf("userconfig: secret must be at least %d bytes", minSecretLen)
 	}
-	key, err := hkdf.Key(sha256.New, []byte(secret), nil, "stremio-audiobooks user config v1", 32)
+	key, err := hkdf.Key(sha256.New, []byte(secret), nil, "earmark user config v1", 32)
 	if err != nil {
 		return nil, err
 	}

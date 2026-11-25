@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/library"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 var _ library.Store = (*Postgres)(nil)

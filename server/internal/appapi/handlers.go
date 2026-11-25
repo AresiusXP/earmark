@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/accounts"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/accounts"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 // ---- DTOs (the contract's JSON shapes) ----------------------------------------------------

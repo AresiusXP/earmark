@@ -7,13 +7,13 @@
 #     -> apk              builds the signed release APK and attaches audiobooks-X.Y.Z.apk (+ .sha256)
 #                         to the GitHub release; also uploads it with an update.json as the
 #                         workflow artifact `apk` (5 days)
-#     -> images           builds/pushes ghcr.io/<owner>/stremio-audiobooks:X.Y.Z, with that artifact
+#     -> images           builds/pushes ghcr.io/<owner>/earmark:X.Y.Z, with that artifact
 #                         baked in (/update) so the server can offer in-app updates: the repo is
 #                         private, so the app cannot fetch release assets. Waits for apk but
 #                         never depends on its success: if the APK or the artifact is missing
 #                         the image is built without it (in-app update reports "none")
-#     -> chart            packages/pushes oci://ghcr.io/<owner>/charts/stremio-audiobooks
-#     -> register         bumps targetRevision of the stremio-audiobooks entry in
+#     -> chart            packages/pushes oci://ghcr.io/<owner>/charts/earmark
+#     -> register         bumps targetRevision of the earmark entry in
 #                         <owner>/argocd-apps (bootstrap/values.yaml) on main, so ArgoCD
 #                         deploys the release; needs the ARGOCD_APPS_DEPLOY_KEY secret
 #
@@ -36,7 +36,7 @@
 # pins the signing certificate. See docs/RELEASING.md.
 #
 # ARGOCD_APPS_DEPLOY_KEY is the private half of a write deploy key (title
-# `stremio-audiobooks-release`) registered on <owner>/argocd-apps only. `register` only ever
+# `earmark-release`) registered on <owner>/argocd-apps only. `register` only ever
 # moves the deployed version FORWARD (re-running an old tag is a no-op) and skips
 # pre-releases. In-cluster Renovate remains the fallback if it fails.
 
@@ -110,7 +110,7 @@ jobs:
             exit 1
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/stremio-audiobooks" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/earmark" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         uses: actions/checkout@v7
@@ -401,8 +401,8 @@ jobs:
       packages: write
     env:
       TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
-      CHART_PATH: helm/stremio-audiobooks
-      CHART_NAME: stremio-audiobooks
+      CHART_PATH: helm/earmark
+      CHART_NAME: earmark
       HELM_VERSION: v3.18.4
 
     steps:
@@ -455,7 +455,7 @@ jobs:
       TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
       GITOPS_REPO: ${{ github.repository_owner }}/argocd-apps
       VALUES_FILE: bootstrap/values.yaml
-      APP_NAME: stremio-audiobooks
+      APP_NAME: earmark
 
     steps:
       - name: Check out the GitOps repo
@@ -473,7 +473,7 @@ jobs:
             exit 0
           fi
 
-          # Only the `- name: stremio-audiobooks` block is read/edited (no yq: it would reformat the file).
+          # Only the `- name: earmark` block is read/edited (no yq: it would reformat the file).
           range="/^  - name: ${APP_NAME}\$/,/^    namespace:/"
           current="$(sed -n "${range}"' s/^    targetRevision: *//p' "$VALUES_FILE")"
           if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -500,7 +500,7 @@ jobs:
               exit 1
             fi
             git commit -q -a \
-              -m "feat(stremio-audiobooks): release chart ${version}" \
+              -m "feat(earmark): release chart ${version}" \
               -m "Registered automatically by ${GITHUB_REPOSITORY} ${TAG}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
             if git push origin HEAD:main; then
               echo "Registered ${APP_NAME} ${version} in ${GITOPS_REPO} (was ${current})" >> "$GITHUB_STEP_SUMMARY"

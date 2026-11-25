@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
 )
 
 // Key states, as in the contract's DebridStatus.

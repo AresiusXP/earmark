@@ -40,7 +40,7 @@ class OnboardingViewModelTest {
         val vm = vm()
         val s = vm.state.awaitState { it.serverUrl.isNotEmpty() }
         assertEquals(OnboardingStep.Server, s.step)
-        assertEquals("https://audiobooks.aresius.xyz", s.serverUrl)
+        assertEquals("https://earmark.aresius.xyz", s.serverUrl)
         assertEquals("Pixel 9", s.deviceName)
         assertFalse(s.showDemoShortcut)
         assertTrue(vm().state.value.showDemoShortcut.not())

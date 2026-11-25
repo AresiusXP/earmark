@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/library"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/library"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 func mkUser(t *testing.T, s *Postgres, name string) string {

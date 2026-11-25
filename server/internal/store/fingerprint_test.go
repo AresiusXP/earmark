@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userkeys"
+	"github.com/AresiusXP/earmark/server/internal/userkeys"
 )
 
 // shared_with_others needs the same provider AND a current-format ("v2:") fingerprint equal.

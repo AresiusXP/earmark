@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
 )
 
 const testSecret = "0123456789abcdef0123456789abcdef"

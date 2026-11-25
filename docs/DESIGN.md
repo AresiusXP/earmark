@@ -1,11 +1,11 @@
-# Design — stremio-audiobooks
+# Design — earmark
 
 Source of truth. Phase 0 decisions are marked **TBD(phase0)** until the experiment in
 `docs/PHASE0.md` is done.
 
 ## Decisions taken
 
-* Go server, Postgres, Helm/ArgoCD like tutti-frutti. Host `audiobooks.aresius.xyz`.
+* Go server, Postgres, Helm/ArgoCD like tutti-frutti. Product name **Earmark** (renamed from "stremio-audiobooks" on 2026-11-25). Host `earmark.aresius.xyz`; `audiobooks.aresius.xyz` stays as a second Ingress host (`ingress.extraHosts`) so existing Stremio install URLs keep working until the addon is retired.
 * Debrid: TorBox (batch cache check) and Real-Debrid (re-added 2026-11-25 for the app, see "App direction"). Real-Debrid had been dropped on 2026-11-16; the Provider interface made it easy to bring back.
 * Metadata: Audible catalog search + Audnexus (ASIN ids), Open Library fallback.
 * Sources: Knaben (audiobook category 1003000) and AudioBook Bay (`sources/abb.go`, scraper: search page + detail page for the info hash; mirrors in `ABB_BASE_URLS`, `off` disables; queries must be lowercase or the site redirects to its front page; titles are sometimes scrambled by one letter, the matcher tolerates that). `TorrentsCSV` (`sources/torrentscsv.go`: torrents-csv.com JSON API, info hashes included; 1 req/s limiter, 30 min cache; `TORRENTS_CSV=off` disables) and `SolidTorrents` (`sources/solidtorrents.go`: the site now lives on bitsearch.eu, solidtorrents.to only redirects there; the free tier allows 200 requests per day, so results are cached for 6 h and the `x-ratelimit-*` headers are honoured: at <= 20 requests left, or after a 429, it answers `ErrRateLimited` until the reset time, fallback 1 h; `SOLIDTORRENTS=off` disables). Both search the title only (full-text AND on torrent names, many audiobook names lack the author) and drop ebook/video names and anything under 20 MB. Generic Torznab / Prowlarr only if coverage is still thin.

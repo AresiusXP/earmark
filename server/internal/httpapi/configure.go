@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/debrid"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/userconfig"
+	"github.com/AresiusXP/earmark/server/internal/debrid"
+	"github.com/AresiusXP/earmark/server/internal/userconfig"
 )
 
 //go:embed web/configure.html

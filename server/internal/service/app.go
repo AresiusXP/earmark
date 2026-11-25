@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/metadata"
-	"github.com/AresiusXP/stremio-audiobooks/server/internal/model"
+	"github.com/AresiusXP/earmark/server/internal/metadata"
+	"github.com/AresiusXP/earmark/server/internal/model"
 )
 
 // sharedCacheProviders are the providers whose cache state is the same for every account, so one
