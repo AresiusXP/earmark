@@ -13,6 +13,7 @@ import xyz.aresius.audiobooks.core.download.PlayingBook
 import xyz.aresius.audiobooks.core.network.ApiProvider
 import xyz.aresius.audiobooks.core.player.ApiProgressRemote
 import xyz.aresius.audiobooks.core.player.DevicePlayerPreferences
+import xyz.aresius.audiobooks.core.player.DurationReporter
 import xyz.aresius.audiobooks.core.player.PlaybackController
 import xyz.aresius.audiobooks.core.player.PlayerControls
 import xyz.aresius.audiobooks.core.player.PlayerDao
@@ -43,7 +44,7 @@ abstract class PlayerBindingsModule {
 @InstallIn(SingletonComponent::class)
 object PlayerModule {
     @Provides @Singleton
-    fun playerDb(@ApplicationContext context: Context): PlayerDb = Room.databaseBuilder(context, PlayerDb::class.java, "audiobooks_player.db").build()
+    fun playerDb(@ApplicationContext context: Context): PlayerDb = Room.databaseBuilder(context, PlayerDb::class.java, "audiobooks_player.db").addMigrations(PlayerDb.MIGRATION_1_2).build()
 
     @Provides fun playerDao(db: PlayerDb): PlayerDao = db.dao()
 
@@ -52,6 +53,9 @@ object PlayerModule {
 
     @Provides @Singleton
     fun syncScheduler(@ApplicationContext context: Context): SyncScheduler = WorkSyncScheduler(context)
+
+    @Provides @Singleton
+    fun durationReporter(dao: PlayerDao, provider: ApiProvider, scheduler: SyncScheduler): DurationReporter = DurationReporter(dao, { provider.api() }, scheduler)
 
     @Provides @Singleton
     fun progressSync(dao: PlayerDao, remote: ProgressRemote, scheduler: SyncScheduler): ProgressSync = ProgressSync(dao, remote, scheduler)

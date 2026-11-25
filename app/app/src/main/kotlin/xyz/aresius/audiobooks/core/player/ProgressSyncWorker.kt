@@ -21,16 +21,18 @@ import xyz.aresius.audiobooks.core.auth.SessionStore
 interface ProgressSyncEntryPoint {
     fun progressSync(): ProgressSync
     fun bookmarks(): BookmarkRepository
+    fun durations(): DurationReporter
     fun sessions(): SessionStore
 }
 
-/** Sends the progress (and bookmarks) that could not reach the server, once there is a network. */
+/** Sends the progress, bookmarks and learned durations that could not reach the server, once there is a network. */
 class ProgressSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val entry = EntryPointAccessors.fromApplication(applicationContext, ProgressSyncEntryPoint::class.java)
         val userId = entry.sessions().load()?.userId ?: return Result.success()
         entry.bookmarks().sync(null)
-        return if (entry.progressSync().flush(userId)) Result.success() else Result.retry()
+        val durationsDone = entry.durations().flush()
+        return if (entry.progressSync().flush(userId) && durationsDone) Result.success() else Result.retry()
     }
 }
 
