@@ -89,7 +89,7 @@ DownloadRunner        the policy and the result of a run (Done / Retry / Waiting
 DownloadSource        DebridSource (prepare + poll with retry_after_s; per file GET /v1/releases/{hash}/files/{index}/download -> 302 -> CDN,
                       fresh link right before each file, never stored, the CDN call carries no Authorization) and TorrentSource (TorrentEngine
                       when a binding exists, else FailReason.TorrentUnavailable)
-HttpFileFetcher       one file: `.part` + HTTP Range resume + size check + atomic rename; only 200/206 with an audio-ish content type is written
+HttpFileFetcher       one file: `.part` + HTTP Range resume + size check + atomic rename; only 200/206 is written, and only with an accepted content type (`audio/<anything>`, `video/mp4`, `audio/mp4`, `application/mp4`; `application/octet-stream`, `binary/octet-stream` or no type only when the first bytes are a known audio container: ID3, MPEG/ADTS frame, `ftyp`, OggS, fLaC, RIFF/WAVE, Matroska, ASF); everything else is refused as `InvalidContent`
 StorageManager        usage, storage limit (default 5 GB) with LRU eviction of FINISHED books only (never the one playing, never active jobs),
                       auto-delete N days after finishing (off), orphan cleanup, repair of vanished files, wipe
 PathSafety            every server-provided path is untrusted: absolute paths, `..`, backslashes, control characters, drive letters are rejected

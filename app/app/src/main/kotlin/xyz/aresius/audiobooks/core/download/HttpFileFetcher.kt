@@ -41,8 +41,59 @@ class FetchFailure(val kind: Kind, message: String, cause: Throwable? = null) : 
 }
 
 /**
+ * What a download may be saved as. An explicit accept policy, not a deny-list: `audio/<anything>` and the MP4 family are accepted by their type;
+ * the generic binary types (`application/octet-stream`, `binary/octet-stream`, and an absent type) only when the first bytes are a known
+ * audio container; everything else (text, JSON, HTML, XML, images, archives, other video, ...) is refused.
+ */
+internal object AudioContent {
+    enum class Verdict { Accept, Sniff, Reject }
+
+    const val HEAD_BYTES = 16
+
+    private val ACCEPT = setOf("video/mp4", "audio/mp4", "application/mp4")
+    private val SNIFF = setOf("application/octet-stream", "binary/octet-stream", "")
+
+    fun classify(contentType: String): Verdict {
+        val type = contentType.substringBefore(';').trim().lowercase()
+        return when {
+            type.startsWith("audio/") && type.length > "audio/".length -> Verdict.Accept
+            type in ACCEPT -> Verdict.Accept
+            type in SNIFF -> Verdict.Sniff
+            else -> Verdict.Reject
+        }
+    }
+
+    /** ID3, an MPEG audio / ADTS frame, MP4 (`ftyp`), Ogg, FLAC, RIFF/WAVE, Matroska/WebM or ASF/WMA at the start of [h]. */
+    fun looksLikeAudio(h: ByteArray): Boolean {
+        fun at(offset: Int, text: String) = h.size >= offset + text.length && text.indices.all { h[offset + it] == text[it].code.toByte() }
+        fun u(i: Int) = if (i < h.size) h[i].toInt() and 0xFF else -1
+        return at(0, "ID3") ||
+            at(4, "ftyp") ||
+            at(0, "OggS") ||
+            at(0, "fLaC") ||
+            (at(0, "RIFF") && at(8, "WAVE")) ||
+            (u(0) == 0x1A && u(1) == 0x45 && u(2) == 0xDF && u(3) == 0xA3) ||
+            (h.size >= 8 && intArrayOf(0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11).withIndex().all { (i, v) -> u(i) == v }) ||
+            isMpegFrame(h)
+    }
+
+    /** Frame sync (11 bits set), a valid version and layer (MPEG audio) or layer 00 (ADTS), and a bitrate index that is not 1111. */
+    private fun isMpegFrame(h: ByteArray): Boolean {
+        if (h.size < 3) return false
+        val b1 = h[1].toInt() and 0xFF
+        val b2 = h[2].toInt() and 0xFF
+        if ((h[0].toInt() and 0xFF) != 0xFF || (b1 and 0xE0) != 0xE0) return false
+        val version = (b1 shr 3) and 0x3
+        val layer = (b1 shr 1) and 0x3
+        if (version == 1) return false
+        if (layer == 0) return true // ADTS (AAC): the layer bits are always 00
+        return (b2 shr 4) != 0xF
+    }
+}
+
+/**
  * Downloads ONE file with HTTP Range resume: bytes go to `<dest>.part`, which is renamed atomically to [dest] only when complete and
- * verified. Only a 200/206 with an audio-ish content type is ever written. [client] must not add credentials (it talks to a CDN).
+ * verified. Only a 200/206 whose content type passes [AudioContent] (and, for a generic binary type, whose first bytes are a known audio container) is ever written. [client] must not add credentials (it talks to a CDN).
  */
 class HttpFileFetcher(private val client: OkHttpClient) {
 
@@ -75,9 +126,19 @@ class HttpFileFetcher(private val client: OkHttpClient) {
                 code == 429 || code >= 500 -> throw FetchFailure(FetchFailure.Kind.Transient, "server answered $code")
                 code != 200 && code != 206 -> throw FetchFailure(FetchFailure.Kind.BadContent, "unexpected status $code")
             }
-            val type = r.header("Content-Type").orEmpty().lowercase()
-            if (type.startsWith("application/json") || type.startsWith("text/") || type.contains("html") || type.contains("xml")) {
-                throw FetchFailure(FetchFailure.Kind.BadContent, "not audio (content type $type)")
+            val type = r.header("Content-Type").orEmpty()
+            val needsSniff = when (AudioContent.classify(type)) {
+                AudioContent.Verdict.Accept -> false
+                AudioContent.Verdict.Sniff -> true
+                AudioContent.Verdict.Reject -> throw FetchFailure(FetchFailure.Kind.BadContent, "not audio (content type ${type.take(80)})")
+            }
+            // A generic binary type proves nothing: the first bytes must be a known audio container (before anything is written).
+            if (needsSniff) {
+                val head = if (offset > 0 && code == 206) readHead(part) else r.peekBody(AudioContent.HEAD_BYTES.toLong()).bytes()
+                if (!AudioContent.looksLikeAudio(head)) {
+                    if (offset > 0 && code == 206) part.delete()
+                    throw FetchFailure(FetchFailure.Kind.BadContent, "not audio (generic content type without an audio container)")
+                }
             }
             val resumed = code == 206
             if (resumed) {
@@ -101,6 +162,17 @@ class HttpFileFetcher(private val client: OkHttpClient) {
             if (expectedSize > 0 && total < expectedSize) throw FetchFailure(FetchFailure.Kind.Transient, "connection closed early")
             finish(part, dest, expectedSize).also { onProgress(it) }
         }
+    }
+
+    private fun readHead(file: File): ByteArray = file.inputStream().use { input ->
+        val buf = ByteArray(AudioContent.HEAD_BYTES)
+        var n = 0
+        while (n < buf.size) {
+            val r = input.read(buf, n, buf.size - n)
+            if (r < 0) break
+            n += r
+        }
+        buf.copyOf(n)
     }
 
     private suspend fun copy(call: Call, r: Response, part: File, append: Boolean, length: Long, offset: Long, onProgress: suspend (Long) -> Unit): Long =

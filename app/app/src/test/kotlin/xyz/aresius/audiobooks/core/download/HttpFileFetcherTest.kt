@@ -128,4 +128,103 @@ class HttpFileFetcherTest {
         assertContentEquals(data, dest.readBytes())
         assertEquals(0, server.requestCount, "nothing to fetch")
     }
+
+    // ---- accept policy: audio/*, the MP4 family, generic binary only with an audio container ----
+
+    private fun withHead(vararg head: Int): ByteArray = data.copyOf().also { head.forEachIndexed { i, b -> it[i] = b.toByte() } }
+    private fun ascii(text: String, at: Int = 0): ByteArray = data.copyOf().also { text.forEachIndexed { i, c -> it[at + i] = c.code.toByte() } }
+
+    private fun serve(type: String?, body: ByteArray) {
+        val r = MockResponse.Builder().code(200).body(Buffer().write(body))
+        if (type != null) r.addHeader("Content-Type", type)
+        server.enqueue(r.build())
+    }
+
+    private fun assertSaved(type: String?, body: ByteArray) {
+        dest.delete()
+        serve(type, body)
+        assertEquals(body.size.toLong(), fetch(expected = body.size.toLong()), "type=$type")
+        assertContentEquals(body, dest.readBytes())
+    }
+
+    private fun assertRefused(type: String?, body: ByteArray = data) {
+        serve(type, body)
+        assertEquals(FetchFailure.Kind.BadContent, assertFailsWith<FetchFailure> { fetch(expected = body.size.toLong()) }.kind, "type=$type")
+        assertFalse(dest.exists(), "type=$type")
+        assertFalse(part.exists(), "type=$type")
+    }
+
+    @Test fun audioTypesAndTheMp4FamilyAreAcceptedByTheirType() {
+        for (type in listOf("audio/mpeg", "audio/mp4", "audio/x-m4b", "audio/ogg", "AUDIO/MPEG; charset=binary", "video/mp4", "application/mp4")) assertSaved(type, data)
+    }
+
+    @Test fun everythingElseIsRefusedWhateverTheBody() {
+        for (type in listOf(
+            "text/plain", "text/html; charset=utf-8", "application/json", "application/xml", "application/pdf", "application/zip", "image/png", "image/jpeg",
+            "application/x-msdownload", "application/vnd.android.package-archive", "video/webm", "video/x-matroska", "multipart/form-data", "audio/", "foo",
+        )) assertRefused(type, withHead(0x49, 0x44, 0x33)) // even with an ID3 head
+    }
+
+    @Test fun aGenericBinaryTypeNeedsAKnownAudioContainer() {
+        val containers = mapOf(
+            "ID3" to withHead(0x49, 0x44, 0x33, 4, 0),
+            "MPEG layer III" to withHead(0xFF, 0xFB, 0x90, 0x44),
+            "MPEG layer II 2.5" to withHead(0xFF, 0xE3, 0x20, 0x00),
+            "ADTS" to withHead(0xFF, 0xF1, 0x50, 0x80),
+            "MP4" to ascii("ftypM4B ", at = 4),
+            "Ogg" to ascii("OggS"),
+            "FLAC" to ascii("fLaC"),
+            "WAVE" to ascii("RIFF").also { "WAVE".forEachIndexed { i, c -> it[8 + i] = c.code.toByte() } },
+            "Matroska" to withHead(0x1A, 0x45, 0xDF, 0xA3),
+            "ASF" to withHead(0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11),
+        )
+        for (type in listOf("application/octet-stream", "binary/octet-stream", "Application/Octet-Stream; x=y", null)) {
+            for ((name, body) in containers) {
+                dest.delete()
+                serve(type, body)
+                assertEquals(body.size.toLong(), fetch(expected = body.size.toLong()), "$name as $type")
+            }
+        }
+    }
+
+    @Test fun aGenericBinaryTypeWithoutAnAudioContainerIsRefused() {
+        val notAudio = mapOf(
+            "html" to "<!doctype html><html>".toByteArray().copyOf(data.size),
+            "json" to """{"state":"preparing"}""".toByteArray().copyOf(data.size),
+            "zip" to ascii("PK\u0003\u0004"),
+            "pe" to ascii("MZ"),
+            "pdf" to ascii("%PDF-1.7"),
+            "zeros" to ByteArray(data.size),
+            "bad mpeg bitrate" to withHead(0xFF, 0xFB, 0xF0, 0x00),
+            "reserved mpeg version" to withHead(0xFF, 0xEB, 0x90, 0x00),
+            "riff but not wave" to ascii("RIFF").also { "AVI ".forEachIndexed { i, c -> it[8 + i] = c.code.toByte() } },
+        )
+        for (type in listOf("application/octet-stream", "binary/octet-stream", null)) {
+            for ((name, body) in notAudio) assertRefused(type, body).also { assertTrue(true, name) }
+        }
+    }
+
+    @Test fun aResumedGenericBinaryFileIsCheckedAgainstTheHeadOfThePartFile() {
+        val have = 70_000L
+        val body = withHead(0x49, 0x44, 0x33, 4, 0)
+        part.parentFile!!.mkdirs()
+        part.writeBytes(body.copyOfRange(0, have.toInt()))
+        server.enqueue(
+            MockResponse.Builder().code(206).addHeader("Content-Type", "application/octet-stream")
+                .addHeader("Content-Range", "bytes $have-${body.size - 1}/${body.size}").body(Buffer().write(body.copyOfRange(have.toInt(), body.size))).build(),
+        )
+        assertEquals(body.size.toLong(), fetch(expected = body.size.toLong()))
+        assertContentEquals(body, dest.readBytes())
+
+        // a part file that does not start with an audio container is dropped, not completed
+        dest.delete()
+        part.writeBytes(ByteArray(have.toInt()))
+        server.enqueue(
+            MockResponse.Builder().code(206).addHeader("Content-Type", "application/octet-stream")
+                .addHeader("Content-Range", "bytes $have-${body.size - 1}/${body.size}").body(Buffer().write(body.copyOfRange(have.toInt(), body.size))).build(),
+        )
+        assertEquals(FetchFailure.Kind.BadContent, assertFailsWith<FetchFailure> { fetch(expected = body.size.toLong()) }.kind)
+        assertFalse(dest.exists())
+        assertFalse(part.exists())
+    }
 }
